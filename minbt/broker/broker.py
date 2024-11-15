@@ -146,3 +146,6 @@ class Broker:
     
     def get_positions(self, portfolio_id: str = 'default') -> Dict[str, Position]:
         return self.portfolios[portfolio_id].get_positions()
+    
+    def get_all_positions(self) -> Dict[str, Dict[str, Position]]:
+        return {portfolio_id: portfolio.get_positions() for portfolio_id, portfolio in self.portfolios.items()}

@@ -1,15 +1,17 @@
 import pandas as pd
 import polars as pl
 from typing import List, Dict, Union
+from collections import OrderedDict
 from .strategy import Strategy
 from .logger import logger as default_logger
 from tqdm import tqdm
 import time
 
 class Exchange:
+    
     def __init__(self, logger=None):
         self.data = None
-        self.strategies = []
+        self.strategies = OrderedDict()
         self.market_prices = {}
         self.logger = logger or default_logger
         self._is_polars_like = False
@@ -34,35 +36,44 @@ class Exchange:
             raise TypeError(f"data type not supported: {type(data)}. Expected types are: pd.DataFrame, pl.DataFrame, or list of dictionaries.")
     
     def add_strategy(self, strategy: Strategy) -> None:
-        assert hasattr(strategy, 'name'), 'strategy must have `name` attribute'
+        assert hasattr(strategy, 'strategy_id'), 'strategy must have `strategy_id` attribute'
         assert hasattr(strategy, 'on_init'), 'strategy must have `on_init` method'
         assert hasattr(strategy, 'on_data'), 'strategy must have `on_data` method'
-        assert hasattr(strategy, 'on_end'), 'strategy must have `on_end` method'
+        assert hasattr(strategy, 'on_finish'), 'strategy must have `on_finish` method'
         strategy.set_exchange(self)
-        self.strategies.append(strategy)
+        self.strategies[strategy.strategy_id] = strategy
+    
+    def remove_strategy(self, strategy_id: str) -> None:
+        self.strategies.pop(strategy_id)
         
     def run(self):
         self.logger.info('[start_parallel]', len(self.strategies))
         start_time = time.time()
-        for strategy in self.strategies:
+        for strategy in self.strategies.values():
             strategy.on_init()
         
+        step = 0
         if self._is_polars_like:
             for row in self.data.iter_rows(named=True):
-                for strategy in self.strategies:
+                for strategy in self.strategies.values():
                     self.market_prices[row['symbol']] = row['close']
+                    strategy.broker.on_new_price(row['symbol'], row['close'])
                     strategy.on_data(row)
+                step += 1
         else:
             for _, row in self.data.iterrows():
-                for strategy in self.strategies:
+                for strategy in self.strategies.values():
                     self.market_prices[row['symbol']] = row['close']
+                    strategy.broker.on_new_price(row['symbol'], row['close'])
                     strategy.on_data(row)
+                step += 1
 
-        for strategy in self.strategies:
-            strategy.on_end()
+        for strategy in self.strategies.values():
+            strategy.on_finish()
             
         total_time = time.time() - start_time
         self.logger.info('[all_complete]', total_time)
+        self.logger.info(f'{total_time/step:.2f}s/step')
     
     def get_market_price(self, symbol: str) -> float:
         return self.market_prices.get(symbol, None)

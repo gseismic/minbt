@@ -259,6 +259,7 @@ class Portfolio:
         if symbol not in self._positions:
             # self._positions[symbol] = Position(symbol=symbol, leverage=self.leverag)
             # leverage removed: 支持变杠杆
+            # print('create position', symbol)
             self._positions[symbol] = Position(symbol=symbol)
         return self._positions[symbol]
     

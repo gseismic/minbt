@@ -1,19 +1,3 @@
-# minbt
-
-minbt 是一个简易的量化交易框架[代码量小于1000行]
-
-## 主要特点
-- [x] 支持【逐仓】和【全仓】两种保证金模式
-- [x] 多空双向持仓
-- [x] 支持动态杠杆
-- [x] 支持市价单
-- [ ] 支持限价单
-- [ ] 支持止盈止损
-
-## 示例
-[demo_mini.py](./examples/demo_mini.py)
-```python
-# python examples/demo_mini.py
 from minbt import Exchange, Strategy, Broker
 from minbt.plot import get_figax
 import matplotlib.pyplot as plt
@@ -59,7 +43,3 @@ def run_strategy():
     
 if __name__ == '__main__':
     run_strategy()
-```
-
-## ChangeLog
-- [@2024-11-16] v0.0.3 release

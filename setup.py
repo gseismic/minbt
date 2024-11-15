@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='minbt', 
-    version='0.0.2', 
+    version='0.0.3', 
     packages=find_packages(),
     description='Minimalistic Backtesting Library',
     install_requires = ['numpy', 'pandas', 'polars', 'loguru'],
