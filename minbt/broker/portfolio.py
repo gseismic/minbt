@@ -1,0 +1,297 @@
+from typing import Dict, Literal, Optional, Tuple
+import numpy as np
+from collections import defaultdict
+from ..logger import logger as default_logger
+from .struct import Position, Cash
+
+class Portfolio:
+    
+    def __init__(self, 
+                 initial_cash: float,
+                 fee_rate: float,
+                 leverage: float = 1.0,
+                 margin_mode: Literal['cross', 'isolated'] = 'cross',
+                 warning_margin_level: float = 0.2,
+                 min_margin_level: float = 0.1 ,
+                 logger=None):
+        """
+        初始化Portfolio
+        
+        Args:
+            initial_cash: 初始现金, >0
+            fee_rate: 手续费率, 0-1
+            leverage: 杠杆倍数, >=1.0
+            margin_mode: 保证金模式, cross[全仓]或isolated[逐仓]
+            warning_margin_level: 警告保证金水平, 0-1
+            min_margin_level: 最小保证金水平, 0-1s
+        """
+        assert initial_cash > 0, f'initial_cash must be greater than 0, got {initial_cash}'
+        assert 0 <= fee_rate < 1, f'fee_rate must be between 0 and 1, got {fee_rate}'
+        assert leverage >= 1, f'leverage must be greater than or equal to 1, got {leverage}'
+        assert margin_mode in ['cross', 'isolated'], f'margin_mode must be either cross or isolated, got {margin_mode}'
+        assert 0 <= min_margin_level < 1, f'min_margin_level must be between 0 and 1, got {min_margin_level}'
+        assert 0 <= warning_margin_level < 1, f'warning_margin_level must be between 0 and 1, got {warning_margin_level}'
+        assert min_margin_level < warning_margin_level, f'min_margin_level must be less than warning_margin_level, got {min_margin_level=} and {warning_margin_level=}'
+        self.initial_cash = initial_cash
+        self.fee_rate = fee_rate
+        self.leverage = leverage
+        self.margin_mode = margin_mode
+        self.warning_margin_level = warning_margin_level
+        self.min_margin_level = min_margin_level
+        self.logger = logger or default_logger
+        self.reset()
+            
+    def reset(self):
+        self.last_prices = {}
+        self._bankrupt = False
+        self._current_cash = Cash(self.initial_cash, self.initial_cash)
+        # self._positions: Dict[str, Position] = defaultdict(lambda: Position(symbol=None, leverage=self.leverage))
+        self._positions: Dict[str, Position] = {}
+    
+    def mark_bankrupt(self) -> None:
+        self._bankrupt = True
+        self._positions.clear()
+        # for position in self._positions.values():
+        #     position.mark_bankrupt()
+        
+    def get_all_positions_total_margin(self) -> float:
+        return sum(position.margin for position in self._positions.values())
+    
+    def get_all_positions_total_equity(self) -> float:
+        return sum(position.equity for position in self._positions.values())
+
+    def get_portfolio_margin_level(self) -> float:
+        if self._bankrupt:
+            return -1.0
+        total_margin = self.get_all_positions_total_margin()
+        # 这里不是: self.get_portfolio_equity()
+        # 就是说：cash 不能算作保证金
+        equity = self.get_all_positions_total_equity()
+        # print(f'{self._bankrupt=}')
+        # for position in self._positions.values():
+        #     print(f'{position._bankrupt=}, {position.symbol=}, {position.margin=}, {position.equity=}')
+        # print(f'{total_margin=}, {equity=}')
+        if total_margin == 0:
+            if equity == 0:
+                return 1.0
+            else:
+                return 0.0
+        return equity / total_margin
+
+    def get_portfolio_equity(self) -> float:
+        return self.get_all_positions_total_equity() + self.total_cash
+    
+    def on_new_price(self, symbol: str, price: float) -> Tuple[bool, bool, float]:
+        """
+        更新价格，更新各仓位的未实现盈亏，并检查保证金水平
+        
+        Args:
+            symbol: 标的代码
+            price: 最新价格
+        
+        Returns:
+            bankrupt: 是否穿仓
+                当为逐仓模式时，指的是单个仓位穿仓，不会导致账户破产
+                当为全仓模式时，指的是账户穿仓，会导致账户破产
+            liquidated: 是否达到强平水平
+            margin_level: 保证金水平
+        """
+        if self._bankrupt:
+            return True, False, 0.0
+        
+        liquidated, bankrupt = False, False
+        self.last_prices[symbol] = price
+        margin_level = self._update_pnl_get_margin_level(symbol, price)
+        if margin_level < 0:
+            bankrupt, liquidated = True, True
+            self.logger.error(f'[{self.margin_mode}] {symbol} bankrupt, margin_level: {margin_level}')
+            if self.margin_mode == 'isolated':
+                position = self.get_position(symbol)
+                position.mark_bankrupt()
+                assert position.size == 0
+            else:
+                self.mark_bankrupt()
+        elif margin_level <= self.min_margin_level:
+            liquidated = True
+            if self.margin_mode == 'isolated':
+                self.logger.warning(f'[{self.margin_mode}] {symbol} reach liquidation, margin_level: {margin_level}')
+                self._pure_close_position(symbol) # price 已经在_update_pnl_get_margin_level更新过了
+                assert self.get_position(symbol).size == 0, f'{symbol} is not closed'
+            else:
+                self.logger.warning(f'[{self.margin_mode}] Reach liquidation, close all positions')
+                self._pure_close_all_positions()
+                assert self.get_all_positions_total_equity() == 0, f'All positions are not closed'
+        elif margin_level <= self.warning_margin_level:
+            self.logger.warning(f'[{self.margin_mode}] margin level is too low, margin_level: {margin_level}')
+
+        return bankrupt, liquidated, margin_level
+    
+    def _update_pnl_get_margin_level(self, symbol: str, last_price: float) -> float:
+        """
+        更新最小仓位收益并获取保证金水平
+        
+        Args:
+            symbol: 标的代码
+            last_price: 最新价格
+        
+        Returns:
+            margin_level: 保证金水平
+        """
+        position = self.get_position(symbol)
+        position.update_price_and_pnl(last_price)
+        if self.margin_mode == 'isolated':
+            margin_level = position.margin_level
+        else:
+            margin_level = self.get_portfolio_margin_level()
+        return margin_level
+
+    def submit_order(self, symbol: str, qty: float, price: float, leverage: Optional[float] = None) -> bool:
+        """提交订单
+        
+        依次进行:
+            1. 更新价格，检查【开仓前】的保证金水平，是否触发强制平仓
+                - 更新仓位pnl，value
+                - 如果【开仓前】保证金不足：
+                    - 如果保证金模式为逐仓，则平仓
+                    - 如果保证金模式为全仓，则全平
+            2. 计算【新开仓】所需要的保证金和手续费，检查是否充足
+                - 如果不足，则返回False
+                - 如果充足，则提交订单
+            3. 提交订单
+                - 更新仓位(更新保证金、更新pnl、更新value)
+                - 更新当前现金
+                - 更新历史记录(更新手续费等)
+        """
+        if self._bankrupt:
+            self.logger.error(f'Portfolio bankrupt, cannot submit order')
+            return False
+        
+        if leverage is None:
+            leverage = self.leverage
+        
+        # 更新价格，检查保证金水平，更新仓位pnl，value
+        bankrupt, liquidated, _ = self.on_new_price(symbol, price)
+        if bankrupt or liquidated:
+            return False
+
+        if qty == 0:
+            self.logger.warning(f'Submit order with qty=0, symbol: {symbol}, leverage: {leverage}, qty: {qty}, price: {price}')
+            return False
+
+        # 检查保证金是否充足
+        position = self.get_position(symbol)
+        required_margin = position.calculate_required_margin(price, qty, leverage)
+        required_fee = self.calculate_fee(symbol, leverage, qty, price)
+        if self.free_cash < required_margin + required_fee:
+            self.logger.error(
+                f"Insufficient free cash to open position({symbol}, qty={qty}, price={price}). "
+                f"Required margin: {required_margin}, fee: {required_fee}, total: {required_margin + required_fee}, Free cash: {self.free_cash}"
+            )
+            return False
+        
+        print(f'{required_margin=}, {required_fee=}')
+        # 提交订单
+        released_cash, realized_pnl = 0, 0
+        new_position_size = position.size + qty
+        order_type = np.sign(qty * position.size)
+        if order_type in [0, 1]:
+            # 新开仓或同方向开仓
+            self.logger.info(f'Submit order: open new position({symbol}, qty={qty}, price={price})')
+            released_margin, realized_pnl = position.commit_open_new(price, qty, leverage=leverage)
+        else:
+            if abs(qty) <= abs(position.size):
+                # 部分平仓
+                self.logger.info(f'Submit order: close partial position({symbol}, qty={qty}, price={price})')
+                released_margin, realized_pnl = position.commit_close_partial(price, qty)
+            else:
+                self.logger.info(f'Submit order: close all and open new position({symbol}, qty={qty}, price={price})')
+                # 全平仓
+                released_margin1, realized_pnl1 = position.commit_close_all(price)
+                # 新开仓
+                remaining_qty = qty + position.size
+                released_margin2, realized_pnl2 = position.commit_open_new(price, remaining_qty, leverage=leverage)
+                # sum up
+                released_margin = released_margin1 + released_margin2
+                realized_pnl = realized_pnl1 + realized_pnl2
+        
+        released_cash = released_margin + realized_pnl - required_fee
+        # XXX: 有一种可能，穿仓，free_cash为负，这里不考虑，直接在change_cash中报错
+        if not self._current_cash.can_change_cash(released_cash):
+            self.logger.error(f'Account bankruptcy due to extreme price movement')
+            raise ValueError('Account bankruptcy')
+        self._current_cash.change_cash(released_cash)
+        self.logger.debug(
+            f'Submit order: {symbol}, qty={qty}, price={price}, new_position_size={new_position_size}, '
+            f'released_cash={released_cash}, realized_pnl={realized_pnl}'
+        )
+        return True
+    
+    def close_position(self, symbol: str, last_price: Optional[float] = None) -> Position:
+        # 更新价格，检查保证金水平，更新仓位pnl，value
+        position = self.get_position(symbol)
+        return self.submit_order(symbol, position.size, price=last_price) # recursive nested
+        # bankrupt, liquidated, _ = self.on_new_price(symbol, price)
+        # if bankrupt or liquidated:
+        #     return False
+        # return self._close_position(symbol, last_price)
+    
+    def close_all_positions(self, last_prices: Optional[Dict[str, float]] = None) -> None:
+        for symbol in self._positions.keys():
+            if last_prices is None:
+                self.close_position(symbol)
+            else:
+                self.close_position(symbol, last_prices.get(symbol))
+
+    def _pure_close_position(self, symbol: str, last_price: Optional[float] = None) -> Position:
+        """
+        要求已经检查过保证金水平，不会穿仓
+        """
+        position = self.get_position(symbol)
+        released_margin, realized_pnl = position.commit_close_all(last_price)
+        released_cash = released_margin + realized_pnl
+        assert self._current_cash.can_change_cash(released_cash)
+        self._current_cash.change_cash(released_cash)
+        return position
+    
+    def _pure_close_all_positions(self, last_prices: Optional[Dict[str, float]] = None) -> None:
+        """
+        要求已经检查过保证金水平，不会穿仓
+        """
+        for symbol in self._positions.keys():
+            if last_prices is None:
+                self._pure_close_position(symbol)
+            else:
+                self._pure_close_position(symbol, last_prices.get(symbol))
+    
+    def get_position(self, symbol: str) -> Position:
+        if symbol not in self._positions:
+            self._positions[symbol] = Position(symbol=symbol, leverage=self.leverage)
+        return self._positions[symbol]
+    
+    def calculate_fee(self, symbol: str, leverage: float, qty: float, price: float) -> float:
+        """计算手续费"""
+        return abs(qty) * price * self.fee_rate
+    
+    @property
+    def cash(self) -> float:
+        return self._current_cash.total_cash
+    
+    @property
+    def free_cash(self) -> float:
+        return self._current_cash.free_cash
+    
+    @property
+    def locked_cash(self) -> float:
+        return self._current_cash.locked_cash
+    
+    @property
+    def total_cash(self) -> float:
+        return self._current_cash.total_cash
+    
+    @property
+    def positions(self) -> Dict[str, Position]:
+        return self._positions
+
+    @property
+    def bankrupt(self) -> bool:
+        return self._bankrupt
