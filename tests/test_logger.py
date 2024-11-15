@@ -28,15 +28,15 @@ def test_i18n_logger_messages():
 def test_logger_instance():
     # 测试全局logger实例
     assert logger.lang == 'en'
-    assert 'start_strategy' in logger.messages
-    assert 'strategy_complete' in logger.messages
+    assert '[start_strategy]' in logger.messages
+    assert '[strategy_complete]' in logger.messages
     
     # 测试语言切换
     logger.set_lang('zh')
-    assert logger.get_message('start_strategy', 'test') == '开始运行策略: test'
+    assert logger.get_message('[start_strategy]', 'test') == '开始运行策略: test'
     
     logger.set_lang('en')
-    assert logger.get_message('start_strategy', 'test') == 'Start running strategy: test'
+    assert logger.get_message('[start_strategy]', 'test') == 'Start running strategy: test'
 
 def test_create_logger():
     # 测试logger创建函数

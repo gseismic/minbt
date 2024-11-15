@@ -89,7 +89,7 @@ class Position:
     Note: 因为可能是全仓或逐仓，所以这里不管理liquidation_price
     """
     symbol: str # primary key
-    leverage: float # primary key
+    # leverage: float # primary key
     size: float = 0
     _cost_price: float = 0
     _margin: float = 0
@@ -205,6 +205,34 @@ class Position:
         # 更新价格和pnl
         self.update_price_and_pnl(price)
         return float(released_margin), float(realized_pnl)
+
+    def commit_order(self, price: float, qty: float, leverage: float):
+        order_type = np.sign(qty * self.size)
+        released_margin, realized_pnl = 0, 0
+        exec_type = None
+        if order_type in [0, 1]:
+            # 新开仓或同方向开仓
+            exec_type = 'open_new'
+            released_margin, realized_pnl = self.commit_open_new(price, qty, leverage=leverage)
+        else:
+            if abs(qty) <= abs(self.size):
+                # 部分平仓
+                exec_type = 'close_partial'
+                released_margin, realized_pnl = self.commit_close_partial(price, qty)
+            else:
+                exec_type = 'close_new'
+                # 全平仓
+                old_size = self.size
+                released_margin1, realized_pnl1 = self.commit_close_all(price)
+                # 新开仓
+                # remaining_qty = qty + self.size
+                remaining_qty = qty + old_size # qty, old_size 符号相反
+                released_margin2, realized_pnl2 = self.commit_open_new(price, remaining_qty, leverage=leverage)
+                # sum up
+                released_margin = released_margin1 + released_margin2
+                realized_pnl = realized_pnl1 + realized_pnl2
+        return exec_type, released_margin, realized_pnl
+
     
     def commit_close_all(self, last_price: Optional[float] = None) -> tuple[float, float]:
         if last_price is None:
@@ -262,40 +290,18 @@ class Position:
         """返回保证金"""
         return self._margin
     
-    @property
-    def leverage_ratio(self) -> float:
-        """返回实际杠杆率"""
+    # @property
+    def current_leverage(self) -> float:
+        """返回当前实际杠杆率"""
         if self._margin == 0:
             return 0
         return abs(self.size * self._last_price) / self._margin
-        # return abs(self.size * (self._last_price or self._cost_price)) / self._margin
     
     def __repr__(self) -> str:
         return (
             f"Position(symbol={self.symbol}, size={self.size}, "
-            f"leverage={self.leverage}, cost_price={self._cost_price}, "
+            f"cost_price={self._cost_price}, "
             f"margin={self._margin}, unrealized_pnl={self._unrealized_pnl}, "
             f"equity={self._equity}, side={self.side}, last_price={self._last_price}, "
-            f"margin_level={self.margin_level}, leverage_ratio={self.leverage_ratio}, "
-            f"last_price={self._last_price})"
+            f"margin_level={self.margin_level}, leverage={self.current_leverage()})"
         )
-
-class Order:
-    
-    def __init__(self, symbol: str, leverage: float, price: float, qty: float):
-        assert leverage > 0, f"Leverage must be positive: {leverage}"
-        assert price > 0, f"Price must be positive: {price}"
-        assert symbol, "Symbol cannot be empty"
-        
-        self.symbol = symbol
-        self.leverage = leverage
-        self.price = price
-        self.qty = qty
-        self.last_price = None
-        self.fee = 0
-        
-    def __repr__(self) -> str:
-        return (
-            f"Order(symbol={self.symbol}, leverage={self.leverage}, "
-                f"price={self.price}, qty={self.qty}, fee={self.fee}, "
-                f"last_price={self.last_price})")

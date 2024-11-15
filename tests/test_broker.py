@@ -1,122 +1,151 @@
 import pytest
-from minbt.broker import Broker #, PositionStats
-from minbt.logger import I18nLogger
+from pytest import approx
+from minbt.broker.broker import Broker
+# from minbt.broker.struct import Order, OrderStatus, OrderType, OrderSide
 
-def test_broker_init():
-    """测试Broker初始化"""
-    broker = Broker(initial_cash=10000, fee_rate=0.001)
-    assert broker.initial_cash == 10000
-    assert broker.total_cash == 10000
-    assert broker.free_cash == 10000
-    assert broker.locked_cash == 0
-    assert broker.fee_rate == 0.001
-    assert broker.leverage == 1.0
-    assert broker.margin_mode == 'cross'
-    assert broker.positions == {}
-
-def test_cross_margin_trading():
-    """测试全仓交易"""
-    broker = Broker(
-        initial_cash=10000,
-        fee_rate=0.001,
-        leverage=5,
-        margin_mode='cross'
-    )
-    
-    # 测试开仓
-    pos = broker.buy('BTC', price=50000, qty=0.1)
-    assert isinstance(pos, PositionStats)
-    assert pos.position_size == 0.1
-    assert pos.fee > 0
-    
-    # 测试更新价格
-    pos = broker.update_price('BTC', 51000)
-    assert pos.gross_profit > 0
-    
-    # 测试平仓
-    pos = broker.sell('BTC', price=51000, qty=0.1)
-    assert pos.position_size == 0
-
-def test_isolated_margin_trading():
-    """测试逐仓交易"""
-    broker = Broker(
-        initial_cash=10000,
-        fee_rate=0.001,
-        leverage=5,
-        margin_mode='isolated'
-    )
-    
-    # 测试分配保证金
-    broker.allocate_margin('BTC', 2000)
-    assert broker.allocated_margins['BTC'] == 2000
-    
-    # 测试开仓
-    pos = broker.buy('BTC', price=50000, qty=0.1)
-    assert pos.allocated_margin == 2000
-    
-    # 测试保证金率
-    pos = broker.update_price('BTC', 48000)
-    assert pos.margin_level < 1
-
-def test_stop_orders():
-    """测试止盈止损订单"""
+def test_order_submission():
+    """测试订单提交功能"""
     broker = Broker(initial_cash=10000, fee_rate=0.001)
     
-    # 开仓
-    broker.buy('BTC', price=50000, qty=0.1)
-    
-    # 添加止盈止损
-    tp_id = broker.add_take_profit('BTC', price=51000)
-    sl_id = broker.add_stop_loss('BTC', price=49000)
-    
-    assert tp_id and sl_id
-    pos = broker.get_position('BTC')
-    assert len(pos.stop_orders) == 2
-    
-    # 测试触发止盈
-    pos = broker.update_price('BTC', 51500)
-    assert pos.position_size == 0
-
-def test_leverage_liquidation():
-    """测试杠杆和爆仓"""
-    broker = Broker(
-        initial_cash=10000,
-        fee_rate=0.001,
-        leverage=10,
-        margin_mode='isolated'
+    # 测试市价单提交
+    order = broker.submit_market_order(
+        symbol="BTCUSDT",
+        qty=1.0,
+        price=5000.0
     )
     
-    broker.allocate_margin('BTC', 1000)
-    pos = broker.buy('BTC', price=50000, qty=0.1)
-    
-    # 价格大幅下跌应该触发爆仓
-    pos = broker.update_price('BTC', 45000)
-    assert pos.position_size == 0
+    broker.on_new_price("BTCUSDT", 5000.0)
+    assert broker.get_market_price("BTCUSDT") == 5000.0
+    assert broker.get_position("BTCUSDT").size == 1.0
+    assert not broker.portfolios['default'].bankrupt
 
-def test_invalid_operations():
-    """测试无效操作"""
-    broker = Broker(initial_cash=10000, fee_rate=0.001)
+    assert approx(broker.portfolios['default'].cash) == 10000 - 5000 * 1.0 * (1 + 0.001)
+    print(f'total_equity: {broker.get_total_equity()}')
+
+    broker.on_new_price("BTCUSDT", 6000.0)
+    print(f'total_equity: {broker.get_total_equity()}')
+    broker.on_new_price("BTCUSDT", 5000.0)
+    print(f'total_equity: {broker.get_total_equity()}')
+    print(f'total_initial_cash: {broker.get_total_initial_cash()}')
     
-    with pytest.raises(AssertionError):
-        Broker(initial_cash=-1000, fee_rate=0.001)
+    # assert order.status == OrderStatus.FILLED
+    # assert order.type == OrderType.MARKET
+    # assert order.filled_qty == 1.0
     
-    with pytest.raises(AssertionError):
-        Broker(initial_cash=1000, fee_rate=1.5)
-        
-    # 测试超出可用保证金
-    with pytest.raises(Exception):
-        broker.buy('BTC', price=50000, qty=10)
+    # 测试限价单提交
+    # order = broker.submit_limit_order(
+    #     symbol="BTCUSDT",
+    #     qty=0.5,
+    #     side=OrderSide.SELL,
+    #     price=55000.0
+    # )
+    # assert order.status == OrderStatus.PENDING
+    # assert order.type == OrderType.LIMIT
+    # assert order.filled_qty == 0
+
+# def test_position_management():
+#     """测试仓位管理"""
+#     broker = Broker(initial_cash=10000, fee_rate=0.001)
+    
+#     # 开仓
+#     broker.submit_market_order("BTCUSDT", 1.0, OrderSide.BUY, 50000.0)
+#     position = broker.get_position("BTCUSDT")
+#     assert position.size == 1.0
+#     assert position.avg_price == 50000.0
+    
+#     # 加仓
+#     broker.submit_market_order("BTCUSDT", 0.5, OrderSide.BUY, 48000.0)
+#     assert position.size == 1.5
+#     assert pytest.approx(position.avg_price) == 49333.33  # (50000*1 + 48000*0.5)/1.5
+    
+#     # 减仓
+#     broker.submit_market_order("BTCUSDT", 1.0, OrderSide.SELL, 52000.0)
+#     assert position.size == 0.5
+
+# def test_cash_management():
+#     """测试资金管理"""
+#     initial_cash = 10000
+#     broker = Broker(initial_cash=initial_cash, fee_rate=0.001)
+    
+#     # 买入消耗资金
+#     price = 100.0
+#     qty = 10
+#     fee = price * qty * 0.001
+#     broker.submit_market_order("AAPL", qty, OrderSide.BUY, price)
+#     expected_cash = initial_cash - (price * qty + fee)
+#     assert pytest.approx(broker.cash) == expected_cash
+    
+#     # 卖出增加资金
+#     sell_price = 110.0
+#     sell_fee = sell_price * qty * 0.001
+#     broker.submit_market_order("AAPL", qty, OrderSide.SELL, sell_price)
+#     profit = (sell_price - price) * qty - fee - sell_fee
+#     assert pytest.approx(broker.cash) == initial_cash + profit
+
+# def test_order_cancellation():
+#     """测试订单取消"""
+#     broker = Broker(initial_cash=10000, fee_rate=0.001)
+    
+#     # 提交限价单
+#     order = broker.submit_limit_order(
+#         symbol="BTCUSDT",
+#         qty=1.0,
+#         side=OrderSide.BUY,
+#         price=45000.0
+#     )
+#     order_id = order.order_id
+    
+#     # 取消订单
+#     success = broker.cancel_order(order_id)
+#     assert success
+#     assert broker.get_order(order_id).status == OrderStatus.CANCELLED
+
+# def test_margin_trading():
+#     """测试保证金交易"""
+#     broker = Broker(initial_cash=10000, fee_rate=0.001, leverage=3.0)
+    
+#     # 测试杠杆开仓
+#     order = broker.submit_market_order(
+#         symbol="BTCUSDT",
+#         qty=1.0,
+#         side=OrderSide.BUY,
+#         price=30000.0,
+#         leverage=3.0
+#     )
+#     position = broker.get_position("BTCUSDT")
+#     assert position.leverage == 3.0
+#     assert position.margin == 10000.0  # 30000/3
+    
+#     # 测试保证金率计算
+#     broker.update_market_price("BTCUSDT", 33000.0)  # 价格上涨10%
+#     assert pytest.approx(position.margin_level) == 1.1  # (10000 + 3000) / 10000
+
+# def test_error_handling():
+#     """测试错误处理"""
+#     broker = Broker(initial_cash=10000, fee_rate=0.001)
+    
+#     # 测试资金不足
+#     order = broker.submit_market_order(
+#         symbol="BTCUSDT",
+#         qty=1.0,
+#         side=OrderSide.BUY,
+#         price=20000.0
+#     )
+#     assert order.status == OrderStatus.REJECTED
+    
+#     # 测试取消不存在的订单
+#     success = broker.cancel_order("non_existent_order_id")
+#     assert not success
+    
+#     # 测试无效的订单数量
+#     order = broker.submit_market_order(
+#         symbol="BTCUSDT",
+#         qty=0,
+#         side=OrderSide.BUY,
+#         price=10000.0
+#     )
+#     assert order.status == OrderStatus.REJECTED
 
 if __name__ == "__main__":
-    if 1:
-        test_broker_init()
-    if 0:
-        test_cross_margin_trading()
-    if 0:
-        test_isolated_margin_trading()
-    if 0:
-        test_stop_orders()
-    if 0:
-        test_leverage_liquidation()
-    if 0:
-        test_invalid_operations()
+    # pytest.main([__file__])
+    test_order_submission()

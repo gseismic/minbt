@@ -1,6 +1,6 @@
-from collections import defaultdict
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict
 from .portfolio import Portfolio
+from .struct import Position
 
 class Monitor:
     def __init__(self):
@@ -48,6 +48,7 @@ class Broker:
         self.add_portfolio(portfolio_id='default', initial_cash=initial_cash)
     
     def add_portfolio(self, portfolio_id: str, initial_cash: float) -> None:
+        # 不占用 self.initial_cash的资金
         self.portfolios[portfolio_id] = Portfolio(
             initial_cash, 
             fee_rate=self.fee_rate, 
@@ -66,10 +67,13 @@ class Broker:
         for portfolio in self.portfolios.values():
             portfolio.on_new_price(symbol, price)
     
-    def market_buy(self, 
+    def get_market_price(self, symbol: str) -> float:
+        return self.last_prices.get(symbol, None)
+    
+    def submit_market_order(self, 
                    symbol: str, 
                    qty: float, 
-                   market_price: Optional[float] = None, 
+                   price: Optional[float] = None, 
                    leverage: Optional[float] = None, 
                    portfolio_id: str = 'default'):
         """
@@ -79,25 +83,15 @@ class Broker:
         1. 如果market_price为None，则使用last_prices中的价格
         2. 否则，使用传入的价格，并更新last_prices
         """
-        if market_price is None:
-            market_price = self.last_prices[symbol]
+        if price is None:
+            price = self.get_market_price(symbol)
         else:
-            self.on_new_price(symbol, market_price)
-        return self.portfolios[portfolio_id].submit_order(symbol, qty, price=market_price, leverage=leverage)
+            self.on_new_price(symbol, price)
+        if portfolio_id not in self.portfolios:
+            raise ValueError(f"portfolio_id not found: {portfolio_id}")
+        return self.portfolios[portfolio_id].submit_order(symbol, qty, price=price, leverage=leverage)
     
-    def market_sell(self, 
-                   symbol: str, 
-                   qty: float, 
-                   market_price: Optional[float] = None, 
-                   leverage: Optional[float] = None, 
-                   portfolio_id: str = 'default'):
-        if market_price is None:
-            market_price = self.last_prices[symbol]
-        else:
-            self.on_new_price(symbol, market_price)
-        return self.portfolios[portfolio_id].submit_order(symbol, qty, price=market_price, leverage=leverage)
-    
-    def limit_buy(self, 
+    def submit_limit_order(self, 
                   symbol: str, 
                   qty: float, 
                   price: float, 
@@ -105,29 +99,15 @@ class Broker:
                   sl_price: Optional[float] = None, 
                   leverage: Optional[float] = None, 
                   portfolio_id: str = 'default'):
-        raise NotImplementedError
-        return self.portfolios[portfolio_id].limit_buy(symbol, qty, price, tp_price, sl_price, leverage)
-    
-    def limit_sell(self, 
-                   symbol: str, 
-                   qty: float, 
-                   price: float, 
-                   tp_price: Optional[float] = None, 
-                   sl_price: Optional[float] = None, 
-                   leverage: Optional[float] = None, 
-                   portfolio_id: str = 'default'):
-        """
-        下限价卖出单
-        
-        要求使用本函数前，先更新价格
-        """
-        raise NotImplementedError
-        return self.portfolios[portfolio_id].limit_sell(symbol, qty, price, tp_price, sl_price, leverage)
-    
+        raise NotImplementedError()
+
     def cancel_order(self, symbol: str, order_id: str, portfolio_id: str = 'default'):
-        return self.portfolios[portfolio_id].cancel_order(symbol, order_id)
+        # if portfolio_id not in self.portfolios:
+        #     raise ValueError(f"portfolio_id not found: {portfolio_id}")
+        # return self.portfolios[portfolio_id].cancel_order(symbol, order_id)
+        raise NotImplementedError()
     
-    def stop_buy(self,
+    def submit_stop_order(self,
                  symbol: str,
                  qty: float,
                  stop_price: float,
@@ -139,29 +119,9 @@ class Broker:
         下止损买入单(Stop Buy)
         当价格上涨超过stop_price时触发市价买入
         """
-        raise NotImplementedError
-        return self.portfolios[portfolio_id].stop_buy(
-            symbol, qty, stop_price, tp_price, sl_price, leverage
-        )
+        raise NotImplementedError()
 
-    def stop_sell(self,
-                  symbol: str,
-                  qty: float,
-                  stop_price: float,
-                  tp_price: Optional[float] = None,
-                  sl_price: Optional[float] = None,
-                  leverage: Optional[float] = None,
-                  portfolio_id: str = 'default'):
-        """
-        下止损卖出单(Stop Sell)
-        当价格下跌低于stop_price时触发市价卖出
-        """
-        raise NotImplementedError
-        return self.portfolios[portfolio_id].stop_sell(
-            symbol, qty, stop_price, tp_price, sl_price, leverage
-        )
-
-    def trailing_stop_buy(self,
+    def submit_trailing_stop_order(self,
                          symbol: str,
                          qty: float,
                          stop_distance: float,
@@ -173,24 +133,16 @@ class Broker:
         下追踪止损买入单
         stop_distance: 追踪止损距离，价格与最低点的距离超过此值时触发买入
         """
-        raise NotImplementedError
-        return self.portfolios[portfolio_id].trailing_stop_buy(
-            symbol, qty, stop_distance, tp_price, sl_price, leverage
-        )
+        raise NotImplementedError()
 
-    def trailing_stop_sell(self,
-                          symbol: str,
-                          qty: float, 
-                          stop_distance: float,
-                          tp_price: Optional[float] = None,
-                          sl_price: Optional[float] = None,
-                          leverage: Optional[float] = None,
-                          portfolio_id: str = 'default'):
-        """
-        下追踪止损卖出单
-        stop_distance: 追踪止损距离，价格与最高点的距离超过此值时触发卖出
-        """
-        raise NotImplementedError
-        return self.portfolios[portfolio_id].trailing_stop_sell(
-            symbol, qty, stop_distance, tp_price, sl_price, leverage
-        )
+    def get_total_equity(self) -> float:
+        return sum(portfolio.get_portfolio_equity() for portfolio in self.portfolios.values())
+    
+    def get_total_initial_cash(self) -> float:
+        return sum(portfolio.initial_cash for portfolio in self.portfolios.values())
+    
+    def get_position(self, symbol: str, portfolio_id: str = 'default') -> Position:
+        return self.portfolios[portfolio_id].get_position(symbol)
+    
+    def get_positions(self, portfolio_id: str = 'default') -> Dict[str, Position]:
+        return self.portfolios[portfolio_id].get_positions()

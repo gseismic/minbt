@@ -1,7 +1,6 @@
 import pandas as pd
 import polars as pl
 from typing import List, Dict, Union
-from multiprocessing import Pool
 from .strategy import Strategy
 from .logger import logger as default_logger
 from tqdm import tqdm
@@ -13,7 +12,7 @@ class Exchange:
         self.strategies = []
         self.market_prices = {}
         self.logger = logger or default_logger
-        self._is_polars = False
+        self._is_polars_like = False
     
     def set_data(self, data: Union[pd.DataFrame, pl.DataFrame, List[Dict]]):
         """设置数据,支持Pandas DataFrame、Polars DataFrame或字典列表
@@ -21,16 +20,16 @@ class Exchange:
         Args:
             data: 可以是pandas.DataFrame、polars.DataFrame或list[dict]格式
         """
-        if isinstance(data, pl.DataFrame):
+        if isinstance(data, pl.DataFrame) or hasattr(data, 'iter_rows'):
             self.data = data
-            self._is_polars = True
-        elif isinstance(data, pd.DataFrame):
+            self._is_polars_like = True
+        elif isinstance(data, pd.DataFrame) or hasattr(data, 'iterrows'):
             self.data = data
-            self._is_polars = False
+            self._is_polars_like = False
         elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
             # 将字典列表转换为Polars DataFrame
             self.data = pl.DataFrame(data)
-            self._is_polars = True
+            self._is_polars_like = True
         else:
             raise TypeError(f"data type not supported: {type(data)}. Expected types are: pd.DataFrame, pl.DataFrame, or list of dictionaries.")
     
@@ -48,7 +47,7 @@ class Exchange:
         for strategy in self.strategies:
             strategy.on_init()
         
-        if self._is_polars:
+        if self._is_polars_like:
             for row in self.data.iter_rows(named=True):
                 for strategy in self.strategies:
                     self.market_prices[row['symbol']] = row['close']

@@ -22,12 +22,12 @@ class Strategy:
         pass
     
     def market_buy(self, symbol: str, qty: float):
-        market_price = self.exchange.get_price(symbol)
-        return self.broker.market_buy(symbol, qty, market_price=market_price)
+        price = self.exchange.get_price(symbol)
+        return self.broker.market_buy(symbol, qty, price=price)
     
     def market_sell(self, symbol: str, qty: float):
-        market_price = self.exchange.get_price(symbol)
-        return self.broker.market_sell(symbol, qty, market_price=market_price)
+        price = self.exchange.get_price(symbol)
+        return self.broker.market_sell(symbol, qty, price=price)
     
     def buy(self, symbol: str, price: float, qty: float):
         return self.broker.buy(symbol, price, qty)

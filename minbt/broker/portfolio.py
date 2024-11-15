@@ -1,4 +1,5 @@
 from typing import Dict, Literal, Optional, Tuple
+import copy
 import numpy as np
 from collections import defaultdict
 from ..logger import logger as default_logger
@@ -59,6 +60,9 @@ class Portfolio:
     
     def get_all_positions_total_equity(self) -> float:
         return sum(position.equity for position in self._positions.values())
+    
+    # def get_total_position_value(self) -> float:
+    #     return sum(position.value for position in self._positions.values())
 
     def get_portfolio_margin_level(self) -> float:
         if self._bankrupt:
@@ -148,6 +152,12 @@ class Portfolio:
     def submit_order(self, symbol: str, qty: float, price: float, leverage: Optional[float] = None) -> bool:
         """提交订单
         
+        Args:
+            symbol: 标的代码
+            qty: 数量，可正可负
+            price: 价格
+            leverage: 杠杆倍数，如果为None，使用默认杠杆
+        
         依次进行:
             1. 更新价格，检查【开仓前】的保证金水平，是否触发强制平仓
                 - 更新仓位pnl，value
@@ -180,46 +190,28 @@ class Portfolio:
 
         # 检查保证金是否充足
         position = self.get_position(symbol)
-        required_margin = position.calculate_required_margin(price, qty, leverage)
         required_fee = self.calculate_fee(symbol, leverage, qty, price)
-        if self.free_cash < required_margin + required_fee:
+        
+        fake_positon = copy.deepcopy(position)
+        exec_type, fake_released_margin, fake_realized_pnl = fake_positon.commit_order(price, qty=qty, leverage=leverage)
+        fake_released_cash = fake_released_margin + fake_realized_pnl - required_fee # 将释放的free_cash
+        should_remaining_cash = self.free_cash + fake_released_cash # 额外需要的free_cash
+        if should_remaining_cash < 0:
             self.logger.error(
                 f"Insufficient free cash to open position({symbol}, qty={qty}, price={price}). "
-                f"Required margin: {required_margin}, fee: {required_fee}, total: {required_margin + required_fee}, Free cash: {self.free_cash}"
+                f"Required free cash: {-fake_released_cash}, Free cash: {self.free_cash}"
             )
             return False
         
-        print(f'{required_margin=}, {required_fee=}')
         # 提交订单
-        released_cash, realized_pnl = 0, 0
         new_position_size = position.size + qty
-        order_type = np.sign(qty * position.size)
-        if order_type in [0, 1]:
-            # 新开仓或同方向开仓
-            self.logger.info(f'Submit order: open new position({symbol}, qty={qty}, price={price})')
-            released_margin, realized_pnl = position.commit_open_new(price, qty, leverage=leverage)
-        else:
-            if abs(qty) <= abs(position.size):
-                # 部分平仓
-                self.logger.info(f'Submit order: close partial position({symbol}, qty={qty}, price={price})')
-                released_margin, realized_pnl = position.commit_close_partial(price, qty)
-            else:
-                self.logger.info(f'Submit order: close all and open new position({symbol}, qty={qty}, price={price})')
-                # 全平仓
-                released_margin1, realized_pnl1 = position.commit_close_all(price)
-                # 新开仓
-                remaining_qty = qty + position.size
-                released_margin2, realized_pnl2 = position.commit_open_new(price, remaining_qty, leverage=leverage)
-                # sum up
-                released_margin = released_margin1 + released_margin2
-                realized_pnl = realized_pnl1 + realized_pnl2
-        
+        exec_type, released_margin, realized_pnl = position.commit_order(price, qty=qty, leverage=leverage)
+        self.logger.info(f'Submit order: {symbol}, qty={qty}, price={price}, exec_type={exec_type}, fee={required_fee}')
         released_cash = released_margin + realized_pnl - required_fee
-        # XXX: 有一种可能，穿仓，free_cash为负，这里不考虑，直接在change_cash中报错
-        if not self._current_cash.can_change_cash(released_cash):
-            self.logger.error(f'Account bankruptcy due to extreme price movement')
-            raise ValueError('Account bankruptcy')
+        
+        # 前面已经考虑穿仓了，这里不会报错
         self._current_cash.change_cash(released_cash)
+        
         self.logger.debug(
             f'Submit order: {symbol}, qty={qty}, price={price}, new_position_size={new_position_size}, '
             f'released_cash={released_cash}, realized_pnl={realized_pnl}'
@@ -265,8 +257,13 @@ class Portfolio:
     
     def get_position(self, symbol: str) -> Position:
         if symbol not in self._positions:
-            self._positions[symbol] = Position(symbol=symbol, leverage=self.leverage)
+            # self._positions[symbol] = Position(symbol=symbol, leverage=self.leverag)
+            # leverage removed: 支持变杠杆
+            self._positions[symbol] = Position(symbol=symbol)
         return self._positions[symbol]
+    
+    def get_positions(self) -> Dict[str, Position]:
+        return self._positions
     
     def calculate_fee(self, symbol: str, leverage: float, qty: float, price: float) -> float:
         """计算手续费"""

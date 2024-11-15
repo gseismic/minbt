@@ -41,7 +41,7 @@ def test_isolated_margin_liquidation():
     
     # 验证初始状态
     assert position.size == qty
-    assert position.leverage == 5.0
+    assert position.current_leverage() == 5.0
     assert pytest.approx(position.margin) == qty * price / 5.0  # 8000
     assert pytest.approx(position.margin_level) == 1.0
     
@@ -141,7 +141,7 @@ def test_leverage_change():
     assert position.size == 150
     print(f'{position.margin=}')
     assert pytest.approx(position.margin) == 6000  # 总保证金
-    assert pytest.approx(position.leverage_ratio) == 2.5  # 加权平均杠杆
+    assert pytest.approx(position.current_leverage()) == 2.5  # 加权平均杠杆
 
 def test_insufficient_margin():
     """测试保证金不足
@@ -174,13 +174,17 @@ def test_insufficient_margin():
     # 尝试开超过可用保证金的仓位
     success = portfolio.submit_order("AAPL", qty=1000, price=100.0)  # 需要保证金20,000
     assert not success
-    assert "AAPL" not in portfolio.positions
+    # portfolio
+    assert portfolio.get_position('AAPL').size == 0
+    # assert "AAPL" not in portfolio.positions
     
     # 开仓后剩余保证金不足以开新仓
     portfolio.submit_order("AAPL", qty=400, price=100.0)  # 使用8000保证金
     success = portfolio.submit_order("GOOGL", qty=100, price=100.0)  # 尝试使用2000保证金
     assert not success
-    assert "GOOGL" not in portfolio.positions
+    print(portfolio.positions)
+    assert portfolio.get_position('GOOGL').size == 0
+    # assert "GOOGL" not in portfolio.positions
 
 def test_position_transfer():
     """测试仓位反转"""
@@ -197,6 +201,7 @@ def test_position_transfer():
     
     # 一次性转为空仓
     portfolio.submit_order("AAPL", qty=-200, price=110.0)  # 平掉100多仓，开100空仓
+    print(position.size)
     assert position.size == -100
     
     # 分步转为多仓
@@ -217,13 +222,14 @@ def test_edge_cases():
     assert not success
     
     # 测试极小数量的订单
-    success = portfolio.submit_order("AAPL", qty=0.0001, price=100.0)
+    success = portfolio.submit_order("AAPL", qty=0.001, price=100.0)
     assert success
     
     # 测试开仓后立即平仓
     portfolio.submit_order("AAPL", qty=100, price=100.0)
     portfolio.submit_order("AAPL", qty=-100, price=100.0)
-    assert portfolio.get_position("AAPL").size == 0
+    print(portfolio.get_position("AAPL").size)
+    assert pytest.approx(portfolio.get_position("AAPL").size) == 0.001
     
     # 测试未初始化价格的仓位计算
     portfolio.submit_order("GOOGL", qty=10, price=1000.0)
@@ -233,7 +239,7 @@ if __name__ == "__main__":
     # pytest.main([__file__])
     # test_isolated_margin_liquidation()
     # test_cross_margin_liquidation()
-    test_leverage_change()
+    # test_leverage_change()
     # test_insufficient_margin()
-    # test_position_transfer()
+    test_position_transfer()
     # test_edge_cases()

@@ -47,7 +47,7 @@ def test_portfolio_margin_and_leverage():
     
     position = portfolio.get_position("AAPL")
     assert position.size == 20
-    assert position.leverage == 2.0
+    assert position.current_leverage() == 2.0
     
     # 验证保证金
     position_value = 20 * 150.0
