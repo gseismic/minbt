@@ -286,6 +286,27 @@ class Portfolio:
     def get_position_sizes(self) -> Dict[str, float]:
         return {symbol: self.get_position_size(symbol) for symbol in self._positions.keys()}
     
+    def get_total_cash(self) -> float:
+        return self._current_cash.total_cash
+    
+    def get_cash(self, include_locked: bool = False) -> float:
+        if include_locked:
+            return self.total_cash
+        else:
+            return self.free_cash
+    
+    def get_free_cash(self) -> float:
+        return self._current_cash.free_cash
+    
+    def get_locked_cash(self) -> float:
+        return self._current_cash.locked_cash
+    
+    def get_equity(self) -> float:
+        return self.get_portfolio_equity()
+    
+    def get_position_equity(self, symbol: str) -> float:
+        return self.get_position(symbol).equity
+    
     def calculate_fee(self, symbol: str, leverage: float, qty: float, price: float) -> float:
         """计算手续费"""
         return abs(qty) * price * self.fee_rate

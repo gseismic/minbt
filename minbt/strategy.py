@@ -69,12 +69,13 @@ class Strategy:
             'positions': self.broker.get_positions(portfolio_id)
         }
     
-    def market_buy(self, symbol: str, qty: float):
-        assert qty > 0
-        return self.broker.submit_market_order(symbol, qty=qty)
+    def market_buy(self, symbol: str, qty: float, portfolio_id: str = 'default'):
+        assert qty > 0, f'qty must be positive, got {qty}'
+        return self.broker.submit_market_order(symbol, qty=qty, portfolio_id=portfolio_id)
     
-    def market_sell(self, symbol: str, qty: float):
-        return self.broker.market_sell(symbol, qty=qty)
+    def market_sell(self, symbol: str, qty: float, portfolio_id: str = 'default'):
+        assert qty > 0, f'qty must be positive, got {qty}'
+        return self.broker.submit_market_order(symbol, qty=-qty, portfolio_id=portfolio_id)
     
     # def buy(self, symbol: str, price: float, qty: float):
     #     return self.broker.buy(symbol, price, qty)

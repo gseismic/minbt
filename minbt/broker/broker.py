@@ -180,7 +180,7 @@ class Broker:
         return sum(portfolio.get_portfolio_equity() for portfolio in self.portfolios.values())
     
     def get_total_equity(self) -> float:
-        return self.get_all_portfolio_equity() 
+        return self.get_portfolio_equity()
     
     def get_portfolio_equity(self, portfolio_id: Optional[str] = None) -> float:
         if portfolio_id is None:
@@ -192,6 +192,18 @@ class Broker:
             portfolio_id = self.portfolio_id
         return self.portfolios[portfolio_id].initial_cash
     
+    # get 直接开头的，表示获取某个portfolio的值
+    def get_equity(self, portfolio_id: Optional[str] = None) -> float:
+        # 默认只返回主仓位
+        if portfolio_id is None:
+            portfolio_id = self.portfolio_id
+        return self.portfolios[portfolio_id].get_portfolio_equity()
+    
+    def get_cash(self, include_locked: bool = False, portfolio_id: Optional[str] = None) -> float:
+        if portfolio_id is None:
+            portfolio_id = self.portfolio_id
+        return self.portfolios[portfolio_id].get_cash(include_locked)
+
     def get_position(self, symbol: str, portfolio_id: Optional[str] = None) -> Position:
         if portfolio_id is None:
             portfolio_id = self.portfolio_id
@@ -214,4 +226,9 @@ class Broker:
         return self.portfolios[portfolio_id].get_positions()
     
     def get_all_portfolio_positions(self) -> Dict[str, Dict[str, Position]]:
+        import warnings
+        warnings.warn(
+            "接口可能变化，请勿使用, get_all_portfolio_positions is deprecated, use get_positions instead",
+            DeprecationWarning
+        )
         return {portfolio_id: portfolio.get_positions() for portfolio_id, portfolio in self.portfolios.items()}

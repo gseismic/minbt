@@ -97,8 +97,6 @@ class Exchange:
             # idx += 1
             for strategy in self.strategies.values():
                 # 更新exchange价格数据
-                print('idx', idx)
-                print('row', row)
                 symbol, price = row['symbol'], row['close']
                 if self._date_key is not None:
                     current_dt = row[self._date_key]
