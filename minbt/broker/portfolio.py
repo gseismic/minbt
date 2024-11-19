@@ -1,9 +1,10 @@
-from typing import Dict, Literal, Optional, Tuple
+from typing import Dict, Literal, Optional, Tuple, Union
 import copy
 import numpy as np
+import datetime
 from collections import defaultdict
 from ..logger import logger as default_logger
-from .struct import Position, Cash
+from .struct import Position, Cash, DateType
 
 class Portfolio:
     
@@ -44,6 +45,7 @@ class Portfolio:
             
     def reset(self):
         self.last_prices = {}
+        self.last_prices_dt = {}
         self._bankrupt = False
         self._current_cash = Cash(self.initial_cash, self.initial_cash)
         # self._positions: Dict[str, Position] = defaultdict(lambda: Position(symbol=None, leverage=self.leverage))
@@ -85,7 +87,10 @@ class Portfolio:
     def get_portfolio_equity(self) -> float:
         return self.get_all_positions_total_equity() + self.total_cash
     
-    def on_new_price(self, symbol: str, price: float) -> Tuple[bool, bool, float]:
+    def on_new_price(self, 
+                     symbol: str, 
+                     price: float, 
+                     dt: Optional[DateType] = None) -> Tuple[bool, bool, float]:
         """
         更新价格，更新各仓位的未实现盈亏，并检查保证金水平
         
@@ -105,7 +110,8 @@ class Portfolio:
         
         liquidated, bankrupt = False, False
         self.last_prices[symbol] = price
-        margin_level = self._update_pnl_get_margin_level(symbol, price)
+        self.last_prices_dt[symbol] = dt
+        margin_level = self._update_pnl_get_margin_level(symbol, price, dt)
         if margin_level < 0:
             bankrupt, liquidated = True, True
             self.logger.error(f'[{self.margin_mode}] {symbol} bankrupt, margin_level: {margin_level}')
@@ -130,7 +136,10 @@ class Portfolio:
 
         return bankrupt, liquidated, margin_level
     
-    def _update_pnl_get_margin_level(self, symbol: str, last_price: float) -> float:
+    def _update_pnl_get_margin_level(self, 
+                                     symbol: str, 
+                                     last_price: float, 
+                                     dt: Optional[DateType] = None) -> float:
         """
         更新最小仓位收益并获取保证金水平
         
@@ -142,14 +151,14 @@ class Portfolio:
             margin_level: 保证金水平
         """
         position = self.get_position(symbol)
-        position.update_price_and_pnl(last_price)
+        position.update_price_and_pnl(last_price, dt)
         if self.margin_mode == 'isolated':
             margin_level = position.margin_level
         else:
             margin_level = self.get_portfolio_margin_level()
         return margin_level
 
-    def submit_order(self, symbol: str, qty: float, price: float, leverage: Optional[float] = None) -> bool:
+    def submit_order(self, symbol: str, qty: float, price: float, leverage: Optional[float] = None, price_dt: Optional[DateType] = None) -> bool:
         """提交订单
         
         Args:
@@ -179,8 +188,11 @@ class Portfolio:
         if leverage is None:
             leverage = self.leverage
         
+        # 实际上，在minbt测试中，在submit_order之前已经调用on_new_price
+        # 只所以再次调用，是为了处理用户单独使用Portfolio的情况
+        # 多更新一次价格没有坏处，因为没有存历史价格信息，不会造成多余的数据
         # 更新价格，检查保证金水平，更新仓位pnl，value
-        bankrupt, liquidated, _ = self.on_new_price(symbol, price)
+        bankrupt, liquidated, _ = self.on_new_price(symbol, price, price_dt)
         if bankrupt or liquidated:
             return False
 
@@ -233,6 +245,8 @@ class Portfolio:
                 self.close_position(symbol)
             else:
                 self.close_position(symbol, last_prices.get(symbol))
+        assert np.allclose(self.get_all_positions_total_equity(), 0), f'All positions are not closed'
+        assert np.allclose(self.get_portfolio_equity(), self.total_cash), f'Portfolio equity is not equal to total cash'
 
     def _pure_close_position(self, symbol: str, last_price: Optional[float] = None) -> Position:
         """
@@ -263,8 +277,14 @@ class Portfolio:
             self._positions[symbol] = Position(symbol=symbol)
         return self._positions[symbol]
     
+    def get_position_size(self, symbol: str) -> float:
+        return self.get_position(symbol).size
+    
     def get_positions(self) -> Dict[str, Position]:
         return self._positions
+    
+    def get_position_sizes(self) -> Dict[str, float]:
+        return {symbol: self.get_position_size(symbol) for symbol in self._positions.keys()}
     
     def calculate_fee(self, symbol: str, leverage: float, qty: float, price: float) -> float:
         """计算手续费"""

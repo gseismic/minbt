@@ -1,7 +1,10 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 from decimal import Decimal
+import datetime
+
+DateType = Union[datetime.datetime, np.datetime64]
 
 class Cash:
     __slots__ = ['total_cash', 'free_cash', 'locked_cash']
@@ -95,6 +98,7 @@ class Position:
     _margin: float = 0
     # 更新价格时自动计算
     _last_price: Optional[float] = None
+    _last_dt: Optional[DateType] = None
     _unrealized_pnl: float = 0
     _equity: float = 0
     _bankrupt: bool = False
@@ -107,11 +111,12 @@ class Position:
         self._unrealized_pnl = 0
         self._equity = 0
     
-    def update_price_and_pnl(self, price: float) -> None:
+    def update_price_and_pnl(self, price: float, dt: Optional[DateType] = None) -> None:
         if price is None:
             return
         assert price > 0, f"Price must be positive: {price}"
         self._last_price = price
+        self._last_dt = dt
         self._unrealized_pnl = self.size * (price - self._cost_price)
         self._equity = self._unrealized_pnl + self._margin
     
@@ -121,7 +126,11 @@ class Position:
         assert leverage > 0, f"Leverage must be positive: {leverage}"
         return abs(qty) * price / leverage
 
-    def commit_open_new(self, price: float, qty: float, leverage: float) -> tuple[float, float]:
+    def commit_open_new(self, 
+                        price: float, 
+                        qty: float, 
+                        leverage: float, 
+                        dt: Optional[DateType] = None) -> tuple[float, float]:
         """在现有仓位基础上【同方向】新开仓
         Note:
             【调用本函数前】要求已经:
@@ -151,7 +160,7 @@ class Position:
         self.size = new_size
         
         # 更新价格和pnl
-        self.update_price_and_pnl(price)
+        self.update_price_and_pnl(price, dt)
         
         released_margin = - extra_margin
         realized_pnl = 0

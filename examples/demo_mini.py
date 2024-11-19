@@ -18,7 +18,7 @@ class DemoStrategy(Strategy):
                                         leverage=10)
         
         self.equity.append(self.broker.get_total_equity())
-        self.positions.append(self.broker.get_position('BTCUSDT').size)
+        self.positions.append(self.broker.get_position_size('BTCUSDT'))
     
     def on_finish(self):
         fig, ax, *tx = get_figax(2)

@@ -26,7 +26,7 @@ def test_order_submission():
     print(f'total_equity: {broker.get_total_equity()}')
     broker.on_new_price("BTCUSDT", 5000.0)
     print(f'total_equity: {broker.get_total_equity()}')
-    print(f'total_initial_cash: {broker.get_total_initial_cash()}')
+    print(f'total_initial_cash: {broker.initial_cash}')
     
     # assert order.status == OrderStatus.FILLED
     # assert order.type == OrderType.MARKET
