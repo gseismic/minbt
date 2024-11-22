@@ -77,6 +77,10 @@ class Strategy:
         assert qty > 0, f'qty must be positive, got {qty}'
         return self.broker.submit_market_order(symbol, qty=-qty, portfolio_id=portfolio_id)
     
+    def market_order(self, symbol: str, qty: float, portfolio_id: str = 'default'):
+        assert qty != 0, f'qty must be non-zero, got {qty}'
+        return self.broker.submit_market_order(symbol, qty=qty, portfolio_id=portfolio_id)
+    
     # def buy(self, symbol: str, price: float, qty: float):
     #     return self.broker.buy(symbol, price, qty)
     
