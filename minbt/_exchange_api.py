@@ -2,6 +2,8 @@ from pyta_dev.utils.deque import DequeTable
 from .logger import logger as default_logger
 from typing import List
 
+# currently deprecated: 请用户自己维护历史状态
+# Note: 目前思考还不成熟，将来此模块[not-done]可能添加到主程序中
 class ExchangeState:
     
     def __init__(self, history_size=1000, logger=None):
