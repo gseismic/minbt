@@ -2,13 +2,16 @@ from setuptools import setup, find_packages
 
 
 setup(
-    name='minbt', 
-    version='0.0.3', 
+    name='minbt',
+    version='0.0.4',
     packages=find_packages(),
     description='Minimalistic Backtesting Library',
-    install_requires = ['numpy', 'pandas', 'polars', 'loguru'],
+    install_requires=['numpy', 'pandas', 'polars', 'loguru'],
+    extras_require={
+        'pyta': ['pyta_dev'],
+    },
     scripts=[],
-    python_requires = '>=3',
+    python_requires='>=3.8',
     include_package_data=True,
     author='Liu Shengli',
     url='http://github.com/gseismic/minbt',

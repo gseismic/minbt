@@ -19,11 +19,9 @@ def test_portfolio_initialization():
 def test_portfolio_submit_order():
     portfolio = Portfolio(initial_cash=100000, fee_rate=0.001)
     
-    # 测试开仓
+    # 开仓
     success = portfolio.submit_order("AAPL", qty=10, price=150.0)
     assert success
-    return
-    
     position = portfolio.get_position("AAPL")
     assert position.size == 10
     
@@ -141,6 +139,35 @@ def test_portfolio_value_calculation():
     
     portfolio_value = portfolio.get_portfolio_equity()
     assert pytest.approx(portfolio_value) == positions_value + portfolio.total_cash
+
+def test_portfolio_close_position_method():
+    """测试 close_position 方法正确使用 -position.size 平仓"""
+    portfolio = Portfolio(initial_cash=100000, fee_rate=0.001)
+
+    # 开多仓
+    portfolio.submit_order("AAPL", qty=10, price=150.0)
+    position = portfolio.get_position("AAPL")
+    assert position.size == 10
+
+    # 使用 close_position 平仓
+    portfolio.close_position("AAPL", last_price=160.0)
+    position = portfolio.get_position("AAPL")
+    assert position.size == 0
+
+    # 开空仓再平仓
+    portfolio2 = Portfolio(initial_cash=100000, fee_rate=0.001)
+    portfolio2.submit_order("AAPL", qty=-10, price=150.0)
+    assert portfolio2.get_position("AAPL").size == -10
+
+    portfolio2.close_position("AAPL", last_price=140.0)
+    assert portfolio2.get_position("AAPL").size == 0
+
+def test_portfolio_close_empty_position():
+    """测试对空头寸调用 close_position 不会出错"""
+    portfolio = Portfolio(initial_cash=100000, fee_rate=0.001)
+    result = portfolio.close_position("AAPL", last_price=150.0)
+    assert result is False
+    assert portfolio.get_position("AAPL").is_empty()
 
 if __name__ == "__main__":
     # pytest.main([__file__])

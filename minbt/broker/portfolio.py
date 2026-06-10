@@ -1,8 +1,6 @@
 from typing import Dict, Literal, Optional, Tuple, Union
 import copy
 import numpy as np
-import datetime
-from collections import defaultdict
 from ..logger import logger as default_logger
 from .struct import Position, Cash, DateType
 
@@ -21,7 +19,7 @@ class Portfolio:
         
         Args:
             initial_cash: 初始现金, >0
-            fee_rate: 手续费率, 0-1
+            fee_rate: 手续费率, 0 <= fee_rate < 1
             leverage: 杠杆倍数, >=1.0
             margin_mode: 保证金模式, cross[全仓]或isolated[逐仓]
             warning_margin_level: 警告保证金水平, 0-1
@@ -48,35 +46,23 @@ class Portfolio:
         self.last_prices_dt = {}
         self._bankrupt = False
         self._current_cash = Cash(self.initial_cash, self.initial_cash)
-        # self._positions: Dict[str, Position] = defaultdict(lambda: Position(symbol=None, leverage=self.leverage))
         self._positions: Dict[str, Position] = {}
     
     def mark_bankrupt(self) -> None:
         self._bankrupt = True
         self._positions.clear()
-        # for position in self._positions.values():
-        #     position.mark_bankrupt()
         
     def get_all_positions_total_margin(self) -> float:
         return sum(position.margin for position in self._positions.values())
     
     def get_all_positions_total_equity(self) -> float:
         return sum(position.equity for position in self._positions.values())
-    
-    # def get_total_position_value(self) -> float:
-    #     return sum(position.value for position in self._positions.values())
 
     def get_portfolio_margin_level(self) -> float:
         if self._bankrupt:
             return -1.0
         total_margin = self.get_all_positions_total_margin()
-        # 这里不是: self.get_portfolio_equity()
-        # 就是说：cash 不能算作保证金
         equity = self.get_all_positions_total_equity()
-        # print(f'{self._bankrupt=}')
-        # for position in self._positions.values():
-        #     print(f'{position._bankrupt=}, {position.symbol=}, {position.margin=}, {position.equity=}')
-        # print(f'{total_margin=}, {equity=}')
         if total_margin == 0:
             if equity == 0:
                 return 1.0
@@ -168,18 +154,9 @@ class Portfolio:
             leverage: 杠杆倍数，如果为None，使用默认杠杆
         
         依次进行:
-            1. 更新价格，检查【开仓前】的保证金水平，是否触发强制平仓
-                - 更新仓位pnl，value
-                - 如果【开仓前】保证金不足：
-                    - 如果保证金模式为逐仓，则平仓
-                    - 如果保证金模式为全仓，则全平
-            2. 计算【新开仓】所需要的保证金和手续费，检查是否充足
-                - 如果不足，则返回False
-                - 如果充足，则提交订单
-            3. 提交订单
-                - 更新仓位(更新保证金、更新pnl、更新value)
-                - 更新当前现金
-                - 更新历史记录(更新手续费等)
+            1. 更新价格，检查保证金水平，是否触发强制平仓
+            2. 计算新开仓所需保证金和手续费，检查是否充足
+            3. 提交订单，更新仓位和现金
         """
         if self._bankrupt:
             self.logger.error(f'Portfolio bankrupt, cannot submit order')
@@ -188,10 +165,7 @@ class Portfolio:
         if leverage is None:
             leverage = self.leverage
         
-        # 实际上，在minbt测试中，在submit_order之前已经调用on_new_price
-        # 只所以再次调用，是为了处理用户单独使用Portfolio的情况
-        # 多更新一次价格没有坏处，因为没有存历史价格信息，不会造成多余的数据
-        # 更新价格，检查保证金水平，更新仓位pnl，value
+        # 更新价格并检查保证金（可能触发强平）
         bankrupt, liquidated, _ = self.on_new_price(symbol, price, price_dt)
         if bankrupt or liquidated:
             return False
@@ -204,8 +178,8 @@ class Portfolio:
         position = self.get_position(symbol)
         required_fee = self.calculate_fee(symbol, leverage, qty, price)
         
-        fake_positon = copy.deepcopy(position)
-        exec_type, fake_released_margin, fake_realized_pnl = fake_positon.commit_order(price, qty=qty, leverage=leverage)
+        fake_position = copy.deepcopy(position)
+        exec_type, fake_released_margin, fake_realized_pnl = fake_position.commit_order(price, qty=qty, leverage=leverage)
         fake_released_cash = fake_released_margin + fake_realized_pnl - required_fee # 将释放的free_cash
         should_remaining_cash = self.free_cash + fake_released_cash # 额外需要的free_cash
         if should_remaining_cash < 0:
@@ -230,17 +204,24 @@ class Portfolio:
         )
         return True
     
-    def close_position(self, symbol: str, last_price: Optional[float] = None) -> Position:
-        # 更新价格，检查保证金水平，更新仓位pnl，value
+    def close_position(self, symbol: str, last_price: Optional[float] = None) -> bool:
+        """平仓: 提交与当前持仓方向相反、数量相同的订单"""
         position = self.get_position(symbol)
-        return self.submit_order(symbol, position.size, price=last_price) # recursive nested
-        # bankrupt, liquidated, _ = self.on_new_price(symbol, price)
-        # if bankrupt or liquidated:
-        #     return False
-        # return self._close_position(symbol, last_price)
+        if position.is_empty():
+            self.logger.warning(f'Cannot close empty position: {symbol}')
+            return False
+        if last_price is None:
+            last_price = self.last_prices.get(symbol, position.last_price)
+        if last_price is None:
+            self.logger.error(f'Cannot close position {symbol}: no price available')
+            return False
+        return self.submit_order(symbol, -position.size, price=last_price)
     
     def close_all_positions(self, last_prices: Optional[Dict[str, float]] = None) -> None:
-        for symbol in self._positions.keys():
+        for symbol in list(self._positions.keys()):
+            position = self._positions.get(symbol)
+            if position is None or position.is_empty():
+                continue
             if last_prices is None:
                 self.close_position(symbol)
             else:
@@ -248,11 +229,10 @@ class Portfolio:
         assert np.allclose(self.get_all_positions_total_equity(), 0), f'All positions are not closed'
         assert np.allclose(self.get_portfolio_equity(), self.total_cash), f'Portfolio equity is not equal to total cash'
 
-    def _pure_close_position(self, symbol: str, last_price: Optional[float] = None) -> Position:
-        """
-        要求已经检查过保证金水平，不会穿仓
-        """
-        position = self.get_position(symbol)
+    def _pure_close_position(self, symbol: str, last_price: Optional[float] = None) -> Optional[Position]:
+        if symbol not in self._positions:
+            return None
+        position = self._positions[symbol]
         released_margin, realized_pnl = position.commit_close_all(last_price)
         released_cash = released_margin + realized_pnl
         assert self._current_cash.can_change_cash(released_cash)
@@ -269,11 +249,10 @@ class Portfolio:
             else:
                 self._pure_close_position(symbol, last_prices.get(symbol))
     
-    def get_position(self, symbol: str) -> Position:
+    def get_position(self, symbol: str, create_if_missing: bool = True) -> Optional[Position]:
         if symbol not in self._positions:
-            # self._positions[symbol] = Position(symbol=symbol, leverage=self.leverag)
-            # leverage removed: 支持变杠杆
-            # print('create position', symbol)
+            if not create_if_missing:
+                return None
             self._positions[symbol] = Position(symbol=symbol)
         return self._positions[symbol]
     
@@ -284,7 +263,7 @@ class Portfolio:
         return self._positions
     
     def get_position_sizes(self) -> Dict[str, float]:
-        return {symbol: self.get_position_size(symbol) for symbol in self._positions.keys()}
+        return {symbol: pos.size for symbol, pos in self._positions.items() if not pos.is_empty()}
     
     def get_total_cash(self) -> float:
         return self._current_cash.total_cash

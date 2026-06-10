@@ -18,15 +18,20 @@ class Exchange:
         self.logger = logger or default_logger
         self._is_polars_like = False
         self._date_key = None
-        # self._api = ExchangeAPI(history_size=history_size)
         self.reset_market_state()
     
     def _check_data(self, data, date_key):
-        # 多symbol下，必须提供date-key，否则无法做时间对齐
-        if date_key is None:
-            num_symobls = len(set([s for s in data['symbol']]))
-            if num_symobls != 1:
-                raise ValueError(f'Data contains multiple symbols, but no date_key provided')
+        if date_key is not None:
+            return
+        # date_key is None: must have exactly one symbol
+        if isinstance(data, list):
+            symbols = set(d.get('symbol') for d in data if isinstance(d, dict))
+        elif isinstance(data, (pd.DataFrame, pl.DataFrame)) or hasattr(data, '__getitem__'):
+            symbols = set(data['symbol'])
+        else:
+            raise TypeError(f"Cannot inspect symbols from data type: {type(data)}")
+        if len(symbols) != 1:
+            raise ValueError(f'Data contains {len(symbols)} symbols, but no date_key provided')
     
     def set_data(self, data: Union[pd.DataFrame, pl.DataFrame, List[Dict]], date_key: Optional[str] = None):
         """设置数据,支持Pandas DataFrame、Polars DataFrame或字典列表
@@ -52,14 +57,11 @@ class Exchange:
         else:
             raise TypeError(f"data type not supported: {type(data)}. Expected types are: pd.DataFrame, pl.DataFrame, or list of dictionaries.")
     
-        # 如果提供了date_key，确保数据按时间和symbol稳定排序
         if date_key is not None:
             if self._is_polars_like:
                 self.data = self.data.sort([date_key, "symbol"], descending=[False, False])
-            elif isinstance(data, pd.DataFrame) or hasattr(data, 'iterrows'):
-                self.data = self.data.sort_values([date_key, "symbol"], ascending=[True, True])
             else:
-                raise TypeError(f"data type not supported: {type(data)}. Expected types are: pd.DataFrame, pl.DataFrame, or list of dictionaries.")
+                self.data = self.data.sort_values([date_key, "symbol"], ascending=[True, True])
 
     def add_strategy(self, strategy: Strategy) -> None:
         assert hasattr(strategy, 'strategy_id'), 'strategy must have `strategy_id` attribute'
@@ -77,7 +79,6 @@ class Exchange:
         self._last_prices = {}
         self._last_price_dates = {}
         self._current_dt = None
-        # self._api.reset()
         
     def run(self):
         self.reset_market_state()
@@ -92,9 +93,7 @@ class Exchange:
         else:
             iter_method = self.data.iterrows()
         
-        # idx = -1
         for idx, row in iter_method:
-            # idx += 1
             for strategy in self.strategies.values():
                 # 更新exchange价格数据
                 symbol, price = row['symbol'], row['close']
@@ -123,13 +122,9 @@ class Exchange:
             return price, self._last_price_dates.get(symbol, None)
         else:
             return price
-    
+
     def get_last_prices(self) -> Dict[str, float]:
         return self._last_prices.copy()
-            
+
     def get_current_dt(self):
         return self._current_dt
-
-    @property
-    def api(self):
-        return self._api

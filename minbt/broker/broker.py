@@ -1,11 +1,6 @@
 from typing import Literal, Optional, Dict
-import datetime
 from .portfolio import Portfolio
 from .struct import Position, DateType
-
-class Monitor:
-    def __init__(self):
-        pass
 
 class Broker:
     """
@@ -28,8 +23,8 @@ class Broker:
         Args:
         
         """
-        assert 0 < fee_rate <= 1.0, (
-            f"fee_rate must be between 0 and 1.0,"
+        assert 0 <= fee_rate < 1.0, (
+            f"fee_rate must be between 0 (inclusive) and 1.0 (exclusive),"
             f"fee_rate: {fee_rate}"
         )
         assert leverage >= 1.0, (
@@ -65,7 +60,6 @@ class Broker:
         portfolio_cash = portfolio_cash if portfolio_cash is not None else initial_cash
         self.add_sub_portfolio(portfolio_id=self.portfolio_id, initial_cash=portfolio_cash)
         
-        self.monitor = Monitor()
         self.last_prices = {}
         self.last_price_dates = {}
     
@@ -142,9 +136,6 @@ class Broker:
         raise NotImplementedError()
 
     def cancel_order(self, symbol: str, order_id: str, portfolio_id: str = 'default'):
-        # if portfolio_id not in self.portfolios:
-        #     raise ValueError(f"portfolio_id not found: {portfolio_id}")
-        # return self.portfolios[portfolio_id].cancel_order(symbol, order_id)
         raise NotImplementedError()
     
     def submit_stop_order(self,
@@ -217,18 +208,9 @@ class Broker:
     def get_position_sizes(self, portfolio_id: Optional[str] = None) -> Dict[str, float]:
         if portfolio_id is None:
             portfolio_id = self.portfolio_id
-        portfolio = self.portfolios[portfolio_id]
-        return {symbol: portfolio.get_position_size(symbol) for symbol in portfolio.get_positions().keys()}
+        return self.portfolios[portfolio_id].get_position_sizes()
     
     def get_positions(self, portfolio_id: Optional[str] = None) -> Dict[str, Position]:
         if portfolio_id is None:
             portfolio_id = self.portfolio_id
         return self.portfolios[portfolio_id].get_positions()
-    
-    def get_all_portfolio_positions(self) -> Dict[str, Dict[str, Position]]:
-        import warnings
-        warnings.warn(
-            "接口可能变化，请勿使用, get_all_portfolio_positions is deprecated, use get_positions instead",
-            DeprecationWarning
-        )
-        return {portfolio_id: portfolio.get_positions() for portfolio_id, portfolio in self.portfolios.items()}

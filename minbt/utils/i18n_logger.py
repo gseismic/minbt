@@ -53,7 +53,10 @@ class I18nLogger:
         #     self.name = None
 
     def get_message(self, key: str, *args) -> str:
-        msg_template = self.messages[key].get(self.lang, self.messages[key]['en'])
+        if key not in self.messages:
+            return key
+        msg_dict = self.messages[key]
+        msg_template = msg_dict.get(self.lang, msg_dict.get('en', key))
         return msg_template.format(*args)
     
     def debug(self, msg: str, *args):

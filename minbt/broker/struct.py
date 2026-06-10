@@ -1,7 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Union
-from decimal import Decimal
 import datetime
 
 DateType = Union[datetime.datetime, np.datetime64]
@@ -91,12 +90,10 @@ class Position:
     
     Note: 因为可能是全仓或逐仓，所以这里不管理liquidation_price
     """
-    symbol: str # primary key
-    # leverage: float # primary key
+    symbol: str
     size: float = 0
     _cost_price: float = 0
     _margin: float = 0
-    # 更新价格时自动计算
     _last_price: Optional[float] = None
     _last_dt: Optional[DateType] = None
     _unrealized_pnl: float = 0
@@ -199,17 +196,16 @@ class Position:
         self.update_price_and_pnl(price)
         
         if abs(qty) == abs(self.size):
-            # 全部平仓
             released_margin = self._margin
             realized_pnl = self._unrealized_pnl
             self._margin = 0
             self._cost_price = 0
             self.size = 0
         else:
-            ratio = abs(Decimal(str(qty)) / Decimal(str(self.size)))
-            released_margin = Decimal(str(self._margin)) * ratio
-            realized_pnl = Decimal(str(self._unrealized_pnl)) * ratio
-            self._margin -= float(released_margin)
+            close_ratio = abs(qty) / abs(self.size)
+            released_margin = self._margin * close_ratio
+            realized_pnl = self._unrealized_pnl * close_ratio
+            self._margin -= released_margin
             self.size += qty
         # 更新价格和pnl
         self.update_price_and_pnl(price)
@@ -299,7 +295,6 @@ class Position:
         """返回保证金"""
         return self._margin
     
-    # @property
     def current_leverage(self) -> float:
         """返回当前实际杠杆率"""
         if self._margin == 0:
