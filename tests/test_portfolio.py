@@ -140,6 +140,18 @@ def test_portfolio_value_calculation():
     portfolio_value = portfolio.get_portfolio_equity()
     assert pytest.approx(portfolio_value) == positions_value + portfolio.total_cash
 
+def test_on_new_price_does_not_create_empty_position():
+    """测试行情更新不会为无持仓标的创建空仓位"""
+    portfolio = Portfolio(initial_cash=100000, fee_rate=0.001)
+
+    bankrupt, liquidated, margin_level = portfolio.on_new_price("AAPL", price=150.0)
+
+    assert not bankrupt
+    assert not liquidated
+    assert margin_level == 1.0
+    assert portfolio.positions == {}
+    assert portfolio.last_prices["AAPL"] == 150.0
+
 def test_portfolio_close_position_method():
     """测试 close_position 方法正确使用 -position.size 平仓"""
     portfolio = Portfolio(initial_cash=100000, fee_rate=0.001)

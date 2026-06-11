@@ -136,7 +136,9 @@ class Portfolio:
         Returns:
             margin_level: 保证金水平
         """
-        position = self.get_position(symbol)
+        position = self.get_position(symbol, create_if_missing=False)
+        if position is None:
+            return self.get_portfolio_margin_level() if self.margin_mode == 'cross' else 1.0
         position.update_price_and_pnl(last_price, dt)
         if self.margin_mode == 'isolated':
             margin_level = position.margin_level

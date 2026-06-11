@@ -139,21 +139,17 @@ class Position:
             realized_pnl: float 已实现pnl
             总释放现金为: released_margin + realized_pnl
         """
+        assert qty != 0, f"Cannot open zero quantity position: {self.symbol}"
         assert np.sign(self.size * qty) >= 0, (
             "Cannot open new position with different sign: "
             f"position: {self.symbol}, size: {self.size}, qty: {qty}"
         )
         # 开仓关注cost_price, 不关心unrealized_pnl，所以不用更新价格
         new_size = self.size + qty
-        if new_size == 0:
-            # 此时: .size == qty == 0
-            self._cost_price = 0
-            self._margin = 0
-        else:
-            self._cost_price = (self._cost_price * self.size + qty * price) / new_size
-            # 计算保证金占用
-            extra_margin = self.calculate_required_margin(price, qty, leverage)
-            self._margin += extra_margin
+        self._cost_price = (self._cost_price * self.size + qty * price) / new_size
+        # 计算保证金占用
+        extra_margin = self.calculate_required_margin(price, qty, leverage)
+        self._margin += extra_margin
         self.size = new_size
         
         # 更新价格和pnl

@@ -146,6 +146,37 @@ def test_order_submission():
 #     )
 #     assert order.status == OrderStatus.REJECTED
 
+def test_add_sub_portfolio_rejects_duplicate_id():
+    """测试不能重复添加同名子组合"""
+    broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
+    remaining_cash = broker.remaining_free_cash
+    original_portfolio = broker.portfolios['default']
+
+    with pytest.raises(ValueError):
+        broker.add_sub_portfolio('default', 100)
+
+    assert broker.remaining_free_cash == remaining_cash
+    assert broker.portfolios['default'] is original_portfolio
+
+def test_submit_market_order_requires_existing_portfolio_before_price_update():
+    """测试无效组合不会污染 broker 或组合行情状态"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    with pytest.raises(ValueError):
+        broker.submit_market_order("AAPL", qty=1, price=100, portfolio_id="missing")
+
+    assert broker.last_prices == {}
+    assert broker.portfolios['default'].positions == {}
+
+def test_submit_market_order_requires_known_price():
+    """测试未提供价格且无最新价时给出明确错误"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    with pytest.raises(ValueError):
+        broker.submit_market_order("AAPL", qty=1)
+
+    assert broker.portfolios['default'].positions == {}
+
 if __name__ == "__main__":
     # pytest.main([__file__])
     test_order_submission()

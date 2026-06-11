@@ -43,8 +43,8 @@ class Broker:
             f"min_margin_level must be between 0 and 1.0,"
             f"min_margin_level: {min_margin_level}"
         )
-        assert portfolio_cash is None or 0 < portfolio_cash < initial_cash, (
-            f"portfolio_cash must be None or greater than 0 and less than initial_cash,"
+        assert portfolio_cash is None or 0 < portfolio_cash <= initial_cash, (
+            f"portfolio_cash must be None or greater than 0 and less than or equal to initial_cash,"
             f"portfolio_cash: {portfolio_cash}, initial_cash: {initial_cash}"
         )
 
@@ -67,6 +67,8 @@ class Broker:
         """
         占用 remaining_free_cash 的资金
         """
+        if portfolio_id in self.portfolios:
+            raise ValueError(f"portfolio_id already exists: {portfolio_id}")
         assert 0 < initial_cash <= self.remaining_free_cash
         self.remaining_free_cash -= initial_cash
         self.portfolios[portfolio_id] = Portfolio(
@@ -115,14 +117,16 @@ class Broker:
         1. 如果last_price为None，则使用last_prices中的价格
         2. 否则，使用传入的价格，并更新last_prices
         """
+        if portfolio_id not in self.portfolios:
+            raise ValueError(f"portfolio_id not found: {portfolio_id}")
         # 注意，此时broker中的last_prices应已经通过on_new_price更新了
         if price is None:
             assert price_dt is None
             price, price_dt = self.get_last_price(symbol, return_dt=True)
+            if price is None:
+                raise ValueError(f"market price not found: {symbol}")
         else:
             self.on_new_price(symbol, price, price_dt)
-        if portfolio_id not in self.portfolios:
-            raise ValueError(f"portfolio_id not found: {portfolio_id}")
         return self.portfolios[portfolio_id].submit_order(symbol, qty, price=price, leverage=leverage, price_dt=price_dt)
     
     def submit_limit_order(self, 

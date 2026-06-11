@@ -114,7 +114,10 @@ class Exchange:
             
         total_time = time.time() - start_time
         self.logger.info('[all_complete]', total_time)
-        self.logger.info(f'{total_time/step:.2f}s/step')
+        if step > 0:
+            self.logger.info(f'{total_time/step:.2f}s/step')
+        else:
+            self.logger.info('0 steps')
     
     def get_last_price(self, symbol: str, return_dt: bool = False):
         price = self._last_prices.get(symbol, None)

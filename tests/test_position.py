@@ -51,6 +51,13 @@ def test_position_open_new():
     with pytest.raises(AssertionError):
         pos_short.commit_open_new(price=50000.0, qty=1.0, leverage=leverage)  # 空仓不能开多
 
+def test_position_rejects_zero_qty_open_new():
+    """测试直接调用开仓内核时拒绝零数量"""
+    pos = Position(symbol="BTC-USDT")
+
+    with pytest.raises(AssertionError):
+        pos.commit_open_new(price=50000.0, qty=0, leverage=2.0)
+
 def test_position_close_partial():
     """测试部分平仓"""
     pos = Position(symbol="BTC-USDT")
