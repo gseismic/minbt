@@ -32,7 +32,7 @@ def test_isolated_margin_liquidation():
         warning_margin_level=0.2,
         min_margin_level=0.1
     )
-    
+
     # 开仓 5倍杠杆
     price = 100.0
     qty = 400  # 持仓价值 40,000，需要保证金 8,000
@@ -64,23 +64,19 @@ def test_cross_margin_liquidation():
         value = qty * price = 5 * 1000 = 5000
         margin = value / leverage = 5000 / 3 ≈ 1667
         total_margin = 3333 + 1667 = 5000
-        initial_equity = total_margin = 5000
+        free_cash = 5000
+        account_equity = free_cash + total_margin = 10000
+        margin_level = account_equity / total_margin = 2.0
         
-    3. 价格下跌40%: (需要更大的跌幅才能触发警告)
-        AAPL: unrealized_pnl = (60 - 100) * 100 = -4000
-        GOOGL: unrealized_pnl = (600 - 1000) * 5 = -2000
-        total_equity = 5000 - 4000 - 2000 = -1000
-        margin_level = -1000 / 5000 = -0.2
-        
-    4. 继续下跌50%:
-        AAPL: unrealized_pnl = (50 - 100) * 100 = -5000
-        GOOGL: unrealized_pnl = (500 - 1000) * 5 = -2500
-        total_equity = 5000 - 5000 - 2500 = -2500
-        margin_level = -2500 / 5000 = -0.5
+    3. 价格下跌65%:
+        AAPL: unrealized_pnl = (35 - 100) * 100 = -6500
+        GOOGL: unrealized_pnl = (350 - 1000) * 5 = -3250
+        account_equity = 10000 - 6500 - 3250 = 250
+        margin_level = 250 / 5000 = 0.05，触发强平但未穿仓
     """
     portfolio = Portfolio(
         initial_cash=10000,
-        fee_rate=0.001,
+        fee_rate=0,
         leverage=3.0,
         margin_mode='cross',
         warning_margin_level=0.2,
@@ -92,21 +88,65 @@ def test_cross_margin_liquidation():
     portfolio.submit_order("GOOGL", qty=5, price=1000.0)  # 价值5,000，需要保证金1,667
     
     # 验证初始状态
-    total_margin = portfolio.get_all_positions_total_margin()  # 5000
-    total_equity = portfolio.get_all_positions_total_equity()  # 5000
-    # print(f'{portfolio.positions=}')
-    assert total_equity == total_margin
-    assert pytest.approx(total_equity) == 5000
-    assert pytest.approx(portfolio.get_portfolio_margin_level()) == total_equity / total_margin  # 1.0
-    
-    # 价格下跌40%，应该触发警告和强平
-    portfolio.on_new_price("AAPL", 60.0)  # -4000
-    portfolio.on_new_price("GOOGL", 600.0)  # -2000
+    total_margin = portfolio.get_all_positions_total_margin()
+    assert pytest.approx(total_margin) == 5000
+    assert pytest.approx(portfolio.get_all_positions_total_equity()) == 5000
+    assert pytest.approx(portfolio.get_portfolio_equity()) == 10000
+    assert pytest.approx(portfolio.get_portfolio_margin_level()) == 2.0
+
+    # 价格下跌65%，账户权益仍为正，应该强平但不标记穿仓
+    portfolio.on_new_price("AAPL", 35.0)
+    bankrupt, liquidated, margin_level = portfolio.on_new_price("GOOGL", 350.0)
+    assert not bankrupt
+    assert liquidated
+    assert pytest.approx(margin_level) == 0.05
+    assert not portfolio.bankrupt
+    assert pytest.approx(portfolio.total_cash) == 250
+    assert pytest.approx(portfolio.get_portfolio_equity()) == 250
+    assert all(position.size == 0 for position in portfolio.positions.values())
+
+def test_cross_margin_uses_free_cash_before_liquidation():
+    """测试全仓模式下可用现金会作为风险缓冲，避免过早强平"""
+    portfolio = Portfolio(
+        initial_cash=10000,
+        fee_rate=0,
+        leverage=5.0,
+        margin_mode='cross',
+        warning_margin_level=0.2,
+        min_margin_level=0.1
+    )
+
+    portfolio.submit_order("AAPL", qty=400, price=100.0)
+
+    bankrupt, liquidated, margin_level = portfolio.on_new_price("AAPL", 80.0)
+
+    assert not bankrupt
+    assert not liquidated
+    assert pytest.approx(margin_level) == 0.25
+    assert portfolio.get_position("AAPL").size == 400
+    assert pytest.approx(portfolio.get_portfolio_equity()) == 2000
+
+def test_cross_margin_bankruptcy_wipes_account_cash():
+    """测试全仓穿仓后不会因清空持仓而把剩余现金错误算作权益"""
+    portfolio = Portfolio(
+        initial_cash=10000,
+        fee_rate=0,
+        leverage=5.0,
+        margin_mode='cross',
+        warning_margin_level=0.2,
+        min_margin_level=0.1
+    )
+
+    portfolio.submit_order("AAPL", qty=400, price=100.0)
+    bankrupt, liquidated, margin_level = portfolio.on_new_price("AAPL", 74.0)
+
+    assert bankrupt
+    assert liquidated
+    assert margin_level < 0
     assert portfolio.bankrupt
-    margin_level = portfolio.get_portfolio_margin_level()  # -0.2
-    # print(f'---{margin_level=}')
-    assert margin_level <= portfolio.warning_margin_level  # -0.2 < 0.2
-    assert len(portfolio.positions) == 0  # 权益为负，应该触发强平
+    assert portfolio.positions == {}
+    assert portfolio.total_cash == 0
+    assert portfolio.get_portfolio_equity() == 0
 
 def test_leverage_change():
     """测试杠杆变更

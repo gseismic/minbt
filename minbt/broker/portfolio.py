@@ -51,6 +51,7 @@ class Portfolio:
     def mark_bankrupt(self) -> None:
         self._bankrupt = True
         self._positions.clear()
+        self._current_cash = Cash(0.0, 0.0)
         
     def get_all_positions_total_margin(self) -> float:
         return sum(position.margin for position in self._positions.values())
@@ -62,12 +63,12 @@ class Portfolio:
         if self._bankrupt:
             return -1.0
         total_margin = self.get_all_positions_total_margin()
-        equity = self.get_all_positions_total_equity()
         if total_margin == 0:
-            if equity == 0:
-                return 1.0
-            else:
-                return 0.0
+            return 1.0
+        if self.margin_mode == 'cross':
+            equity = self.get_portfolio_equity()
+        else:
+            equity = self.get_all_positions_total_equity()
         return equity / total_margin
 
     def get_portfolio_equity(self) -> float:

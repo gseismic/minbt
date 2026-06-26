@@ -1,5 +1,6 @@
 import sys
 import copy
+from string import Formatter
 from loguru import logger as _logger
 from typing import Literal, Dict
 
@@ -22,7 +23,7 @@ class I18nLogger:
         self.lang = lang
         self.set_logger(logger)
         self.messages = copy.deepcopy(messages) if messages else {}
-    
+
     def set_lang(self, lang: Literal['zh', 'en']):
         self.lang = lang
     
@@ -52,29 +53,49 @@ class I18nLogger:
         # else:
         #     self.name = None
 
-    def get_message(self, key: str, *args) -> str:
+    def get_message(self, key: str, *args, **kwargs) -> str:
         if key not in self.messages:
             return key
         msg_dict = self.messages[key]
         msg_template = msg_dict.get(self.lang, msg_dict.get('en', key))
-        return msg_template.format(*args)
-    
-    def debug(self, msg: str, *args):
+        return msg_template.format(*args, **kwargs)
+
+    @staticmethod
+    def _has_format_fields(msg: str) -> bool:
+        try:
+            return any(field_name is not None for _, field_name, _, _ in Formatter().parse(msg))
+        except ValueError:
+            return False
+
+    def _format_plain_message(self, msg: str, *args, **kwargs) -> str:
+        if not args and not kwargs:
+            return msg
+        if self._has_format_fields(msg):
+            try:
+                return msg.format(*args, **kwargs)
+            except (IndexError, KeyError, ValueError):
+                pass
+        extra_parts = [str(arg) for arg in args]
+        extra_parts.extend(f'{key}={value}' for key, value in kwargs.items())
+        return f"{msg} {' '.join(extra_parts)}" if extra_parts else msg
+
+    def _format_log_message(self, msg: str, *args, **kwargs) -> str:
         if msg in self.messages:
-            msg = self.get_message(msg, *args)
+            return self.get_message(msg, *args, **kwargs)
+        return self._format_plain_message(msg, *args, **kwargs)
+
+    def debug(self, msg: str, *args, **kwargs):
+        msg = self._format_log_message(msg, *args, **kwargs)
         self.logger.debug(msg)
 
-    def info(self, msg: str, *args):
-        if msg in self.messages:
-            msg = self.get_message(msg, *args)
+    def info(self, msg: str, *args, **kwargs):
+        msg = self._format_log_message(msg, *args, **kwargs)
         self.logger.info(msg)
 
-    def warning(self, msg: str, *args):
-        if msg in self.messages:
-            msg = self.get_message(msg, *args)
+    def warning(self, msg: str, *args, **kwargs):
+        msg = self._format_log_message(msg, *args, **kwargs)
         self.logger.warning(msg)
 
-    def error(self, msg: str, *args):
-        if msg in self.messages:
-            msg = self.get_message(msg, *args)
+    def error(self, msg: str, *args, **kwargs):
+        msg = self._format_log_message(msg, *args, **kwargs)
         self.logger.error(msg)

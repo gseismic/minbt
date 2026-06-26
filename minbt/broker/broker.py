@@ -175,7 +175,7 @@ class Broker:
         return sum(portfolio.get_portfolio_equity() for portfolio in self.portfolios.values())
     
     def get_total_equity(self) -> float:
-        return self.get_portfolio_equity()
+        return self.remaining_free_cash + self.get_all_portfolio_equity()
     
     def get_portfolio_equity(self, portfolio_id: Optional[str] = None) -> float:
         if portfolio_id is None:

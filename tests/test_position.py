@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+from typing import Tuple
 from minbt.broker.struct import Position
 
 def test_position_initialization():
@@ -57,6 +58,12 @@ def test_position_rejects_zero_qty_open_new():
 
     with pytest.raises(AssertionError):
         pos.commit_open_new(price=50000.0, qty=0, leverage=2.0)
+
+def test_position_return_annotations_are_python38_compatible():
+    """测试公开注解不使用 Python 3.9 才支持的内置泛型语法"""
+    assert Position.commit_open_new.__annotations__['return'] == Tuple[float, float]
+    assert Position.commit_close_partial.__annotations__['return'] == Tuple[float, float]
+    assert Position.commit_close_all.__annotations__['return'] == Tuple[float, float]
 
 def test_position_close_partial():
     """测试部分平仓"""

@@ -2,6 +2,29 @@ import pytest
 from minbt.logger import logger, I18nLogger
 from minbt.utils.i18n_logger import create_logger
 
+
+class CaptureLogger:
+    def __init__(self):
+        self.records = []
+
+    def debug(self, msg):
+        self.records.append(('debug', msg))
+
+    def info(self, msg):
+        self.records.append(('info', msg))
+
+    def warning(self, msg):
+        self.records.append(('warning', msg))
+
+    def error(self, msg):
+        self.records.append(('error', msg))
+
+    def remove(self, *args, **kwargs):
+        pass
+
+    def add(self, *args, **kwargs):
+        pass
+
 def test_i18n_logger_basic():
     # 测试基本的日志创建
     test_logger = I18nLogger()
@@ -60,6 +83,30 @@ def test_i18n_logger_methods():
     
     # 测试直接消息
     test_logger.info('Direct message')
+
+def test_i18n_logger_formats_plain_message_args():
+    capture = CaptureLogger()
+    test_logger = I18nLogger(logger=capture)
+
+    test_logger.info('Hello {}', 'world')
+    test_logger.info('on_data', {'symbol': 'AAPL', 'close': 100})
+
+    assert capture.records[0] == ('info', 'Hello world')
+    assert capture.records[1] == ('info', "on_data {'symbol': 'AAPL', 'close': 100}")
+
+def test_i18n_logger_formats_i18n_kwargs():
+    capture = CaptureLogger()
+    messages = {
+        'test_msg': {
+            'zh': '测试消息 {value}',
+            'en': 'Test message {value}'
+        }
+    }
+    test_logger = I18nLogger(logger=capture, messages=messages)
+
+    test_logger.info('test_msg', value='hello')
+
+    assert capture.records == [('info', 'Test message hello')]
 
 def test_run():
     logger.info("test")

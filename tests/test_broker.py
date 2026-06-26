@@ -177,6 +177,16 @@ def test_submit_market_order_requires_known_price():
 
     assert broker.portfolios['default'].positions == {}
 
+def test_total_equity_includes_all_portfolios_and_unallocated_cash():
+    """测试 broker 总权益包含所有子组合和未分配现金"""
+    broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
+    broker.add_sub_portfolio('alt', 300)
+
+    assert broker.get_all_portfolio_equity() == 900
+    assert broker.remaining_free_cash == 100
+    assert broker.get_total_equity() == 1000
+    assert broker.get_equity() == 600
+
 if __name__ == "__main__":
     # pytest.main([__file__])
     test_order_submission()

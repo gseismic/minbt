@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional, Tuple, Union
 import datetime
 
 DateType = Union[datetime.datetime, np.datetime64]
@@ -127,7 +127,7 @@ class Position:
                         price: float, 
                         qty: float, 
                         leverage: float, 
-                        dt: Optional[DateType] = None) -> tuple[float, float]:
+                        dt: Optional[DateType] = None) -> Tuple[float, float]:
         """在现有仓位基础上【同方向】新开仓
         Note:
             【调用本函数前】要求已经:
@@ -159,7 +159,7 @@ class Position:
         realized_pnl = 0
         return released_margin, realized_pnl
     
-    def commit_close_partial(self, price: float, qty: float) -> tuple[float, float]:
+    def commit_close_partial(self, price: float, qty: float) -> Tuple[float, float]:
         """在现有仓位基础上【同方向】平仓
             - 要求: 同方向
             - 要求: 平仓数量 <= 现有仓位数量
@@ -235,7 +235,7 @@ class Position:
         return exec_type, released_margin, realized_pnl
 
     
-    def commit_close_all(self, last_price: Optional[float] = None) -> tuple[float, float]:
+    def commit_close_all(self, last_price: Optional[float] = None) -> Tuple[float, float]:
         if last_price is None:
             last_price = self._last_price
         return self.commit_close_partial(last_price, qty=-self.size)
