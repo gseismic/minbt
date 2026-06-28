@@ -526,7 +526,9 @@ MVP 不做：
 
 ## 推荐实施顺序
 
-### MVP-1：bars 回调统一
+本节只描述数据回调子系统内部顺序。全局实施顺序以 `docs/design/README.md` 为准；Broker 能力见 `DESIGN-001-broker-account-market-api.md`。
+
+### Data-1：bars 回调统一
 
 1. 新增 `Strategy.on_bars(dt, bars)`。
 2. 新增 `Exchange.set_bars(data, date_key=None)`。
@@ -535,20 +537,7 @@ MVP 不做：
 5. README 和 examples 全部迁移到 `on_bars`。
 6. `on_data/on_bar` 标记为兼容接口。
 
-### MVP-2：Broker 便捷交易能力
-
-1. `Broker.order_target_size(...)`。
-2. `Broker.order_target_value(...)`。
-3. `Broker.order_target_percent(...)`。
-4. `Broker(initial_positions=...)`。
-
-### MVP-3：退出规则与市场模型
-
-1. 函数式止盈止损。
-2. `SimpleMarket` 扩展点。
-3. `ChinaAStockMarket` 和 `CryptoMarket` 最小版本。
-
-### MVP-4：更多数据类型
+### Data-2：更多数据类型
 
 只有当真实需求出现时，再实现：
 
@@ -568,4 +557,3 @@ MVP 不做：
 - 交易入口仍然是 broker。
 
 这条路线既保留 minbt 的最简目标，也避免后续接入非 bars 数据时命名和结构失控。
-

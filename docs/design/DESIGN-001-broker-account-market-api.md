@@ -84,8 +84,8 @@ Position.lock_size(...)
 |订单增量|`qty`|这次买入或卖出多少，可正可负|
 |当前持仓|`size`|账户里当前持有多少，可正可负|
 |目标持仓|`target_size`|希望调到多少持仓|
-|可平持仓|`available_size`|当前允许卖出或平仓的数量，非负|
-|锁定持仓|`locked_size`|当前不可卖出或不可平仓的数量，非负|
+|可平持仓|`available_size`|当前允许平仓的数量，非负|
+|锁定持仓|`locked_size`|当前不可平仓的数量，非负|
 |目标市值|`target_value`|希望调到多少名义金额|
 |目标权重|`target_percent`|希望调到组合权益的多少比例|
 
@@ -155,6 +155,32 @@ self.broker.order_target_percent("BTCUSDT", target_percent=0.5, price=price)
 
 这些接口内部最终仍然转化为 `submit_market_order(symbol, qty=delta, price=price)`。
 
+### 目标仓位计算公式
+
+`order_target_percent` 的计算必须明确：
+
+```python
+equity = broker.get_equity(portfolio_id=portfolio_id)
+target_value = equity * target_percent
+target_size = target_value / price
+delta_qty = target_size - broker.get_position_size(symbol, portfolio_id=portfolio_id)
+```
+
+然后执行：
+
+```python
+broker.submit_market_order(symbol, qty=delta_qty, price=price, portfolio_id=portfolio_id)
+```
+
+语义：
+
+- `target_percent > 0` 表示目标多头名义金额。
+- `target_percent < 0` 表示目标空头名义金额，是否允许由 `MarketModel` 判断。
+- `price` 显式传入时使用该价格；未传入时使用 broker 最新价。
+- 如果没有可用价格，返回失败并记录日志。
+- 手续费、lot size、tick size、是否允许做空、T+1 等约束由 `MarketModel` 和 `Portfolio` 校验。
+- 目标仓位接口不保证一定成交；它只是把用户目标转换为订单意图。
+
 示例：
 
 ```python
@@ -179,7 +205,11 @@ self.broker.close_position("BTCUSDT", price=price)
 - 对多头提交负数量订单。
 - 对空头提交正数量订单。
 - 如果持仓为空，返回失败并记录日志，不应抛出难以恢复的异常。
-- 如果市场规则不允许全部平仓，例如 A 股 T+1，只能按 `available_size` 执行或明确拒绝。
+- `close_position` 默认是全平语义，不能全平时返回失败，不应静默部分平仓。
+- 如果市场规则不允许全部平仓，例如 A 股 T+1，当 `available_size < abs(size)` 时返回失败。
+- 如果用户明确只想平掉可用部分，应使用显式接口，例如未来的 `close_available_position(...)` 或 `close_position(..., allow_partial=True)`。
+
+这个约束是为了避免用户以为已经清仓，实际还残留被 T+1 锁定的仓位。
 
 ## 初始账户状态
 
@@ -222,11 +252,25 @@ broker = Broker(
 
 语义：
 
-- `initial_cash` 是初始可用现金。
+- `initial_cash` 是初始现金，不是初始总权益。
 - `initial_positions` 是回测开始前已经存在的持仓。
 - 初始化持仓不是订单，不产生手续费、成交记录或交易日志。
 - 初始持仓成本由 `cost_price` 决定。
 - 初始权益会随第一根行情更新而反映浮动盈亏。
+- 初始总权益由 `initial_cash + 初始持仓权益` 构成。
+
+也就是说，如果用户真实账户里有 20,000 现金和 0.5 BTC，则应写：
+
+```python
+Broker(
+    initial_cash=20_000,
+    initial_positions={
+        "BTCUSDT": {"size": 0.5, "cost_price": 60_000},
+    },
+)
+```
+
+这里的 `initial_cash=20_000` 不会被初始 BTC 持仓占用或扣减；它就是账户现金余额。
 
 ### 初始持仓字段
 
@@ -246,6 +290,7 @@ MVP 必须支持：
     "size": 100,
     "cost_price": 1700,
     "available_size": 100,
+    "leverage": 1.0,
 }
 ```
 
@@ -256,10 +301,19 @@ MVP 必须支持：
     "size": 100,
     "cost_price": 1700,
     "locked_size": 0,
+    "margin": 170000,
 }
 ```
 
 `available_size` 和 `locked_size` 不能同时传，避免用户传出不一致状态。
+
+`leverage` 和 `margin` 的规则：
+
+- 都不传时，初始持仓默认 `leverage=1.0`。
+- 只传 `leverage` 时，`margin = abs(size) * cost_price / leverage`。
+- 只传 `margin` 时，按用户传入的真实初始保证金初始化。
+- 如果同时传 `leverage` 和 `margin`，必须与公式一致，否则应抛出参数错误。
+- 初始持仓默认不继承 `Broker(leverage=...)`，避免用户误把已有现货仓位初始化成杠杆仓位。
 
 如果都不传：
 
@@ -282,6 +336,12 @@ position.locked_size
 ```python
 available_size + locked_size == abs(size)
 ```
+
+`available_size` 和 `locked_size` 永远是非负数。
+
+当 `size > 0` 时，`available_size` 表示当前可卖出平多的数量。
+
+当 `size < 0` 时，`available_size` 表示当前可买入平空的数量。
 
 示例：A 股已有 200 股，其中 100 股可卖：
 
@@ -427,6 +487,63 @@ self.broker.submit_market_order("600519.SH", qty=100, price=price)
 
 broker 内部调用 `MarketModel` 处理市场约束。
 
+重要约束：
+
+- 第一阶段一个 `Broker` 绑定一个 `MarketModel`。
+- 如果用户需要同时交易多个市场，第一阶段建议使用多个 broker 或多个 portfolio 外部组合。
+- 未来如果确有必要，再支持 `market_by_symbol` 或 symbol 路由，不在当前 MVP 引入。
+
+### MarketModel 是特征组合，不是硬编码市场分支
+
+`ChinaAStockMarket` 和 `CryptoMarket` 不应该是写满特殊分支的独立 broker。它们只是市场特征的预设组合。
+
+市场至少由这些特征定义：
+
+```python
+class MarketModel:
+    trading_calendar: TradingCalendar
+    settlement: SettlementRule
+    lot_size: LotSizeRule
+    tick_size: TickSizeRule
+    fee_model: FeeModel
+    allow_short: bool
+    price_limit: PriceLimitRule | None
+```
+
+其中：
+
+- `trading_calendar` 定义可交易日期、可交易时间、如何从 `dt` 得到交易日。
+- `settlement` 定义 T+0、T+1、卖出资金是否立即可用等规则。
+- `lot_size` 定义最小交易手数或最小交易数量。
+- `tick_size` 定义价格最小变动单位。
+- `fee_model` 定义佣金、印花税、最低费用等。
+- `allow_short` 定义是否允许净空头。
+- `price_limit` 定义涨跌停等价格限制。
+
+这样 A 股和加密资产只是不同配置：
+
+```python
+ChinaAStockMarket = MarketModel(
+    trading_calendar=ChinaAStockCalendar(),
+    settlement=TPlusOneSettlement(),
+    lot_size=FixedLotSize(100),
+    tick_size=FixedTickSize(0.01),
+    allow_short=False,
+    price_limit=DailyPriceLimit(...),
+)
+
+CryptoMarket = MarketModel(
+    trading_calendar=AlwaysOpenCalendar(),
+    settlement=TPlusZeroSettlement(),
+    lot_size=SymbolLotSize(...),
+    tick_size=SymbolTickSize(...),
+    allow_short=True,
+    price_limit=None,
+)
+```
+
+这比在 broker 内部写 `if market == "cn_stock"` 更可维护。
+
 ### MarketModel 职责
 
 `MarketModel` 是内部接口，不是用户主接口。它负责：
@@ -437,11 +554,20 @@ broker 内部调用 `MarketModel` 处理市场约束。
 - 处理 T+1 锁定与解锁。
 - 处理 lot size、tick size、涨跌停。
 - 判断限价单是否成交。
+- 判断当前 `dt` 是否在可交易时间内。
+- 判断当前 `dt` 属于哪个交易日。
+- 判断某个持仓批次是否已经可卖或可平。
 
 MVP 内部契约可以从最小开始：
 
 ```python
 class MarketModel:
+    def is_trading_time(self, dt):
+        return True
+
+    def trading_day(self, dt):
+        return dt.date()
+
     def validate_order(self, ctx, order):
         pass
 
@@ -466,6 +592,7 @@ def fill_limit_order(self, ctx, order, bar):
 默认市场应保持当前行为：
 
 - T+0。
+- 始终可交易，除非用户数据本身没有该时间点。
 - 全部持仓都可立即平仓。
 - 允许小数数量。
 - 不强制 lot size。
@@ -480,6 +607,7 @@ def fill_limit_order(self, ctx, order, bar):
 加密资产市场可以在 `SimpleMarket` 基础上增强：
 
 - T+0。
+- 7x24 小时可交易。
 - 通常允许小数数量。
 - 可配置最小数量。
 - 可配置最小名义金额。
@@ -497,13 +625,34 @@ CryptoMarket(
 )
 ```
 
+不同加密 symbol 的最小交易数量、最小名义金额、tick size 可能不同。MVP 可以先支持统一配置，后续再支持：
+
+```python
+CryptoMarket(
+    min_qty={"BTCUSDT": 0.0001, "ETHUSDT": 0.001},
+    min_notional={"BTCUSDT": 5, "ETHUSDT": 5},
+    tick_size={"BTCUSDT": 0.01, "ETHUSDT": 0.01},
+)
+```
+
+或者支持 callable：
+
+```python
+CryptoMarket(
+    min_qty=lambda symbol: metadata[symbol]["min_qty"],
+)
+```
+
+这个能力可以后期追加，不应阻塞当前 broker 主接口。
+
 ### ChinaAStockMarket
 
 A 股市场至少需要：
 
 - T+1。
+- 交易日历和交易时段。
 - 买入数量通常必须是 100 股整数倍。
-- 卖出可以按持仓可用数量处理。
+- 卖出订单数量不得超过当前可用持仓。
 - 不允许普通股票做空。
 - 支持印花税和佣金模型。
 - 支持涨跌停校验。
@@ -534,6 +683,32 @@ position.available_size = 100
 position.locked_size = 0
 ```
 
+T+1 不应只靠静态 `locked_size` 判断。更完整的内部状态应记录持仓批次：
+
+```python
+PositionLot(
+    size=100,
+    cost_price=1700,
+    opened_trading_day="2024-01-02",
+)
+```
+
+在卖出或平仓时，`ChinaAStockMarket` 用当前 `dt` 计算当前交易日：
+
+```python
+current_day = market.trading_day(dt)
+```
+
+然后判断：
+
+```python
+lot.opened_trading_day < current_day
+```
+
+只有已经跨过交易日的买入批次才进入 `available_size`。如果当天买入后同一天触发 `close_position`，默认应该返回失败。
+
+MVP 可以先用聚合的 `available_size/locked_size` 实现；但设计上必须保留按交易日批次演进的空间。
+
 ## 函数式止盈止损
 
 ### 核心判断
@@ -561,6 +736,8 @@ sl_price=...
 ```python
 def atr_stop(ctx):
     atr = ctx.state["atr"]
+    if atr is None:
+        return False
     return ctx.position.size > 0 and ctx.price < ctx.position.cost_price - 2 * atr
 
 
@@ -578,6 +755,47 @@ broker.close_position(symbol, price=ctx.price)
 ```
 
 这笔平仓是否能够执行，再交给 `MarketModel` 判断。
+
+### add_exit_rule 签名
+
+推荐唯一签名：
+
+```python
+broker.add_exit_rule(
+    symbol,
+    rule=None,
+    *,
+    name=None,
+    condition=None,
+    state=None,
+    portfolio_id="default",
+)
+```
+
+语义：
+
+- `rule` 是 `ExitRule` 对象，可选。
+- `condition` 是函数，签名为 `condition(ctx) -> bool`。
+- `name` 是规则名称，用于日志和调试。
+- `state` 是可选状态，可以是 dict，也可以是无参函数，触发检查时求值。
+- `portfolio_id` 指定规则作用于哪个 portfolio。
+- `rule` 和 `condition` 至少提供一个。
+- 如果同时提供 `rule` 和 `condition`，应抛出参数错误，避免语义重复。
+
+因此下面两种写法都允许：
+
+```python
+self.broker.add_exit_rule("BTCUSDT", stop_loss_pct(0.03))
+```
+
+```python
+self.broker.add_exit_rule(
+    "BTCUSDT",
+    name="atr_stop",
+    condition=atr_stop,
+    state=lambda: {"atr": self.atr},
+)
+```
 
 ### 常规止盈止损 helper
 
@@ -652,7 +870,12 @@ MVP 可以先少给字段，但必须保证后续兼容增加字段。
 - 策略回调看到的是退出规则处理后的账户状态。
 - 用户仍然可以在策略里手写更复杂的退出逻辑。
 
-需要明确：bar 级回测无法知道同一根 bar 内高低价路径。MVP 中退出规则按当前 `close` 或用户指定价格字段判断，不模拟 intrabar 顺序。
+需要明确：
+
+- 退出规则使用当前 bar 的价格和上一轮策略已经写入的状态。
+- 如果某个指标只能在当前 `on_bars` 中计算，那么它默认会在下一根 bar 的退出检查中生效。
+- 如果用户必须基于当前 bar 先更新指标再退出，应在 `on_bars` 中手写退出逻辑。
+- bar 级回测无法知道同一根 bar 内高低价路径。MVP 中退出规则按当前 `close` 或用户指定价格字段判断，不模拟 intrabar 顺序。
 
 ### 与多市场的关系
 
@@ -756,6 +979,7 @@ ok = broker.submit_market_order(...)
 - 现金不足。
 - 持仓不足。
 - T+1 不可卖。
+- 不在可交易时间。
 - 数量不满足 lot size。
 - 价格不满足 tick size。
 - 达到涨跌停。
@@ -834,13 +1058,15 @@ broker = Broker(
 self.broker.close_position("600519.SH", price=price)
 ```
 
-broker 和 market 决定是否全平、部分平或拒绝。
+如果 200 股里只有 100 股可卖，`close_position` 默认返回失败，因为它表达的是全平意图。用户如果只想卖出可用部分，需要显式调用可用仓位平仓接口或提交具体 `qty` 的卖出订单。
 
 ### 场景 3：函数式 ATR 止损
 
 ```python
 def atr_stop(ctx):
     atr = ctx.state["atr"]
+    if atr is None:
+        return False
     if ctx.position.size > 0:
         return ctx.price < ctx.position.cost_price - 2.5 * atr
     if ctx.position.size < 0:
@@ -861,6 +1087,7 @@ class AtrStrategy(Strategy):
 
     def on_bars(self, dt, bars):
         bar = bars[self.symbol]
+        # 本 bar 更新出的 atr 会在下一次 broker 退出检查中使用。
         self.atr = self.update_atr(bar)
         self.broker.order_target_percent(self.symbol, 0.8, price=bar["close"])
 ```
@@ -905,7 +1132,9 @@ class ManualExit(Strategy):
 
 ## 推荐实施顺序
 
-### MVP-1：账户快照与目标仓位
+本节是 Broker 子系统内部顺序。全局实施顺序以 `docs/design/README.md` 为准；从用户接口一致性看，应先完成 `on_bars` 回调统一，再实现 Broker 增强能力。
+
+### Broker-1：账户快照与目标仓位
 
 1. 支持 `Broker(initial_positions=...)`。
 2. 支持 `Position.available_size/locked_size`。
@@ -913,7 +1142,16 @@ class ManualExit(Strategy):
 4. 支持 `order_target_value`。
 5. 支持 `order_target_percent`。
 
-### MVP-2：函数式退出规则
+### Broker-2：MarketModel 扩展点
+
+1. 抽出默认 `SimpleMarket`，保持当前行为。
+2. 所有订单执行经过 `MarketModel`。
+3. 支持可交易时间检查。
+4. 支持交易日计算。
+5. 支持 `available_size/locked_size` 的市场规则校验。
+6. 增加 `ChinaAStockMarket` 和 `CryptoMarket` 的最小版本。
+
+### Broker-3：函数式退出规则
 
 1. 支持 `broker.add_exit_rule(...)`。
 2. 支持 `broker.clear_exit_rules(...)`。
@@ -921,14 +1159,7 @@ class ManualExit(Strategy):
 4. 支持 `take_profit_pct(...)`。
 5. 在 `Exchange.run()` 中接入退出规则检查顺序。
 
-### MVP-3：MarketModel 扩展点
-
-1. 抽出默认 `SimpleMarket`，保持当前行为。
-2. 所有订单执行经过 `MarketModel`。
-3. 支持 `available_size/locked_size` 的市场规则校验。
-4. 增加 `ChinaAStockMarket` 和 `CryptoMarket` 的最小版本。
-
-### MVP-4：最小限价单
+### Broker-4：最小限价单
 
 1. 支持 pending limit order。
 2. 支持 `cancel_order(order_id)`。
@@ -965,4 +1196,3 @@ Broker(..., initial_positions=..., market=ChinaAStockMarket())
 - 函数式止盈止损。
 - A 股 T+1 与加密 T+0 的扩展。
 - 后续限价单能力。
-

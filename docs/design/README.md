@@ -32,6 +32,49 @@ class MyStrategy(Strategy):
 - Portfolio 和 Position 负责账户状态。
 - MarketModel 负责市场规则差异。
 
+## 全局推荐实施顺序
+
+### Phase-1：统一 bars 用户回调
+
+1. `Strategy.on_bars(dt, bars)`。
+2. `Exchange.set_bars(...)`。
+3. `Exchange.set_data(...)` 兼容为 bars 入口。
+4. README 和 examples 只展示 `on_bars`。
+
+### Phase-2：账户快照与目标仓位
+
+1. `Broker(initial_positions=...)`。
+2. 初始持仓字段 `size/cost_price/available_size/locked_size`。
+3. `initial_cash` 固定表示初始现金，不表示初始总权益。
+4. `Broker.order_target_size/value/percent(...)`。
+
+### Phase-3：市场特征模型
+
+1. `SimpleMarket` 保持当前行为。
+2. `MarketModel` 支持可交易时间、交易日、T+0/T+1、lot size、tick size、是否允许做空等特征。
+3. `ChinaAStockMarket` 和 `CryptoMarket` 作为特征预设组合。
+4. `close_position` 在 T+1 下默认全平失败，不静默部分平。
+
+### Phase-4：函数式退出规则
+
+1. `broker.add_exit_rule(...)`。
+2. `stop_loss_pct(...)` 和 `take_profit_pct(...)`。
+3. 退出规则使用当前价格和上一轮策略状态。
+
+### Phase-5：最小限价单
+
+1. pending limit order。
+2. `cancel_order(order_id)`。
+3. 基于 bar 的 high/low 成交判断。
+
+### Phase-6：更多数据类型
+
+只有真实需求出现时，再实现：
+
+1. `on_books(dt, books)`。
+2. `on_trades(dt, trades)`。
+3. `on_news(dt, news)`。
+
 ## 当前尚未实现的设计能力
 
 这些是设计目标，不代表当前代码已实现：
@@ -44,4 +87,3 @@ class MyStrategy(Strategy):
 - `MarketModel`、`SimpleMarket`、`ChinaAStockMarket`、`CryptoMarket`。
 - `on_books/on_trades/on_news`。
 - 限价单。
-
