@@ -21,8 +21,8 @@
 - 未实现：内置止盈止损。示例里的止损是策略手写逻辑，不是 broker 能力。
 - 未实现：函数式退出规则。
 - 未实现：`order_target_size/value/percent` 目标仓位接口。
-- 未实现：以已有持仓启动 broker 的账户快照初始化。
 - 未实现：T+1、T+0、lot size、tick size、涨跌停等多市场规则扩展。
+- 不进入当前 MVP：以已有持仓启动 broker 的账户快照初始化。
 
 README 如果提到“支持限价单”“支持止盈止损”，必须继续标记为未完成，直到代码真正实现。
 
@@ -89,29 +89,7 @@ Position.lock_size(...)
 |目标市值|`target_value`|希望调到多少名义金额|
 |目标权重|`target_percent`|希望调到组合权益的多少比例|
 
-`qty` 不应用于账户快照，因为快照不是一笔订单。
-
-推荐：
-
-```python
-initial_positions={
-    "BTCUSDT": {
-        "size": 0.5,
-        "cost_price": 60000,
-    }
-}
-```
-
-不推荐：
-
-```python
-initial_positions={
-    "BTCUSDT": {
-        "qty": 0.5,
-        "cost_price": 60000,
-    }
-}
-```
+当前 MVP 不提供账户快照初始化，因此用户通常不需要填写持仓状态字段。`size/available_size/locked_size` 主要是 broker 内部状态和查询结果，不作为主路径初始化参数。
 
 ## Broker 用户接口
 
@@ -213,113 +191,50 @@ self.broker.close_position("BTCUSDT", price=price)
 
 ## 初始账户状态
 
-### 为什么需要
+### MVP 决策
 
-真实使用中，用户经常不是从全现金开始，而是已经持有资产：
-
-- 当前账户有 20,000 USDT 和 0.5 BTC。
-- 当前 A 股账户有 50,000 现金和 200 股贵州茅台。
-- 当前基金组合已有多个 ETF，要从今天开始做再平衡。
-
-如果通过第一根 bar 下单伪造初始持仓，会产生错误：
-
-- 产生不存在的成交记录。
-- 扣除不存在的手续费。
-- 成本价变成回测第一根价格。
-- 初始现金和真实账户不一致。
-- T+1 可卖数量无法表达。
-
-因此 broker 必须支持账户快照初始化。
-
-### 推荐用户接口
+当前 MVP 只支持从现金开始：
 
 ```python
 broker = Broker(
-    initial_cash=20_000,
+    initial_cash=100_000,
     fee_rate=0.001,
-    initial_positions={
-        "BTCUSDT": {
-            "size": 0.5,
-            "cost_price": 60_000,
-        },
-        "ETHUSDT": {
-            "size": 2.0,
-            "cost_price": 3_000,
-        },
-    },
 )
 ```
 
 语义：
 
-- `initial_cash` 是初始现金，不是初始总权益。
-- `initial_positions` 是回测开始前已经存在的持仓。
-- 初始化持仓不是订单，不产生手续费、成交记录或交易日志。
-- 初始持仓成本由 `cost_price` 决定。
-- 初始权益会随第一根行情更新而反映浮动盈亏。
-- 初始总权益由 `initial_cash + 初始持仓权益` 构成。
+- `initial_cash` 是初始现金。
+- 回测开始时没有初始持仓。
+- 用户不需要理解账户快照、初始持仓成本、初始保证金、持仓批次等概念。
+- 策略重心放在信号和交易决策上。
 
-也就是说，如果用户真实账户里有 20,000 现金和 0.5 BTC，则应写：
+不在 `Broker.__init__` 中提供：
 
 ```python
-Broker(
-    initial_cash=20_000,
-    initial_positions={
-        "BTCUSDT": {"size": 0.5, "cost_price": 60_000},
-    },
-)
+Broker(initial_positions=...)
 ```
 
-这里的 `initial_cash=20_000` 不会被初始 BTC 持仓占用或扣减；它就是账户现金余额。
+原因：
 
-### 初始持仓字段
+- 大多数回测从现金开始，少数“接真实账户状态继续回测”的场景不应污染主接口。
+- 初始持仓会引入成本价、杠杆、保证金、可用数量、锁定数量、持仓批次等复杂字段。
+- 当前内部 `Position` 使用保证金模型，现货初始持仓和杠杆初始持仓的权益语义容易混淆。
+- 用户目标是快速验证策略，不是还原完整真实账户。
 
-MVP 必须支持：
+如果将来确实需要从真实账户继续回测，应单独设计显式快照入口，例如：
 
 ```python
-{
-    "size": 0.5,
-    "cost_price": 60000,
-}
+broker = Broker.from_snapshot(snapshot)
 ```
 
-建议支持：
+或：
 
 ```python
-{
-    "size": 100,
-    "cost_price": 1700,
-    "available_size": 100,
-    "leverage": 1.0,
-}
+broker.load_snapshot(snapshot)
 ```
 
-或者：
-
-```python
-{
-    "size": 100,
-    "cost_price": 1700,
-    "locked_size": 0,
-    "margin": 170000,
-}
-```
-
-`available_size` 和 `locked_size` 不能同时传，避免用户传出不一致状态。
-
-`leverage` 和 `margin` 的规则：
-
-- 都不传时，初始持仓默认 `leverage=1.0`。
-- 只传 `leverage` 时，`margin = abs(size) * cost_price / leverage`。
-- 只传 `margin` 时，按用户传入的真实初始保证金初始化。
-- 如果同时传 `leverage` 和 `margin`，必须与公式一致，否则应抛出参数错误。
-- 初始持仓默认不继承 `Broker(leverage=...)`，避免用户误把已有现货仓位初始化成杠杆仓位。
-
-如果都不传：
-
-- 默认市场和加密市场：`available_size = abs(size)`。
-- A 股市场：初始持仓默认视为已交收，`available_size = abs(size)`。
-- 如果用户要模拟“今天刚买入还不能卖”，需要显式传 `locked_size` 或 `available_size`。
+该能力进入后续版本，不进入当前 MVP，也不作为 `Broker(...)` 构造参数。
 
 ### 可用与锁定语义
 
@@ -343,74 +258,23 @@ available_size + locked_size == abs(size)
 
 当 `size < 0` 时，`available_size` 表示当前可买入平空的数量。
 
-示例：A 股已有 200 股，其中 100 股可卖：
+示例：A 股当天买入 100 股：
 
 ```python
-{
-    "size": 200,
-    "cost_price": 1700,
-    "available_size": 100,
-}
+position.size = 100
+position.available_size = 0
+position.locked_size = 100
 ```
 
-内部等价于：
+下一个交易日：
 
 ```python
-locked_size = 100
+position.size = 100
+position.available_size = 100
+position.locked_size = 0
 ```
 
-示例：加密资产 T+0：
-
-```python
-{
-    "size": 0.5,
-    "cost_price": 60000,
-}
-```
-
-内部默认：
-
-```python
-available_size = 0.5
-locked_size = 0
-```
-
-### 多 portfolio 初始化
-
-MVP 可以先只支持默认 portfolio：
-
-```python
-Broker(
-    initial_cash=100_000,
-    initial_positions={
-        "BTCUSDT": {"size": 0.5, "cost_price": 60_000},
-    },
-)
-```
-
-如果要支持多 portfolio，不建议把 `portfolio_id` 塞进每个 position 字段。更清楚的接口是：
-
-```python
-Broker(
-    initial_cash=100_000,
-    portfolios={
-        "main": {
-            "cash": 60_000,
-            "positions": {
-                "BTCUSDT": {"size": 0.5, "cost_price": 60_000},
-            },
-        },
-        "hedge": {
-            "cash": 30_000,
-            "positions": {
-                "ETHUSDT": {"size": -1.0, "cost_price": 3_000},
-            },
-        },
-    },
-)
-```
-
-但这不应进入第一阶段。当前项目已有 `add_sub_portfolio`，初始账户能力应先服务默认 portfolio，避免接口膨胀。
+这些字段由 broker 和 `MarketModel` 在交易后维护，不需要用户在初始化时填写。
 
 ## 多市场扩展
 
@@ -988,24 +852,20 @@ ok = broker.submit_market_order(...)
 严重状态错误才抛异常，例如：
 
 - 初始化参数不合法。
-- 初始持仓字段矛盾。
-- `available_size + locked_size != abs(size)`。
+- 内部持仓状态不一致，例如 `available_size + locked_size != abs(size)`。
 - 数据缺少必要字段。
 
 后续可以引入 `OrderResult`，但 MVP 保持 bool 也可以接受。
 
 ## 典型场景示例
 
-### 场景 1：从已有加密账户继续回测
+### 场景 1：加密资产趋势策略，从现金开始
 
 ```python
 broker = Broker(
-    initial_cash=20_000,
+    initial_cash=100_000,
     fee_rate=0.001,
     market=CryptoMarket(),
-    initial_positions={
-        "BTCUSDT": {"size": 0.5, "cost_price": 60_000},
-    },
 )
 
 
@@ -1027,38 +887,39 @@ class BtcTrend(Strategy):
         self.broker.order_target_percent(self.symbol, target, price=price)
 ```
 
-用户不需要伪造第一笔买入。
+这是 minbt 的主路径：从现金开始，用策略决定何时建仓、调仓和平仓。
 
-### 场景 2：A 股已有持仓，T+1 可用数量
+### 场景 2：A 股 T+1，当日买入后不能同日清仓
 
 ```python
 broker = Broker(
-    initial_cash=50_000,
+    initial_cash=100_000,
     fee_rate=0.0003,
     market=ChinaAStockMarket(),
-    initial_positions={
-        "600519.SH": {
-            "size": 200,
-            "cost_price": 1700,
-            "available_size": 100,
-        },
-    },
 )
 ```
 
-含义：
-
-- 总持仓 200 股。
-- 当前可卖 100 股。
-- 另外 100 股被锁定，不能当日卖出。
-
-策略仍然只调用：
-
 ```python
-self.broker.close_position("600519.SH", price=price)
+class AShareStopStrategy(Strategy):
+    def on_init(self):
+        self.symbol = "600519.SH"
+        self.entry_price = None
+
+    def on_bars(self, dt, bars):
+        price = bars[self.symbol]["close"]
+
+        if self.entry_price is None and self.entry_signal(price):
+            ok = self.broker.submit_market_order(self.symbol, qty=100, price=price)
+            if ok:
+                self.entry_price = price
+
+        if self.entry_price is not None and price < self.entry_price * 0.97:
+            ok = self.broker.close_position(self.symbol, price=price)
+            if ok:
+                self.entry_price = None
 ```
 
-如果 200 股里只有 100 股可卖，`close_position` 默认返回失败，因为它表达的是全平意图。用户如果只想卖出可用部分，需要显式调用可用仓位平仓接口或提交具体 `qty` 的卖出订单。
+如果买入和平仓发生在同一交易日，`ChinaAStockMarket` 根据 `trading_day(dt)` 和 T+1 规则拒绝 `close_position`。`close_position` 默认表达全平意图，不能全平时返回失败，不静默部分平。
 
 ### 场景 3：函数式 ATR 止损
 
@@ -1134,13 +995,12 @@ class ManualExit(Strategy):
 
 本节是 Broker 子系统内部顺序。全局实施顺序以 `docs/design/README.md` 为准；从用户接口一致性看，应先完成 `on_bars` 回调统一，再实现 Broker 增强能力。
 
-### Broker-1：账户快照与目标仓位
+### Broker-1：目标仓位与持仓可用性
 
-1. 支持 `Broker(initial_positions=...)`。
-2. 支持 `Position.available_size/locked_size`。
-3. 支持 `order_target_size`。
-4. 支持 `order_target_value`。
-5. 支持 `order_target_percent`。
+1. 支持 `order_target_size`。
+2. 支持 `order_target_value`。
+3. 支持 `order_target_percent`。
+4. 支持 `Position.available_size/locked_size` 作为内部状态。
 
 ### Broker-2：MarketModel 扩展点
 
@@ -1186,13 +1046,13 @@ self.broker.order_target_percent("BTCUSDT", 0.8, price=price)
 内部能力保持可扩展：
 
 ```python
-Broker(..., initial_positions=..., market=ChinaAStockMarket())
+Broker(..., market=ChinaAStockMarket())
 ```
 
 这条路线同时满足：
 
 - 最简回测系统目标。
-- 从真实账户状态继续决策。
+- 从现金开始快速验证策略。
 - 函数式止盈止损。
 - A 股 T+1 与加密 T+0 的扩展。
 - 后续限价单能力。

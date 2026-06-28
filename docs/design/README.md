@@ -41,12 +41,12 @@ class MyStrategy(Strategy):
 3. `Exchange.set_data(...)` 兼容为 bars 入口。
 4. README 和 examples 只展示 `on_bars`。
 
-### Phase-2：账户快照与目标仓位
+### Phase-2：目标仓位与持仓可用性
 
-1. `Broker(initial_positions=...)`。
-2. 初始持仓字段 `size/cost_price/available_size/locked_size`。
-3. `initial_cash` 固定表示初始现金，不表示初始总权益。
-4. `Broker.order_target_size/value/percent(...)`。
+1. `initial_cash` 固定表示初始现金。
+2. 回测开始时默认没有初始持仓。
+3. `Broker.order_target_size/value/percent(...)`。
+4. `Position.available_size/locked_size` 作为 broker 内部状态，用于 T+1 等市场规则。
 
 ### Phase-3：市场特征模型
 
@@ -81,9 +81,14 @@ class MyStrategy(Strategy):
 
 - `Strategy.on_bars(dt, bars)`。
 - `Exchange.set_bars(...)`。
-- `Broker(initial_positions=...)`。
 - `Broker.order_target_size/value/percent(...)`。
 - 函数式止盈止损。
 - `MarketModel`、`SimpleMarket`、`ChinaAStockMarket`、`CryptoMarket`。
 - `on_books/on_trades/on_news`。
 - 限价单。
+
+## 当前明确不进入 MVP
+
+- `Broker(initial_positions=...)`。
+- 从已有持仓启动回测的账户快照初始化。
+- 初始持仓的成本价、杠杆、保证金、可用数量和锁定数量配置。
