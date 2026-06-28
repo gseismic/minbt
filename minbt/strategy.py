@@ -2,6 +2,20 @@ from typing import Dict, Optional, Protocol, runtime_checkable
 from .broker import Broker
 from .logger import logger as default_logger
 
+BROKER_PROTOCOL_METHODS = (
+    'submit_market_order',
+    'get_position_size',
+    'get_position_sizes',
+    'get_total_equity',
+    'get_equity',
+    'get_cash',
+    'get_positions',
+    'order_target_size',
+    'order_target_value',
+    'order_target_percent',
+    'close_position',
+)
+
 @runtime_checkable
 class BrokerProtocol(Protocol):
     def submit_market_order(
@@ -61,7 +75,7 @@ class Strategy:
             return
         if not isinstance(broker, BrokerProtocol):
             raise TypeError(
-                f'broker must implement BrokerProtocol (submit_market_order, get_position_size, get_total_equity), '
+                f"broker must implement BrokerProtocol ({', '.join(BROKER_PROTOCOL_METHODS)}), "
                 f'got {type(broker).__name__}'
             )
         self.broker = broker

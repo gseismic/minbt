@@ -1,4 +1,5 @@
 import datetime as _dt
+import math
 from dataclasses import dataclass
 from typing import Optional, Any
 
@@ -52,7 +53,7 @@ class MarketModel:
     def on_new_dt(self, broker, dt) -> None:
         return None
 
-    def normalize_order_qty(self, symbol: str, qty: float) -> float:
+    def normalize_order_qty(self, broker, symbol: str, qty: float, price: Optional[float] = None, portfolio_id: str = "default") -> float:
         return qty
 
     def validate_order(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "default") -> OrderValidation:
@@ -124,7 +125,7 @@ class ChinaAStockMarket(MarketModel):
     def is_trading_time(self, dt) -> bool:
         value = _to_datetime(dt)
         if value is None:
-            return True
+            return False
         if value.weekday() >= 5:
             return False
         # 日线数据经常用 00:00:00 表示交易日，视为可交易。
@@ -153,6 +154,16 @@ class ChinaAStockMarket(MarketModel):
             return OrderValidation(False, f"buy qty must be multiple of lot_size {self.lot_size}: {qty}")
         return OrderValidation(True)
 
+    def normalize_order_qty(self, broker, symbol: str, qty: float, price: Optional[float] = None, portfolio_id: str = "default") -> float:
+        if qty <= 0 or self.lot_size is None:
+            return qty
+        position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+        current_size = 0 if position is None else position.size
+        if current_size < 0:
+            return qty
+        normalized = math.floor(abs(qty) / self.lot_size + 1e-12) * self.lot_size
+        return float(normalized)
+
     def on_order_filled(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "default") -> None:
         if qty <= 0:
             return
@@ -160,4 +171,3 @@ class ChinaAStockMarket(MarketModel):
         if position is None or position.size <= 0:
             return
         position.lock_size(abs(qty), self.trading_day(dt))
-

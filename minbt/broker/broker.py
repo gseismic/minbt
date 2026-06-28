@@ -106,13 +106,43 @@ class Broker:
             logger=self.logger,
         )
     
-    def close_portfolio(self, portfolio_id: str):
+    def close_portfolio(self, portfolio_id: str) -> bool:
         if portfolio_id not in self.portfolios:
             raise ValueError(f"portfolio_id not found: {portfolio_id}")
         portfolio = self.portfolios[portfolio_id]
-        portfolio.close_all_positions(self.last_prices)
+
+        close_orders = []
+        for symbol, position in list(portfolio.positions.items()):
+            if position is None or position.is_empty():
+                continue
+            price = self.last_prices.get(symbol, position.last_price)
+            price_dt = self.last_price_dates.get(symbol)
+            if price is None:
+                self.logger.error(f"Cannot close portfolio {portfolio_id}: no price available for {symbol}")
+                return False
+            qty = -position.size
+            validation = self.market.validate_order(
+                self,
+                symbol,
+                qty,
+                price,
+                dt=price_dt,
+                portfolio_id=portfolio_id,
+            )
+            if not validation.ok:
+                self.logger.warning(
+                    f"Close portfolio rejected: {portfolio_id}, symbol={symbol}, reason={validation.message}"
+                )
+                return False
+            close_orders.append((symbol, price, price_dt))
+
+        for symbol, price, price_dt in close_orders:
+            if not self.close_position(symbol, price=price, price_dt=price_dt, portfolio_id=portfolio_id):
+                return False
+
         self.portfolios.pop(portfolio_id)
         self.remaining_free_cash += portfolio.total_cash
+        return True
     
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
         _require(price > 0, f"price must be positive, price: {price}")
@@ -162,6 +192,7 @@ class Broker:
             if price_dt is None:
                 price_dt = self.last_price_dates.get(symbol)
             self.on_new_price(symbol, price, price_dt)
+        qty = self.market.normalize_order_qty(self, symbol, qty, price=price, portfolio_id=portfolio_id)
         validation = self.market.validate_order(self, symbol, qty, price, dt=price_dt, portfolio_id=portfolio_id)
         if not validation.ok:
             self.logger.warning(f"Order rejected: {symbol}, qty={qty}, price={price}, reason={validation.message}")

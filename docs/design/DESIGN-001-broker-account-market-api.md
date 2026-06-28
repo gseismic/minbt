@@ -428,6 +428,9 @@ MVP 内部契约可以从最小开始：
 
 ```python
 class MarketModel:
+    def normalize_order_qty(self, broker, symbol, qty, price=None, portfolio_id="default"):
+        return qty
+
     def is_trading_time(self, dt):
         return True
 
@@ -524,6 +527,8 @@ A 股市场至少需要：
 - 支持涨跌停校验。
 - 当日买入数量进入 `locked_size`。
 - 下一个交易日由 `on_new_dt` 解锁。
+- 直接调用 broker 下单时要求提供 `price_dt`，避免静默跳过交易时间判断。
+- 目标仓位接口产生的买入数量按整手向 0 方向规范化。
 
 示例：
 
@@ -574,6 +579,8 @@ lot.opened_trading_day < current_day
 只有已经跨过交易日的买入批次才进入 `available_size`。如果当天买入后同一天触发 `close_position`，默认应该返回失败。
 
 MVP 可以先用聚合的 `available_size/locked_size` 实现；但设计上必须保留按交易日批次演进的空间。
+
+`close_portfolio` 也必须走 broker 层 `close_position`，不能绕过 `MarketModel` 直接调用 `Portfolio.close_all_positions`。
 
 ## 函数式止盈止损
 

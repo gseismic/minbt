@@ -89,6 +89,34 @@ def test_china_a_stock_market_locks_same_day_buy():
     assert broker.get_position_size("600519.SH") == 0
 
 
+def test_china_a_stock_market_requires_dt_for_manual_order():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+
+    assert not broker.submit_market_order("600519.SH", qty=100, price=100)
+    assert broker.get_position_size("600519.SH") == 0
+
+
+def test_china_a_stock_market_normalizes_target_value_to_lot_size():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+
+    assert broker.order_target_value("600519.SH", target_value=80000, price=13, price_dt="2026-01-05")
+
+    assert broker.get_position_size("600519.SH") == 6100
+
+
+def test_close_portfolio_respects_market_rules():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+
+    assert broker.submit_market_order("600519.SH", qty=100, price=100, price_dt="2026-01-05")
+    assert not broker.close_portfolio("default")
+    assert "default" in broker.portfolios
+    assert broker.get_position_size("600519.SH") == 100
+
+    broker.on_new_price("600519.SH", 101, "2026-01-06")
+    assert broker.close_portfolio("default")
+    assert "default" not in broker.portfolios
+
+
 class StopLossStrategy(Strategy):
     def on_init(self):
         self.broker.add_exit_rule("BTCUSDT", stop_loss_pct(0.05))

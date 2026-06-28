@@ -82,7 +82,7 @@ class CrossSectionStrategy(Strategy):
 
 - `SimpleMarket` 是默认 T+0 行为。
 - `CryptoMarket` 是加密资产预设，可配置最小数量、最小名义金额、价格 tick 和是否允许做空。
-- `ChinaAStockMarket` 是最小 A 股预设，包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定。
+- `ChinaAStockMarket` 是最小 A 股预设，包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定；直接调用 broker 时必须传 `price_dt`，目标仓位买入数量会按整手向 0 方向规范化。
 - `Position.available_size` 和 `Position.locked_size` 是 broker 内部状态，用于 T+1 等市场规则，不作为用户初始化主路径。
 - `broker.add_exit_rule(symbol, stop_loss_pct(...))` 和 `take_profit_pct(...)` 可用于常规止盈止损。
 - 自定义退出规则使用 `condition(ctx) -> bool`；规则在每个 `on_bars` 前检查，触发后通过当前 `close` 市价平仓。

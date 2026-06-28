@@ -1,4 +1,5 @@
 import builtins
+import pytest
 
 from minbt import Broker, Strategy
 
@@ -38,3 +39,34 @@ def test_strategy_get_broker_stats_uses_requested_portfolio():
     assert stats['equity'] == 300
     assert stats['cash'] == 300
     assert stats['positions'] == {}
+
+
+def test_strategy_broker_protocol_error_lists_target_methods():
+    class OldStyleBroker:
+        def submit_market_order(self, *args, **kwargs):
+            return True
+
+        def get_position_size(self, *args, **kwargs):
+            return 0
+
+        def get_position_sizes(self, *args, **kwargs):
+            return {}
+
+        def get_total_equity(self):
+            return 0
+
+        def get_equity(self, *args, **kwargs):
+            return 0
+
+        def get_cash(self, *args, **kwargs):
+            return 0
+
+        def get_positions(self, *args, **kwargs):
+            return {}
+
+    with pytest.raises(TypeError) as exc_info:
+        Strategy(strategy_id='test', broker=OldStyleBroker())
+
+    message = str(exc_info.value)
+    assert 'order_target_percent' in message
+    assert 'close_position' in message

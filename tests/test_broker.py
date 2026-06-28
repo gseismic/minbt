@@ -244,17 +244,17 @@ raise SystemExit(1)
 def test_close_portfolio_keeps_portfolio_when_close_fails():
     """测试关闭组合失败时不会先移除组合导致状态丢失"""
     broker = Broker(initial_cash=1000, fee_rate=0)
-    portfolio = broker.portfolios['default']
+    broker.submit_market_order("AAPL", qty=1, price=100)
 
-    def fail_close_all_positions(last_prices):
-        raise RuntimeError('close failed')
+    def reject_close_position(*args, **kwargs):
+        return False
 
-    portfolio.close_all_positions = fail_close_all_positions
+    broker.close_position = reject_close_position
 
-    with pytest.raises(RuntimeError, match='close failed'):
-        broker.close_portfolio('default')
+    assert not broker.close_portfolio('default')
 
-    assert broker.portfolios['default'] is portfolio
+    assert 'default' in broker.portfolios
+    assert broker.get_position_size("AAPL") == 1
 
 if __name__ == "__main__":
     # pytest.main([__file__])

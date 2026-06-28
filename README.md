@@ -212,7 +212,7 @@ crypto_broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=CryptoMarke
 a_stock_broker = Broker(initial_cash=100_000, fee_rate=0.0003, market=ChinaAStockMarket())
 ```
 
-`ChinaAStockMarket` 当前实现最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。同日买入的持仓 `locked_size` 大于 0，`close_position()` 会在可平数量不足时失败，而不是静默部分平仓。
+`ChinaAStockMarket` 当前实现最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。同日买入的持仓 `locked_size` 大于 0，`close_position()` 和 `close_portfolio()` 会在可平数量不足时失败，而不是静默部分平仓。直接调用 broker 下单时需要传入 `price_dt`；通过 Exchange 回测时，`date_key` 会自动传入。目标仓位接口产生的买入数量会按整手向 0 方向规范化。
 
 ### 函数式退出规则
 
