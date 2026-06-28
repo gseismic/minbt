@@ -1,6 +1,9 @@
 from typing import Literal, Optional, Dict
+from collections import defaultdict
 from .portfolio import Portfolio
 from .struct import Position, DateType, _require
+from .market import MarketModel, SimpleMarket
+from .exit import ExitRule, ExitContext
 from ..logger import logger as default_logger
 
 class Broker:
@@ -20,6 +23,7 @@ class Broker:
                  margin_mode: Literal['cross', 'isolated'] = 'cross', 
                  warning_margin_level: float = 0.2, 
                  min_margin_level: float = 0.1,
+                 market: Optional[MarketModel] = None,
                  logger=None):
         """
         Args:
@@ -66,6 +70,7 @@ class Broker:
         self.margin_mode = margin_mode
         self.warning_margin_level = warning_margin_level
         self.min_margin_level = min_margin_level
+        self.market = market or SimpleMarket()
         self.logger = logger or default_logger
         self.initial_cash = initial_cash
         self.remaining_free_cash = initial_cash
@@ -76,6 +81,8 @@ class Broker:
         
         self.last_prices = {}
         self.last_price_dates = {}
+        self._last_market_dt = None
+        self._exit_rules = defaultdict(lambda: defaultdict(list))
     
     def add_sub_portfolio(self, portfolio_id: str, initial_cash: float) -> None:
         """
@@ -109,6 +116,9 @@ class Broker:
     
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
         _require(price > 0, f"price must be positive, price: {price}")
+        if dt is not None and dt != self._last_market_dt:
+            self.market.on_new_dt(self, dt)
+            self._last_market_dt = dt
         self.last_prices[symbol] = price
         self.last_price_dates[symbol] = dt
         for portfolio in self.portfolios.values():
@@ -149,8 +159,169 @@ class Broker:
             if price is None:
                 raise ValueError(f"market price not found: {symbol}")
         else:
+            if price_dt is None:
+                price_dt = self.last_price_dates.get(symbol)
             self.on_new_price(symbol, price, price_dt)
-        return self.portfolios[portfolio_id].submit_order(symbol, qty, price=price, leverage=leverage, price_dt=price_dt)
+        validation = self.market.validate_order(self, symbol, qty, price, dt=price_dt, portfolio_id=portfolio_id)
+        if not validation.ok:
+            self.logger.warning(f"Order rejected: {symbol}, qty={qty}, price={price}, reason={validation.message}")
+            return False
+        result = self.portfolios[portfolio_id].submit_order(symbol, qty, price=price, leverage=leverage, price_dt=price_dt)
+        if result:
+            self.market.on_order_filled(self, symbol, qty, price, dt=price_dt, portfolio_id=portfolio_id)
+        return result
+
+    def order_target_size(
+        self,
+        symbol: str,
+        target_size: float,
+        price: Optional[float] = None,
+        leverage: Optional[float] = None,
+        price_dt: Optional[DateType] = None,
+        portfolio_id: str = 'default',
+    ) -> bool:
+        current_size = self.get_position_size(symbol, portfolio_id=portfolio_id)
+        qty = target_size - current_size
+        if qty == 0:
+            return False
+        return self.submit_market_order(
+            symbol,
+            qty=qty,
+            price=price,
+            leverage=leverage,
+            price_dt=price_dt,
+            portfolio_id=portfolio_id,
+        )
+
+    def order_target_value(
+        self,
+        symbol: str,
+        target_value: float,
+        price: Optional[float] = None,
+        leverage: Optional[float] = None,
+        price_dt: Optional[DateType] = None,
+        portfolio_id: str = 'default',
+    ) -> bool:
+        if price is None:
+            price, price_dt = self.get_last_price(symbol, return_dt=True)
+            if price is None:
+                raise ValueError(f"market price not found: {symbol}")
+        target_size = target_value / price
+        return self.order_target_size(
+            symbol,
+            target_size=target_size,
+            price=price,
+            leverage=leverage,
+            price_dt=price_dt,
+            portfolio_id=portfolio_id,
+        )
+
+    def order_target_percent(
+        self,
+        symbol: str,
+        target_percent: float,
+        price: Optional[float] = None,
+        leverage: Optional[float] = None,
+        price_dt: Optional[DateType] = None,
+        portfolio_id: str = 'default',
+    ) -> bool:
+        if price is not None:
+            if price_dt is None:
+                price_dt = self.last_price_dates.get(symbol)
+            self.on_new_price(symbol, price, price_dt)
+        equity = self.get_equity(portfolio_id=portfolio_id)
+        target_value = equity * target_percent
+        return self.order_target_value(
+            symbol,
+            target_value=target_value,
+            price=price,
+            leverage=leverage,
+            price_dt=price_dt,
+            portfolio_id=portfolio_id,
+        )
+
+    def close_position(
+        self,
+        symbol: str,
+        price: Optional[float] = None,
+        price_dt: Optional[DateType] = None,
+        portfolio_id: str = 'default',
+    ) -> bool:
+        position = self.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+        if position is None or position.is_empty():
+            self.logger.warning(f'Cannot close empty position: {symbol}')
+            return False
+        return self.submit_market_order(
+            symbol,
+            qty=-position.size,
+            price=price,
+            price_dt=price_dt,
+            portfolio_id=portfolio_id,
+        )
+
+    def add_exit_rule(
+        self,
+        symbol: str,
+        rule: Optional[ExitRule] = None,
+        *,
+        name: Optional[str] = None,
+        condition=None,
+        state=None,
+        portfolio_id: str = 'default',
+    ) -> ExitRule:
+        if rule is not None and condition is not None:
+            raise ValueError("rule and condition cannot both be provided")
+        if rule is None:
+            if condition is None:
+                raise ValueError("either rule or condition must be provided")
+            rule = ExitRule(name=name or getattr(condition, '__name__', 'exit_rule'), condition=condition, state=state)
+        elif state is not None or name is not None:
+            raise ValueError("name/state cannot be provided with rule")
+        self._exit_rules[portfolio_id][symbol].append(rule)
+        return rule
+
+    def clear_exit_rules(self, symbol: Optional[str] = None, portfolio_id: Optional[str] = None) -> None:
+        if portfolio_id is None:
+            if symbol is None:
+                self._exit_rules.clear()
+                return
+            for rules_by_symbol in self._exit_rules.values():
+                rules_by_symbol.pop(symbol, None)
+            return
+        if symbol is None:
+            self._exit_rules.pop(portfolio_id, None)
+        else:
+            self._exit_rules[portfolio_id].pop(symbol, None)
+
+    def check_exit_rules(self, dt=None, data=None) -> None:
+        for portfolio_id, rules_by_symbol in list(self._exit_rules.items()):
+            if portfolio_id not in self.portfolios:
+                continue
+            for symbol, rules in list(rules_by_symbol.items()):
+                position = self.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+                if position is None or position.is_empty():
+                    continue
+                price = self.get_last_price(symbol)
+                if price is None:
+                    continue
+                for rule in list(rules):
+                    ctx = ExitContext(
+                        symbol=symbol,
+                        dt=dt,
+                        price=price,
+                        position=position,
+                        broker=self,
+                        portfolio_id=portfolio_id,
+                        data=data,
+                        state=rule.get_state(),
+                    )
+                    if rule.condition(ctx):
+                        ok = self.close_position(symbol, price=price, price_dt=dt, portfolio_id=portfolio_id)
+                        if ok:
+                            self.logger.info(f"Exit rule triggered: {rule.name}, symbol={symbol}, dt={dt}")
+                        else:
+                            self.logger.warning(f"Exit rule rejected: {rule.name}, symbol={symbol}, dt={dt}")
+                        break
     
     def submit_limit_order(self, 
                   symbol: str, 

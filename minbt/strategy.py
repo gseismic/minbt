@@ -19,6 +19,10 @@ class BrokerProtocol(Protocol):
     def get_equity(self, portfolio_id: Optional[str] = None) -> float: ...
     def get_cash(self, include_locked: bool = False, portfolio_id: Optional[str] = None) -> float: ...
     def get_positions(self, portfolio_id: Optional[str] = None): ...
+    def order_target_size(self, symbol: str, target_size: float, price: Optional[float] = None, **kwargs) -> bool: ...
+    def order_target_value(self, symbol: str, target_value: float, price: Optional[float] = None, **kwargs) -> bool: ...
+    def order_target_percent(self, symbol: str, target_percent: float, price: Optional[float] = None, **kwargs) -> bool: ...
+    def close_position(self, symbol: str, price: Optional[float] = None, **kwargs) -> bool: ...
 
 class Strategy:
     def __init__(self,
@@ -113,10 +117,30 @@ class Strategy:
         if record_history:
             self._record_broker_history()
 
+    def _has_custom_handler(self, name: str) -> bool:
+        return getattr(type(self), name) is not getattr(Strategy, name)
+
+    def _on_exchange_bars(self, dt, bars, rows=None, record_history: bool = True):
+        if self._has_custom_handler('on_bars'):
+            self.on_bars(dt, bars)
+        else:
+            if rows is None:
+                rows = list(bars.values())
+            if self._has_custom_handler('on_data'):
+                for row in rows:
+                    self.on_data(row)
+            if self._has_custom_handler('on_bar'):
+                self.on_bar(dt, bars)
+        if record_history:
+            self._record_broker_history()
+
     def on_data(self, data):
         pass
 
     def on_bar(self, dt, rows_by_symbol):
+        pass
+
+    def on_bars(self, dt, bars):
         pass
 
     def on_finish(self):

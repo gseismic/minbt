@@ -67,6 +67,10 @@ class Exchange:
             else:
                 self.data = self.data.sort_values([date_key, "symbol"], ascending=[True, True])
 
+    def set_bars(self, data: Union[pd.DataFrame, pl.DataFrame, List[Dict]], date_key: Optional[str] = None):
+        """设置 bars 数据。当前等价于 set_data，是推荐的新用户入口。"""
+        self.set_data(data, date_key=date_key)
+
     def add_strategy(self, strategy: Strategy) -> None:
         if not hasattr(strategy, 'strategy_id'):
             raise TypeError('strategy must have `strategy_id` attribute')
@@ -76,6 +80,8 @@ class Exchange:
             raise TypeError('strategy must have `on_data` method')
         if not hasattr(strategy, 'on_bar'):
             raise TypeError('strategy must have `on_bar` method')
+        if not hasattr(strategy, 'on_bars'):
+            raise TypeError('strategy must have `on_bars` method')
         if not hasattr(strategy, 'on_finish'):
             raise TypeError('strategy must have `on_finish` method')
         strategy.set_exchange(self)
@@ -214,13 +220,10 @@ class Exchange:
 
             self._update_strategy_brokers_for_bar(current_dt, rows)
 
-            for row in rows:
-                for strategy in self.strategies.values():
-                    strategy._on_exchange_data(row, record_history=False)
-
             rows_by_symbol = self._rows_by_symbol(rows)
+            self._check_strategy_broker_exits(current_dt, rows_by_symbol)
             for strategy in self.strategies.values():
-                strategy._on_exchange_bar(current_dt, rows_by_symbol)
+                strategy._on_exchange_bars(current_dt, rows_by_symbol, rows=rows)
             step += 1
 
         for strategy in self.strategies.values():
@@ -245,3 +248,16 @@ class Exchange:
 
     def get_current_dt(self):
         return self._current_dt
+
+    def _check_strategy_broker_exits(self, dt, bars):
+        updated_broker_ids = set()
+        for strategy in self.strategies.values():
+            broker = strategy.broker
+            if not broker:
+                continue
+            broker_id = id(broker)
+            if broker_id in updated_broker_ids:
+                continue
+            if hasattr(broker, 'check_exit_rules'):
+                broker.check_exit_rules(dt=dt, data=bars)
+            updated_broker_ids.add(broker_id)

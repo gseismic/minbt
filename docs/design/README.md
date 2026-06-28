@@ -75,15 +75,18 @@ class MyStrategy(Strategy):
 2. `on_trades(dt, trades)`。
 3. `on_news(dt, news)`。
 
-## 当前尚未实现的设计能力
+## 当前实现状态
 
-这些是设计目标，不代表当前代码已实现：
+已实现：
 
 - `Strategy.on_bars(dt, bars)`。
 - `Exchange.set_bars(...)`。
 - `Broker.order_target_size/value/percent(...)`。
 - 函数式止盈止损。
 - `MarketModel`、`SimpleMarket`、`ChinaAStockMarket`、`CryptoMarket`。
+
+尚未实现：
+
 - `on_books/on_trades/on_news`。
 - 限价单。
 

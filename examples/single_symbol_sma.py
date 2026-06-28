@@ -52,8 +52,8 @@ class SingleSymbolSmaStrategy(Strategy):
         self.prices = deque(maxlen=self.long_window)
         self.trade_count = 0
 
-    def on_data(self, row):
-        price = row["close"]
+    def on_bars(self, dt, bars):
+        price = bars[SYMBOL]["close"]
         self.prices.append(price)
         if len(self.prices) < self.long_window:
             return
@@ -62,11 +62,8 @@ class SingleSymbolSmaStrategy(Strategy):
         short_ma = sum(prices[-self.short_window:]) / self.short_window
         long_ma = sum(prices) / self.long_window
         target_size = self.target_qty if short_ma > long_ma else -self.target_qty
-        current_size = self.broker.get_position_size(SYMBOL)
-        order_qty = target_size - current_size
 
-        if order_qty != 0:
-            self.broker.submit_market_order(SYMBOL, qty=order_qty, price=price, leverage=2)
+        if self.broker.order_target_size(SYMBOL, target_size=target_size, price=price, leverage=2):
             self.trade_count += 1
 
     def on_finish(self):
@@ -81,7 +78,7 @@ def run_strategy(quiet: bool = True):
 
     data = pd.read_csv(DATA_PATH)
     exchange = Exchange(logger=quiet_logger)
-    exchange.set_data(data[["symbol", "close"]])
+    exchange.set_bars(data[["symbol", "close"]])
 
     broker = Broker(initial_cash=10_000, fee_rate=0.001, leverage=2, logger=quiet_logger)
     strategy = SingleSymbolSmaStrategy(strategy_id="single_symbol_sma", broker=broker)

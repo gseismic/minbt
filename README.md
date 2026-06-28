@@ -11,9 +11,12 @@ minbt 是一个简易的量化回测框架，主要面向 T+0 的加密货币和
 - [x] 支持逐仓和全仓两种保证金模式。
 - [x] 支持多 portfolio 分仓。
 - [x] 自动记录策略权益和持仓历史。
-- [x] 支持多标的同一时间截面的 `on_bar` 回调。
+- [x] 支持多标的同一时间截面的 `on_bars(dt, bars)` 回调。
+- [x] 支持目标持仓、目标名义金额、目标权重调仓。
+- [x] 支持函数式退出规则，可定义止盈、止损或自定义退出条件。
+- [x] 支持最小市场规则扩展，包括默认 T+0、加密资产和 A 股 T+1 预设。
 - [ ] 支持限价单。
-- [ ] 支持止盈止损。
+- [ ] 支持挂单式止损、追踪止损和订单状态管理。
 
 ## 安装
 
@@ -57,18 +60,17 @@ from minbt import Broker, Exchange, Strategy
 
 class DemoStrategy(Strategy):
     def on_init(self):
-        self.orders = 0
+        self.bar_count = 0
 
-    def on_data(self, row):
-        symbol = row["symbol"]
-        price = row["close"]
+    def on_bars(self, dt, bars):
+        price = bars["BTCUSDT"]["close"]
 
-        if self.orders == 0:
-            self.broker.submit_market_order(symbol, qty=1, price=price, leverage=2)
-        elif self.orders == 2:
-            self.broker.submit_market_order(symbol, qty=-1, price=price)
+        if self.bar_count == 0:
+            self.broker.order_target_percent("BTCUSDT", 0.8, price=price, leverage=2)
+        elif self.bar_count == 2:
+            self.broker.close_position("BTCUSDT", price=price)
 
-        self.orders += 1
+        self.bar_count += 1
 
     def on_finish(self):
         print("equity:", self.broker.get_total_equity())
@@ -84,7 +86,7 @@ data = pd.DataFrame(
 )
 
 exchange = Exchange()
-exchange.set_data(data, date_key="dt")
+exchange.set_bars(data, date_key="dt")
 
 broker = Broker(initial_cash=10_000, fee_rate=0.001, leverage=2.0)
 strategy = DemoStrategy(strategy_id="demo", broker=broker)
@@ -99,18 +101,29 @@ exchange.run()
 python examples/demo_mini.py
 python examples/single_symbol_sma.py
 python examples/multi_symbol_rotation.py
+
+# 更接近真实研究场景的示例
+python examples/scenario_single_breakout.py
+python examples/scenario_multi_rotation.py
+python examples/scenario_pairs_mean_reversion.py
 ```
 
 示例文件：
 
 - [examples/demo_mini.py](./examples/demo_mini.py)：最小单标的示例，开仓一次并固定步数后平仓。
-- [examples/single_symbol_sma.py](./examples/single_symbol_sma.py)：典型单标的双均线趋势跟随，使用 `on_data(row)`。
-- [examples/multi_symbol_rotation.py](./examples/multi_symbol_rotation.py)：典型多标的横截面动量轮动，使用 `on_bar(dt, rows_by_symbol)`。
+- [examples/single_symbol_sma.py](./examples/single_symbol_sma.py)：典型单标的双均线趋势跟随，使用 `on_bars(dt, bars)`。
+- [examples/multi_symbol_rotation.py](./examples/multi_symbol_rotation.py)：典型多标的横截面动量轮动，使用 `on_bars(dt, bars)`。
+- [examples/scenario_single_breakout.py](./examples/scenario_single_breakout.py)：真实场景单标的趋势突破，包含波动过滤、目标仓位和策略内止损。
+- [examples/scenario_multi_rotation.py](./examples/scenario_multi_rotation.py)：真实场景多标的横截面轮动，包含动量排序、等权目标仓位和定期再平衡。
+- [examples/scenario_pairs_mean_reversion.py](./examples/scenario_pairs_mean_reversion.py)：真实场景双标的配对均值回归，包含 z-score 入场、双腿持仓和退出条件。
+- [examples/example_utils.py](./examples/example_utils.py)：示例共用工具，包括静默 logger 和目标名义金额调仓辅助函数。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
 ## 行情数据约定
 
-`Exchange.set_data(data, date_key=None)` 支持三种输入：
+推荐使用 `Exchange.set_bars(data, date_key=None)` 接入 K 线或类似 bar 结构的数据。`Exchange.set_data(...)` 保留为兼容旧代码的入口，当前等价于 `set_bars(...)`。
+
+`Exchange.set_bars(data, date_key=None)` 支持三种输入：
 
 - `pandas.DataFrame`
 - `polars.DataFrame`
@@ -127,7 +140,7 @@ python examples/multi_symbol_rotation.py
 
 - 推荐传入 `date_key`，例如 `dt` 或 `timestamp`。
 - 传入 `date_key` 时，数据会按 `[date_key, symbol]` 排序。
-- 传入 `date_key` 时，`(date_key, symbol)` 必须唯一；重复数据会在 `set_data()` 阶段抛出 `ValueError`。
+- 传入 `date_key` 时，`(date_key, symbol)` 必须唯一；重复数据会在 `set_bars()` 阶段抛出 `ValueError`。
 - 传入 `date_key` 时，Exchange 会按同一时间点聚合成 bar，先更新该 bar 内所有 symbol 的最新价，再触发策略。
 - 不传 `date_key` 时，Exchange 使用输入顺序行号作为时间戳，并要求数据中只能有一个 `symbol`；pandas 的 DataFrame index 不参与时间戳计算。
 
@@ -135,34 +148,39 @@ python examples/multi_symbol_rotation.py
 
 ### Exchange
 
-`Exchange` 负责保存行情数据、按行广播行情、维护最新价格，并调度策略生命周期：
+`Exchange` 负责保存行情数据、按时间截面广播行情、维护最新价格，并调度策略生命周期：
 
 - `on_init()`: 回测开始前调用。
-- `on_data(row)`: 每行行情调用一次；多标的同一时间点下，调用前该时间点所有 symbol 的价格已经更新。
-- `on_bar(dt, rows_by_symbol)`: 每个时间点调用一次，`rows_by_symbol` 是 `{symbol: row}` 形式的同一时间截面数据。
+- `on_bars(dt, bars)`: 每个时间点调用一次，`bars` 是 `{symbol: row}` 形式的同一时间截面数据。
 - `on_finish()`: 回测结束后调用。
 
 如果多个策略共享同一个 `Broker`，Exchange 会在每个 bar 内按 broker 对象去重更新价格，避免同一 broker 被重复喂价。
 
+兼容说明：旧的 `on_data(row)` 和 `on_bar(dt, rows_by_symbol)` 仍可运行，但 README 和新示例只推荐 `on_bars(dt, bars)`。
+
 ### Strategy
 
-用户通常继承 `Strategy` 并实现 `on_data`。多资产轮动、配对交易和横截面策略更适合实现 `on_bar`。策略可通过 `self.broker` 下单和查询账户状态：
+用户通常继承 `Strategy` 并实现 `on_bars`。单标的是多标的 `bars` 结构的特例，因此单标的和多标的写法保持一致。策略可通过 `self.broker` 下单和查询账户状态：
 
 ```python
 self.broker.submit_market_order("BTCUSDT", qty=1, price=100, leverage=3)
 self.broker.submit_market_order("BTCUSDT", qty=-1, price=105)
+self.broker.order_target_size("BTCUSDT", target_size=2, price=100)
+self.broker.order_target_value("BTCUSDT", target_value=5_000, price=100)
+self.broker.order_target_percent("BTCUSDT", target_percent=0.8, price=100)
+self.broker.close_position("BTCUSDT", price=105)
 self.broker.get_total_equity()
 self.broker.get_position_size("BTCUSDT")
 ```
 
 `qty > 0` 表示买入或做多，`qty < 0` 表示卖出或做空。反向下单会先平掉已有仓位，超出部分再开反向仓位。
 
-`on_bar` 示例：
+`on_bars` 示例：
 
 ```python
-def on_bar(self, dt, rows_by_symbol):
-    btc = rows_by_symbol["BTCUSDT"]
-    eth = rows_by_symbol["ETHUSDT"]
+def on_bars(self, dt, bars):
+    btc = bars["BTCUSDT"]
+    eth = bars["ETHUSDT"]
     if btc["close"] > eth["close"]:
         self.broker.submit_market_order("BTCUSDT", qty=1)
 ```
@@ -184,6 +202,42 @@ broker.add_sub_portfolio("alt", initial_cash=30_000)
 - `broker.get_all_portfolio_equity()`: 所有 portfolio 权益，不含未分配现金。
 - `broker.get_equity(portfolio_id=None)`: 指定 portfolio 权益；默认返回主 portfolio。
 - `broker.get_cash(portfolio_id=None)`: 指定 portfolio 可用现金。
+
+市场规则可以通过 `market` 参数扩展：
+
+```python
+from minbt import Broker, ChinaAStockMarket, CryptoMarket
+
+crypto_broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=CryptoMarket())
+a_stock_broker = Broker(initial_cash=100_000, fee_rate=0.0003, market=ChinaAStockMarket())
+```
+
+`ChinaAStockMarket` 当前实现最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。同日买入的持仓 `locked_size` 大于 0，`close_position()` 会在可平数量不足时失败，而不是静默部分平仓。
+
+### 函数式退出规则
+
+Broker 支持在每个 `on_bars` 前检查退出规则。常规止盈止损只是函数式条件的特殊形式：
+
+```python
+from minbt import stop_loss_pct, take_profit_pct
+
+def on_init(self):
+    self.broker.add_exit_rule("BTCUSDT", stop_loss_pct(0.05))
+    self.broker.add_exit_rule("BTCUSDT", take_profit_pct(0.10))
+```
+
+也可以自定义条件函数：
+
+```python
+def max_drawdown_exit(ctx):
+    return ctx.position.size > 0 and ctx.price < ctx.state["peak"] * 0.92
+
+def on_init(self):
+    state = {"peak": 100.0}
+    self.broker.add_exit_rule("BTCUSDT", name="max_drawdown", condition=max_drawdown_exit, state=state)
+```
+
+退出规则按当前 `close` 价格市价平仓，不模拟同一根 bar 内的高低价路径。
 
 ## 资金和保证金模型
 
@@ -213,7 +267,7 @@ from minbt import logger
 
 logger.set_lang("zh")
 logger.info("[start_strategy]", "demo")
-logger.info("on_data", {"symbol": "BTCUSDT", "close": 100})
+logger.info("on_bars", {"symbol": "BTCUSDT", "close": 100})
 ```
 
 普通消息支持 `{}` 格式化；没有占位符但传入参数时，会追加参数文本，避免日志参数被静默丢弃。
@@ -252,7 +306,8 @@ python -m compileall -q minbt tests
 
 ## 设计约束和已知限制
 
-- 目前只实现市价单，限价单、止盈止损和追踪止损接口仍是 `NotImplementedError`。
+- 目前只实现市价单；限价单、挂单式止损、追踪止损和订单状态接口仍是 `NotImplementedError`。
+- 已支持函数式退出规则，但按当前 bar 的 `close` 触发并市价平仓，不模拟 intrabar 路径。
 - Exchange 不负责拉取或缓存历史行情，用户需要自行准备数据。
 - 市价单在回测中按当前 `close` 成交，未模拟订单簿、滑点或部分成交。
 - 多 symbol 数据应显式传入 `date_key`，否则只允许单 symbol；同一 `date_key` 的多标的会作为一个 bar 处理。

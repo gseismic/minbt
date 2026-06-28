@@ -1,6 +1,6 @@
 import numpy as np
-from dataclasses import dataclass
-from typing import Optional, Tuple, Union
+from dataclasses import dataclass, field
+from typing import Optional, Tuple, Union, List, Any
 import datetime
 
 DateType = Union[datetime.datetime, np.datetime64]
@@ -104,6 +104,7 @@ class Position:
     _unrealized_pnl: float = 0
     _equity: float = 0
     _bankrupt: bool = False
+    _locked_lots: List[Tuple[float, Any]] = field(default_factory=list)
     
     def mark_bankrupt(self) -> None:
         self._bankrupt = True
@@ -112,6 +113,7 @@ class Position:
         self._margin = 0
         self._unrealized_pnl = 0
         self._equity = 0
+        self._locked_lots.clear()
     
     def update_price_and_pnl(self, price: float, dt: Optional[DateType] = None) -> None:
         if price is None:
@@ -205,6 +207,7 @@ class Position:
             self._margin = 0
             self._cost_price = 0
             self.size = 0
+            self._locked_lots.clear()
         else:
             close_ratio = abs(qty) / abs(self.size)
             released_margin = self._margin * close_ratio
@@ -287,6 +290,39 @@ class Position:
     
     def is_empty(self) -> bool:
         return self.size == 0
+
+    def lock_size(self, size: float, trading_day=None) -> None:
+        """锁定一部分持仓数量，用于 T+1 等市场规则。"""
+        _require(size >= 0, f"Cannot lock negative position size: {size}")
+        if size == 0:
+            return
+        _require(
+            self.locked_size + size <= abs(self.size) + 1e-12,
+            f"Cannot lock more than position size: locked={self.locked_size}, "
+            f"new={size}, position={self.size}",
+        )
+        self._locked_lots.append((float(size), trading_day))
+
+    def unlock_all(self) -> None:
+        self._locked_lots.clear()
+
+    def unlock_before(self, trading_day) -> None:
+        """解锁早于当前交易日的持仓批次。"""
+        if trading_day is None:
+            return
+        self._locked_lots = [
+            (size, opened_day)
+            for size, opened_day in self._locked_lots
+            if opened_day is not None and opened_day >= trading_day
+        ]
+
+    @property
+    def locked_size(self) -> float:
+        return min(sum(size for size, _ in self._locked_lots), abs(self.size))
+
+    @property
+    def available_size(self) -> float:
+        return max(0.0, abs(self.size) - self.locked_size)
     
     @property
     def cost_price(self) -> float:

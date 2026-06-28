@@ -12,6 +12,9 @@ import pytest
         "examples/demo_mini.py",
         "examples/single_symbol_sma.py",
         "examples/multi_symbol_rotation.py",
+        "examples/scenario_single_breakout.py",
+        "examples/scenario_multi_rotation.py",
+        "examples/scenario_pairs_mean_reversion.py",
     ],
 )
 def test_examples_run_from_repo_root(script_path):

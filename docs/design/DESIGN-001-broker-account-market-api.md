@@ -12,19 +12,21 @@
 
 ## 当前实现判断
 
-截至本设计稿编写时，当前代码状态如下：
+截至当前代码状态：
 
 - 已实现：`Broker.submit_market_order(...)`。
 - 已实现：基础现金、持仓、保证金、逐仓/全仓的组合账户逻辑。
 - 已实现：`Position.size`、`Position.cost_price`、`Position.margin`、`Position.unrealized_pnl` 等内部状态。
+- 已实现：`order_target_size/value/percent` 目标仓位接口。
+- 已实现：`Position.available_size/locked_size` 内部状态。
+- 已实现：`MarketModel`、`SimpleMarket`、`ChinaAStockMarket`、`CryptoMarket` 的最小版本。
+- 已实现：函数式退出规则、`stop_loss_pct(...)` 和 `take_profit_pct(...)`。
 - 未实现：`Broker.submit_limit_order(...)`，当前直接抛 `NotImplementedError`。
-- 未实现：内置止盈止损。示例里的止损是策略手写逻辑，不是 broker 能力。
-- 未实现：函数式退出规则。
-- 未实现：`order_target_size/value/percent` 目标仓位接口。
-- 未实现：T+1、T+0、lot size、tick size、涨跌停等多市场规则扩展。
+- 未实现：挂单式止损、追踪止损和复杂订单状态管理。
+- 未实现：涨跌停、每个 symbol 独立最小交易单元等更细市场规则。
 - 不进入当前 MVP：以已有持仓启动 broker 的账户快照初始化。
 
-README 如果提到“支持限价单”“支持止盈止损”，必须继续标记为未完成，直到代码真正实现。
+README 必须区分两类能力：函数式退出规则已实现；限价单、挂单式止损和追踪止损未实现。
 
 ## 核心目标
 

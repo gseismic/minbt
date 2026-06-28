@@ -65,8 +65,8 @@ class CrossSectionMomentumStrategy(Strategy):
         self.selected_symbols = []
         self.rebalance_count = 0
 
-    def on_bar(self, dt, rows_by_symbol):
-        for symbol, row in rows_by_symbol.items():
+    def on_bars(self, dt, bars):
+        for symbol, row in bars.items():
             self.price_history[symbol].append(row["close"])
 
         if any(len(self.price_history[symbol]) <= self.lookback for symbol in SYMBOLS):
@@ -79,16 +79,14 @@ class CrossSectionMomentumStrategy(Strategy):
 
         selected_symbol = max(momentum, key=momentum.get)
         self.selected_symbols.append(selected_symbol)
-        self._rebalance_to(selected_symbol)
+        self._rebalance_to(selected_symbol, bars)
 
-    def _rebalance_to(self, selected_symbol: str):
+    def _rebalance_to(self, selected_symbol: str, bars):
         changed = False
         for symbol in SYMBOLS:
             target_size = self.target_qty if symbol == selected_symbol else 0
-            current_size = self.broker.get_position_size(symbol)
-            order_qty = target_size - current_size
-            if order_qty != 0:
-                self.broker.submit_market_order(symbol, qty=order_qty)
+            price = float(bars[symbol]["close"])
+            if self.broker.order_target_size(symbol, target_size=target_size, price=price):
                 changed = True
         if changed:
             self.rebalance_count += 1
@@ -106,7 +104,7 @@ def run_strategy(quiet: bool = True):
 
     data = build_sample_data()
     exchange = Exchange(logger=quiet_logger)
-    exchange.set_data(data, date_key="dt")
+    exchange.set_bars(data, date_key="dt")
 
     broker = Broker(initial_cash=10_000, fee_rate=0.001, logger=quiet_logger)
     strategy = CrossSectionMomentumStrategy(strategy_id="multi_symbol_rotation", broker=broker)

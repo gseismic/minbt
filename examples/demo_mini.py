@@ -34,14 +34,12 @@ class MiniStrategy(Strategy):
     def on_init(self):
         self.step = 0
 
-    def on_data(self, row):
-        price = row["close"]
+    def on_bars(self, dt, bars):
+        price = bars[SYMBOL]["close"]
         if self.step == 0:
             self.broker.submit_market_order(SYMBOL, qty=0.001, price=price)
         elif self.step == 20:
-            current_size = self.broker.get_position_size(SYMBOL)
-            if current_size != 0:
-                self.broker.submit_market_order(SYMBOL, qty=-current_size, price=price)
+            self.broker.close_position(SYMBOL, price=price)
         self.step += 1
 
     def on_finish(self):
@@ -54,7 +52,7 @@ def run_strategy(quiet: bool = True):
 
     data = pd.read_csv(DATA_PATH)
     exchange = Exchange(logger=quiet_logger)
-    exchange.set_data(data[["symbol", "close"]])
+    exchange.set_bars(data[["symbol", "close"]])
 
     broker = Broker(initial_cash=10_000, fee_rate=0.001, logger=quiet_logger)
     strategy = MiniStrategy(strategy_id="mini", broker=broker)

@@ -8,18 +8,18 @@
 
 ## 当前实现判断
 
-截至本设计稿编写时，当前代码状态如下：
+截至当前代码状态：
 
 - 已实现：`Exchange.set_data(data, date_key=...)`。
+- 已实现：推荐新入口 `Exchange.set_bars(data, date_key=...)`。
+- 已实现：推荐新接口 `Strategy.on_bars(dt, bars)`。
 - 已实现：旧接口 `Strategy.on_data(row)`。
 - 已实现：旧接口 `Strategy.on_bar(dt, rows_by_symbol)`。
-- 已实现：多标的同一 `dt` 下先整体更新 broker 最新价，再调用 `on_bar`。
-- 未实现：推荐新接口 `Strategy.on_bars(dt, bars)`。
-- 未实现：推荐新入口 `Exchange.set_bars(...)`。
+- 已实现：多标的同一 `dt` 下先整体更新 broker 最新价，再调用退出规则和策略回调。
 - 未实现：`on_books/on_trades/on_news`。
 - 未实现：多数据源统一调度。
 
-README 和 examples 迁移后，应只展示 `on_bars`，旧的 `on_data/on_bar` 只作为兼容接口。
+README 和 examples 已迁移到 `on_bars` 主路径，旧的 `on_data/on_bar` 只作为兼容接口。
 
 ## 核心目标
 
