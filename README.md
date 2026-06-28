@@ -11,6 +11,7 @@ minbt 是一个简易的量化回测框架，主要面向 T+0 的加密货币和
 - [x] 支持逐仓和全仓两种保证金模式。
 - [x] 支持多 portfolio 分仓。
 - [x] 自动记录策略权益和持仓历史。
+- [x] 支持多标的同一时间截面的 `on_bar` 回调。
 - [ ] 支持限价单。
 - [ ] 支持止盈止损。
 
@@ -39,9 +40,15 @@ pip install -e ".[pyta]"
 
 `pyta_dev` 可用于更高效的历史向量存储；未安装时 minbt 会自动回退为 Python list。
 
+绘图示例需要额外安装：
+
+```bash
+pip install -e ".[plot]"
+```
+
 ## 快速开始
 
-下面示例使用内存行情数据完成一个最小回测。行情至少需要 `symbol` 和 `close` 两列；如果提供 `date_key`，Exchange 会按 `date_key` 和 `symbol` 稳定排序。
+下面示例使用内存行情数据完成一个最小回测。行情至少需要 `symbol` 和 `close` 两列；如果提供 `date_key`，Exchange 会按 `date_key` 和 `symbol` 稳定排序。同一个 `date_key` 下的全部标的价格会先完整更新，再触发策略回调；同一时间截面内同一个 `symbol` 只能出现一次。
 
 ```python
 import pandas as pd
@@ -86,16 +93,20 @@ exchange.add_strategy(strategy)
 exchange.run()
 ```
 
-也可以直接运行仓库示例：
+也可以直接运行仓库示例。推荐按复杂度从 mini 到策略示例逐步看：
 
 ```bash
 python examples/demo_mini.py
+python examples/single_symbol_sma.py
+python examples/multi_symbol_rotation.py
 ```
 
 示例文件：
 
-- [examples/demo_mini.py](./examples/demo_mini.py)
-- [examples/data.csv](./examples/data.csv)
+- [examples/demo_mini.py](./examples/demo_mini.py)：最小单标的示例，开仓一次并固定步数后平仓。
+- [examples/single_symbol_sma.py](./examples/single_symbol_sma.py)：典型单标的双均线趋势跟随，使用 `on_data(row)`。
+- [examples/multi_symbol_rotation.py](./examples/multi_symbol_rotation.py)：典型多标的横截面动量轮动，使用 `on_bar(dt, rows_by_symbol)`。
+- [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
 ## 行情数据约定
 
@@ -104,6 +115,8 @@ python examples/demo_mini.py
 - `pandas.DataFrame`
 - `polars.DataFrame`
 - `list[dict]`
+
+`list[dict]` 会由 Exchange 原生迭代和排序，不依赖 polars 可用性。
 
 必需字段：
 
@@ -114,7 +127,9 @@ python examples/demo_mini.py
 
 - 推荐传入 `date_key`，例如 `dt` 或 `timestamp`。
 - 传入 `date_key` 时，数据会按 `[date_key, symbol]` 排序。
-- 不传 `date_key` 时，Exchange 使用行号作为时间戳，并要求数据中只能有一个 `symbol`。
+- 传入 `date_key` 时，`(date_key, symbol)` 必须唯一；重复数据会在 `set_data()` 阶段抛出 `ValueError`。
+- 传入 `date_key` 时，Exchange 会按同一时间点聚合成 bar，先更新该 bar 内所有 symbol 的最新价，再触发策略。
+- 不传 `date_key` 时，Exchange 使用输入顺序行号作为时间戳，并要求数据中只能有一个 `symbol`；pandas 的 DataFrame index 不参与时间戳计算。
 
 ## 核心对象
 
@@ -123,12 +138,15 @@ python examples/demo_mini.py
 `Exchange` 负责保存行情数据、按行广播行情、维护最新价格，并调度策略生命周期：
 
 - `on_init()`: 回测开始前调用。
-- `on_data(row)`: 每行行情调用一次。
+- `on_data(row)`: 每行行情调用一次；多标的同一时间点下，调用前该时间点所有 symbol 的价格已经更新。
+- `on_bar(dt, rows_by_symbol)`: 每个时间点调用一次，`rows_by_symbol` 是 `{symbol: row}` 形式的同一时间截面数据。
 - `on_finish()`: 回测结束后调用。
+
+如果多个策略共享同一个 `Broker`，Exchange 会在每个 bar 内按 broker 对象去重更新价格，避免同一 broker 被重复喂价。
 
 ### Strategy
 
-用户通常继承 `Strategy` 并实现 `on_data`。策略可通过 `self.broker` 下单和查询账户状态：
+用户通常继承 `Strategy` 并实现 `on_data`。多资产轮动、配对交易和横截面策略更适合实现 `on_bar`。策略可通过 `self.broker` 下单和查询账户状态：
 
 ```python
 self.broker.submit_market_order("BTCUSDT", qty=1, price=100, leverage=3)
@@ -138,6 +156,18 @@ self.broker.get_position_size("BTCUSDT")
 ```
 
 `qty > 0` 表示买入或做多，`qty < 0` 表示卖出或做空。反向下单会先平掉已有仓位，超出部分再开反向仓位。
+
+`on_bar` 示例：
+
+```python
+def on_bar(self, dt, rows_by_symbol):
+    btc = rows_by_symbol["BTCUSDT"]
+    eth = rows_by_symbol["ETHUSDT"]
+    if btc["close"] > eth["close"]:
+        self.broker.submit_market_order("BTCUSDT", qty=1)
+```
+
+如果 `submit_market_order()` 不传 `price`，Broker 会使用 Exchange 在当前 bar 开始时写入的最新价。
 
 ### Broker 和 Portfolio
 
@@ -225,7 +255,8 @@ python -m compileall -q minbt tests
 - 目前只实现市价单，限价单、止盈止损和追踪止损接口仍是 `NotImplementedError`。
 - Exchange 不负责拉取或缓存历史行情，用户需要自行准备数据。
 - 市价单在回测中按当前 `close` 成交，未模拟订单簿、滑点或部分成交。
-- 多 symbol 数据应显式传入 `date_key`，否则只允许单 symbol。
+- 多 symbol 数据应显式传入 `date_key`，否则只允许单 symbol；同一 `date_key` 的多标的会作为一个 bar 处理。
+- 当前资金模型是保证金合约账户模型：`Position.equity` 表示保证金加未实现盈亏，不是现货市值。
 
 ## ChangeLog
 

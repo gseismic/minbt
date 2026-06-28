@@ -55,10 +55,11 @@ class Strategy:
         if broker is None:
             self.broker = None
             return
-        assert isinstance(broker, BrokerProtocol), (
-            f'broker must implement BrokerProtocol (submit_market_order, get_position_size, get_total_equity), '
-            f'got {type(broker).__name__}'
-        )
+        if not isinstance(broker, BrokerProtocol):
+            raise TypeError(
+                f'broker must implement BrokerProtocol (submit_market_order, get_position_size, get_total_equity), '
+                f'got {type(broker).__name__}'
+            )
         self.broker = broker
 
     def set_params(self, params: dict):
@@ -73,8 +74,7 @@ class Strategy:
     def on_init(self):
         pass
 
-    def _on_exchange_data(self, data):
-        self.on_data(data)
+    def _ensure_broker_history(self):
         if self.broker is None:
             return
 
@@ -92,13 +92,31 @@ class Strategy:
             else:
                 self._position_size_history = []
 
+    def _record_broker_history(self):
+        if self.broker is None:
+            return
+
+        self._ensure_broker_history()
         equity = self.broker.get_total_equity()
         self._equity_history.append(equity)
 
         positions = self.broker.get_position_sizes()
         self._position_size_history.append(positions)
 
+    def _on_exchange_data(self, data, record_history: bool = True):
+        self.on_data(data)
+        if record_history:
+            self._record_broker_history()
+
+    def _on_exchange_bar(self, dt, rows_by_symbol, record_history: bool = True):
+        self.on_bar(dt, rows_by_symbol)
+        if record_history:
+            self._record_broker_history()
+
     def on_data(self, data):
+        pass
+
+    def on_bar(self, dt, rows_by_symbol):
         pass
 
     def on_finish(self):
@@ -126,13 +144,16 @@ class Strategy:
         }
     
     def market_buy(self, symbol: str, qty: float, portfolio_id: str = 'default'):
-        assert qty > 0, f'qty must be positive, got {qty}'
+        if qty <= 0:
+            raise ValueError(f'qty must be positive, got {qty}')
         return self.broker.submit_market_order(symbol, qty=qty, portfolio_id=portfolio_id)
     
     def market_sell(self, symbol: str, qty: float, portfolio_id: str = 'default'):
-        assert qty > 0, f'qty must be positive, got {qty}'
+        if qty <= 0:
+            raise ValueError(f'qty must be positive, got {qty}')
         return self.broker.submit_market_order(symbol, qty=-qty, portfolio_id=portfolio_id)
     
     def market_order(self, symbol: str, qty: float, portfolio_id: str = 'default'):
-        assert qty != 0, f'qty must be non-zero, got {qty}'
+        if qty == 0:
+            raise ValueError(f'qty must be non-zero, got {qty}')
         return self.broker.submit_market_order(symbol, qty=qty, portfolio_id=portfolio_id)

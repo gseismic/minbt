@@ -1,45 +1,68 @@
-from minbt import Exchange, Strategy, Broker
-from minbt.plot import get_figax
-import matplotlib.pyplot as plt
-import random
+from pathlib import Path
+import sys
 
-class DemoStrategy(Strategy):
-    
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import pandas as pd
+
+from minbt import Broker, Exchange, Strategy
+
+
+DATA_PATH = Path(__file__).with_name("data.csv")
+SYMBOL = "BTCUSDT"
+
+
+class QuietLogger:
+    def debug(self, *args, **kwargs):
+        pass
+
+    def info(self, *args, **kwargs):
+        pass
+
+    def warning(self, *args, **kwargs):
+        pass
+
+    def error(self, *args, **kwargs):
+        pass
+
+
+class MiniStrategy(Strategy):
+    """最小单标的示例：开仓一次，固定步数后平仓。"""
+
     def on_init(self):
-        self.logger.info('on_init')
-        self.equity = []
-        self.positions = []
-        
-    def on_data(self, data):
-        self.logger.info('on_data', dict(data))
-        self.broker.submit_market_order(symbol='BTCUSDT',
-                                        qty=0.001*random.choice([-1, -1, -1, 1]),
-                                        price=data['close'],
-                                        leverage=10)
-        
-        self.equity.append(self.broker.get_total_equity())
-        self.positions.append(self.broker.get_position_size('BTCUSDT'))
-    
-    def on_finish(self):
-        fig, ax, *tx = get_figax(2)
-        tx[0].plot(self.equity, color='green', lw=0.7, label='equity')
-        tx[1].plot(self.positions, color='blue', lw=0.7, label='positions')
-        tx[1].legend(loc='upper left')
-        tx[0].legend(loc='upper right')
-        plt.show()
+        self.step = 0
 
-def run_strategy():
-    exchange = Exchange()
-    import pandas as pd
-    data = pd.read_csv('data.csv')
-    exchange.set_data(data)
-    
-    broker = Broker(initial_cash=10000, fee_rate=0.001)
-    strategy = DemoStrategy(strategy_id='test_strategy',
-                            broker=broker)
+    def on_data(self, row):
+        price = row["close"]
+        if self.step == 0:
+            self.broker.submit_market_order(SYMBOL, qty=0.001, price=price)
+        elif self.step == 20:
+            current_size = self.broker.get_position_size(SYMBOL)
+            if current_size != 0:
+                self.broker.submit_market_order(SYMBOL, qty=-current_size, price=price)
+        self.step += 1
+
+    def on_finish(self):
+        print(f"final_equity={self.broker.get_total_equity():.2f}")
+        print(f"final_position={self.broker.get_position_size(SYMBOL):.6f}")
+
+
+def run_strategy(quiet: bool = True):
+    quiet_logger = QuietLogger() if quiet else None
+
+    data = pd.read_csv(DATA_PATH)
+    exchange = Exchange(logger=quiet_logger)
+    exchange.set_data(data[["symbol", "close"]])
+
+    broker = Broker(initial_cash=10_000, fee_rate=0.001, logger=quiet_logger)
+    strategy = MiniStrategy(strategy_id="mini", broker=broker)
+
     exchange.add_strategy(strategy)
     exchange.run()
-    
-    
-if __name__ == '__main__':
+    return strategy, broker
+
+
+if __name__ == "__main__":
     run_strategy()

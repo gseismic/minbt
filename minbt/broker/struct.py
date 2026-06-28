@@ -5,13 +5,17 @@ import datetime
 
 DateType = Union[datetime.datetime, np.datetime64]
 
+def _require(condition: bool, message: str, exc_type=ValueError) -> None:
+    if not condition:
+        raise exc_type(message)
+
 class Cash:
     __slots__ = ['total_cash', 'free_cash', 'locked_cash']
     
     def __init__(self, total_cash: float, free_cash: float):
-        assert total_cash >= 0, f"Cannot initialize total cash with negative value: {total_cash}"
-        assert free_cash >= 0, f"Cannot initialize free cash with negative value: {free_cash}"
-        assert total_cash >= free_cash, f"Total cash must be greater than free cash: {total_cash} < {free_cash}"
+        _require(total_cash >= 0, f"Cannot initialize total cash with negative value: {total_cash}")
+        _require(free_cash >= 0, f"Cannot initialize free cash with negative value: {free_cash}")
+        _require(total_cash >= free_cash, f"Total cash must be greater than free cash: {total_cash} < {free_cash}")
         self.total_cash = total_cash
         self.free_cash = free_cash
         self.locked_cash = total_cash - free_cash
@@ -22,7 +26,7 @@ class Cash:
         Args:
             amount: float 要增加的金额
         """
-        assert amount >= 0, f"Cannot add negative cash: {amount}"
+        _require(amount >= 0, f"Cannot add negative cash: {amount}")
         self.free_cash += amount
         self.total_cash += amount
     
@@ -33,8 +37,8 @@ class Cash:
         Args:
             amount: float 要花费的金额
         """
-        assert amount >= 0, f"Cannot spend negative amount: {amount}"
-        assert amount <= self.free_cash, f"Cannot spend more than free cash: {amount} > {self.free_cash}"
+        _require(amount >= 0, f"Cannot spend negative amount: {amount}")
+        _require(amount <= self.free_cash, f"Cannot spend more than free cash: {amount} > {self.free_cash}")
         self.free_cash -= amount
         self.total_cash -= amount
     
@@ -51,9 +55,10 @@ class Cash:
             return
         
         new_free_cash = self.free_cash + amount
-        assert new_free_cash >= 0, (
+        _require(
+            new_free_cash >= 0,
             f"Cannot change cash to negative: {new_free_cash}"
-            f"amount: {amount}, free_cash: {self.free_cash}"
+            f"amount: {amount}, free_cash: {self.free_cash}",
         )
         self.free_cash = new_free_cash
         self.total_cash += amount
@@ -64,8 +69,8 @@ class Cash:
         Args:
             amount: float 要锁定的金额
         """
-        assert amount >= 0, f"Cannot lock negative cash: {amount}"
-        assert amount <= self.free_cash, f"Cannot lock more cash than free: {amount} > {self.free_cash}"
+        _require(amount >= 0, f"Cannot lock negative cash: {amount}")
+        _require(amount <= self.free_cash, f"Cannot lock more cash than free: {amount} > {self.free_cash}")
         self.locked_cash += amount
         self.free_cash -= amount
     
@@ -75,8 +80,8 @@ class Cash:
         Args:
             amount: float 要解锁的金额
         """
-        assert amount >= 0, f"Cannot unlock negative cash: {amount}"
-        assert amount <= self.locked_cash, f"Cannot unlock more cash than locked: {amount} > {self.locked_cash}"
+        _require(amount >= 0, f"Cannot unlock negative cash: {amount}")
+        _require(amount <= self.locked_cash, f"Cannot unlock more cash than locked: {amount} > {self.locked_cash}")
         self.locked_cash -= amount
         self.free_cash += amount
     
@@ -111,7 +116,7 @@ class Position:
     def update_price_and_pnl(self, price: float, dt: Optional[DateType] = None) -> None:
         if price is None:
             return
-        assert price > 0, f"Price must be positive: {price}"
+        _require(price > 0, f"Price must be positive: {price}")
         self._last_price = price
         self._last_dt = dt
         self._unrealized_pnl = self.size * (price - self._cost_price)
@@ -119,8 +124,8 @@ class Position:
     
     @staticmethod
     def calculate_required_margin(price: float, qty: float, leverage: float) -> float:
-        assert price > 0, f"Price must be positive: {price}"
-        assert leverage > 0, f"Leverage must be positive: {leverage}"
+        _require(price > 0, f"Price must be positive: {price}")
+        _require(leverage > 0, f"Leverage must be positive: {leverage}")
         return abs(qty) * price / leverage
 
     def commit_open_new(self, 
@@ -139,10 +144,11 @@ class Position:
             realized_pnl: float 已实现pnl
             总释放现金为: released_margin + realized_pnl
         """
-        assert qty != 0, f"Cannot open zero quantity position: {self.symbol}"
-        assert np.sign(self.size * qty) >= 0, (
+        _require(qty != 0, f"Cannot open zero quantity position: {self.symbol}")
+        _require(
+            np.sign(self.size * qty) >= 0,
             "Cannot open new position with different sign: "
-            f"position: {self.symbol}, size: {self.size}, qty: {qty}"
+            f"position: {self.symbol}, size: {self.size}, qty: {qty}",
         )
         # 开仓关注cost_price, 不关心unrealized_pnl，所以不用更新价格
         new_size = self.size + qty
@@ -178,13 +184,15 @@ class Position:
         Note:
             手续费从cash中扣除，不记录于_unrealized_pnl中
         """
-        assert np.sign(self.size * qty) <= 0, (
+        _require(
+            np.sign(self.size * qty) <= 0,
             "Cannot close partial position with different sign: "
-            f"position: {self.symbol}, size: {self.size}, qty: {qty}"
+            f"position: {self.symbol}, size: {self.size}, qty: {qty}",
         )
-        assert abs(qty) <= abs(self.size), (
+        _require(
+            abs(qty) <= abs(self.size),
             f"Cannot close more than the position size: "
-            f"position: {self.symbol}, size: {self.size}, qty: {qty}"
+            f"position: {self.symbol}, size: {self.size}, qty: {qty}",
         )
         # 更新 _unrealized_pnl，这和开仓不同
         # 开仓时需要先更新价格，然后计算保证金占用
@@ -264,7 +272,11 @@ class Position:
         保证金占总价值的比例，越高越安全
         """
         if self._margin == 0:
-            assert self._equity == 0, f'Margin is 0, but equity is not 0: {self._equity}'
+            _require(
+                self._equity == 0,
+                f'Margin is 0, but equity is not 0: {self._equity}',
+                RuntimeError,
+            )
             return 1.0
         # equity = margin + unrealized_pnl，可能比margin大或小
         # 如果比margin大，说明在盈利，没有强平风险

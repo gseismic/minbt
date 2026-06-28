@@ -1,3 +1,8 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import pytest
 from minbt.logger import logger, I18nLogger
 from minbt.utils.i18n_logger import create_logger
@@ -61,9 +66,65 @@ def test_logger_instance():
     logger.set_lang('en')
     assert logger.get_message('[start_strategy]', 'test') == 'Start running strategy: test'
 
-def test_create_logger():
-    # 测试logger创建函数
+def test_create_logger_does_not_add_sink_by_default():
+    # 测试logger创建函数默认不修改全局 loguru sink
+    before_handlers = set(logger.logger._core.handlers)
     test_logger = create_logger('test')
+    after_handlers = set(logger.logger._core.handlers)
+
+    assert test_logger is not None
+    assert after_handlers == before_handlers
+
+
+def test_create_logger_adds_sink_when_explicit():
+    records = []
+    before_handlers = set(logger.logger._core.handlers)
+    test_logger = create_logger('test', sink=lambda message: records.append(str(message)))
+    new_handlers = set(logger.logger._core.handlers) - before_handlers
+    try:
+        test_logger.info('explicit sink')
+    finally:
+        for handler_id in new_handlers:
+            logger.logger.remove(handler_id)
+
+    assert len(new_handlers) == 1
+    assert any('explicit sink' in record for record in records)
+
+
+def test_minbt_logger_import_does_not_add_loguru_sink():
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(repo_root) + os.pathsep + env.get('PYTHONPATH', '')
+    code = """
+from loguru import logger as raw_logger
+before = len(raw_logger._core.handlers)
+import minbt.logger
+after = len(raw_logger._core.handlers)
+raise SystemExit(0 if before == after else 1)
+"""
+
+    result = subprocess.run(
+        [sys.executable, '-c', code],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_create_logger_does_not_remove_existing_loguru_sinks():
+    records = []
+    sink_id = logger.logger.add(lambda message: records.append(str(message)))
+    try:
+        create_logger('test')
+        logger.logger.info('external sink still active')
+    finally:
+        logger.logger.remove(sink_id)
+
+    assert any('external sink still active' in record for record in records)
+
 
 def test_i18n_logger_methods():
     # 测试各种日志级别方法

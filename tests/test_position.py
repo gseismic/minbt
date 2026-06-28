@@ -47,16 +47,16 @@ def test_position_open_new():
     assert pos_short.side == "short"
     
     # 异常情况 - 反向开仓
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         pos.commit_open_new(price=50000.0, qty=-1.0, leverage=leverage)  # 多仓不能开空
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         pos_short.commit_open_new(price=50000.0, qty=1.0, leverage=leverage)  # 空仓不能开多
 
 def test_position_rejects_zero_qty_open_new():
     """测试直接调用开仓内核时拒绝零数量"""
     pos = Position(symbol="BTC-USDT")
 
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         pos.commit_open_new(price=50000.0, qty=0, leverage=2.0)
 
 def test_position_return_annotations_are_python38_compatible():
@@ -85,9 +85,9 @@ def test_position_close_partial():
     assert pos.side == "none"
     
     # 异常情况
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         pos.commit_close_partial(price=51000.0, qty=-1.0)  # 超过持仓量
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         pos.commit_close_partial(price=51000.0, qty=1.0)   # 同向
 
 def test_position_pnl_calculation():

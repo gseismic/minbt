@@ -9,6 +9,7 @@ setup(
     install_requires=['numpy', 'pandas', 'polars', 'loguru'],
     extras_require={
         'pyta': ['pyta_dev'],
+        'plot': ['matplotlib'],
     },
     scripts=[],
     python_requires='>=3.8',

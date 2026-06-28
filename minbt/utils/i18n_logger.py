@@ -1,4 +1,3 @@
-import sys
 import copy
 from string import Formatter
 from loguru import logger as _logger
@@ -6,13 +5,13 @@ from typing import Literal, Dict
 
 __all__ = ['create_logger', 'I18nLogger']
 
-def create_logger(name: str="minbt", sink=sys.stdout):
+def create_logger(name: str="minbt", sink=None):
     logger_instance = _logger.bind(name=name)
-    logger_instance.remove()
-    logger_instance.add(
-        sink,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>pid:{process}</cyan>:<cyan>tid:{thread}</cyan> | <level>{message}</level>"
-    )
+    if sink is not None:
+        logger_instance.add(
+            sink,
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>pid:{process}</cyan>:<cyan>tid:{thread}</cyan> | <level>{message}</level>"
+        )
     # logger_instance.name = name # 导致原生的logger无法使用
     return logger_instance
 

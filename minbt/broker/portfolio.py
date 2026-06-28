@@ -2,7 +2,7 @@ from typing import Dict, Literal, Optional, Tuple, Union
 import copy
 import numpy as np
 from ..logger import logger as default_logger
-from .struct import Position, Cash, DateType
+from .struct import Position, Cash, DateType, _require
 
 class Portfolio:
     
@@ -25,13 +25,16 @@ class Portfolio:
             warning_margin_level: 警告保证金水平, 0-1
             min_margin_level: 最小保证金水平, 0-1s
         """
-        assert initial_cash > 0, f'initial_cash must be greater than 0, got {initial_cash}'
-        assert 0 <= fee_rate < 1, f'fee_rate must be between 0 and 1, got {fee_rate}'
-        assert leverage >= 1, f'leverage must be greater than or equal to 1, got {leverage}'
-        assert margin_mode in ['cross', 'isolated'], f'margin_mode must be either cross or isolated, got {margin_mode}'
-        assert 0 <= min_margin_level < 1, f'min_margin_level must be between 0 and 1, got {min_margin_level}'
-        assert 0 <= warning_margin_level < 1, f'warning_margin_level must be between 0 and 1, got {warning_margin_level}'
-        assert min_margin_level < warning_margin_level, f'min_margin_level must be less than warning_margin_level, got {min_margin_level=} and {warning_margin_level=}'
+        _require(initial_cash > 0, f'initial_cash must be greater than 0, got {initial_cash}')
+        _require(0 <= fee_rate < 1, f'fee_rate must be between 0 and 1, got {fee_rate}')
+        _require(leverage >= 1, f'leverage must be greater than or equal to 1, got {leverage}')
+        _require(margin_mode in ['cross', 'isolated'], f'margin_mode must be either cross or isolated, got {margin_mode}')
+        _require(0 <= min_margin_level < 1, f'min_margin_level must be between 0 and 1, got {min_margin_level}')
+        _require(0 <= warning_margin_level < 1, f'warning_margin_level must be between 0 and 1, got {warning_margin_level}')
+        _require(
+            min_margin_level < warning_margin_level,
+            f'min_margin_level must be less than warning_margin_level, got {min_margin_level=} and {warning_margin_level=}',
+        )
         self.initial_cash = initial_cash
         self.fee_rate = fee_rate
         self.leverage = leverage
@@ -94,6 +97,7 @@ class Portfolio:
         """
         if self._bankrupt:
             return True, False, 0.0
+        _require(price > 0, f'price must be positive, got {price}')
         
         liquidated, bankrupt = False, False
         self.last_prices[symbol] = price
@@ -105,7 +109,7 @@ class Portfolio:
             if self.margin_mode == 'isolated':
                 position = self.get_position(symbol)
                 position.mark_bankrupt()
-                assert position.size == 0
+                _require(position.size == 0, f'{symbol} is not closed after bankruptcy', RuntimeError)
             else:
                 self.mark_bankrupt()
         elif margin_level <= self.min_margin_level:
@@ -113,11 +117,11 @@ class Portfolio:
             if self.margin_mode == 'isolated':
                 self.logger.warning(f'[{self.margin_mode}] {symbol} reach liquidation, margin_level: {margin_level}')
                 self._pure_close_position(symbol) # price 已经在_update_pnl_get_margin_level更新过了
-                assert self.get_position(symbol).size == 0, f'{symbol} is not closed'
+                _require(self.get_position(symbol).size == 0, f'{symbol} is not closed', RuntimeError)
             else:
                 self.logger.warning(f'[{self.margin_mode}] Reach liquidation, close all positions')
                 self._pure_close_all_positions()
-                assert self.get_all_positions_total_equity() == 0, f'All positions are not closed'
+                _require(self.get_all_positions_total_equity() == 0, f'All positions are not closed', RuntimeError)
         elif margin_level <= self.warning_margin_level:
             self.logger.warning(f'[{self.margin_mode}] margin level is too low, margin_level: {margin_level}')
 
@@ -167,6 +171,8 @@ class Portfolio:
         
         if leverage is None:
             leverage = self.leverage
+        _require(price > 0, f'price must be positive, got {price}')
+        _require(leverage >= 1, f'leverage must be greater than or equal to 1, got {leverage}')
         
         # 更新价格并检查保证金（可能触发强平）
         bankrupt, liquidated, _ = self.on_new_price(symbol, price, price_dt)
@@ -177,8 +183,11 @@ class Portfolio:
             self.logger.warning(f'Submit order with qty=0, symbol: {symbol}, leverage: {leverage}, qty: {qty}, price: {price}')
             return False
 
-        # 检查保证金是否充足
-        position = self.get_position(symbol)
+        # 检查保证金是否充足。新标的先使用临时仓位，避免失败订单污染 positions。
+        position = self.get_position(symbol, create_if_missing=False)
+        is_new_position = position is None
+        if position is None:
+            position = Position(symbol=symbol)
         required_fee = self.calculate_fee(symbol, leverage, qty, price)
         
         fake_position = copy.deepcopy(position)
@@ -195,6 +204,8 @@ class Portfolio:
         # 提交订单
         new_position_size = position.size + qty
         exec_type, released_margin, realized_pnl = position.commit_order(price, qty=qty, leverage=leverage)
+        if is_new_position:
+            self._positions[symbol] = position
         self.logger.info(f'Submit order: {symbol}, qty={qty}, price={price}, exec_type={exec_type}, fee={required_fee}')
         released_cash = released_margin + realized_pnl - required_fee
         
@@ -229,8 +240,12 @@ class Portfolio:
                 self.close_position(symbol)
             else:
                 self.close_position(symbol, last_prices.get(symbol))
-        assert np.allclose(self.get_all_positions_total_equity(), 0), f'All positions are not closed'
-        assert np.allclose(self.get_portfolio_equity(), self.total_cash), f'Portfolio equity is not equal to total cash'
+        _require(np.allclose(self.get_all_positions_total_equity(), 0), f'All positions are not closed', RuntimeError)
+        _require(
+            np.allclose(self.get_portfolio_equity(), self.total_cash),
+            f'Portfolio equity is not equal to total cash',
+            RuntimeError,
+        )
 
     def _pure_close_position(self, symbol: str, last_price: Optional[float] = None) -> Optional[Position]:
         if symbol not in self._positions:
@@ -238,7 +253,11 @@ class Portfolio:
         position = self._positions[symbol]
         released_margin, realized_pnl = position.commit_close_all(last_price)
         released_cash = released_margin + realized_pnl
-        assert self._current_cash.can_change_cash(released_cash)
+        _require(
+            self._current_cash.can_change_cash(released_cash),
+            f'Cannot close position {symbol}: released cash would make free cash negative',
+            RuntimeError,
+        )
         self._current_cash.change_cash(released_cash)
         return position
     
@@ -260,7 +279,10 @@ class Portfolio:
         return self._positions[symbol]
     
     def get_position_size(self, symbol: str) -> float:
-        return self.get_position(symbol).size
+        position = self.get_position(symbol, create_if_missing=False)
+        if position is None:
+            return 0
+        return position.size
     
     def get_positions(self) -> Dict[str, Position]:
         return self._positions
@@ -287,7 +309,10 @@ class Portfolio:
         return self.get_portfolio_equity()
     
     def get_position_equity(self, symbol: str) -> float:
-        return self.get_position(symbol).equity
+        position = self.get_position(symbol, create_if_missing=False)
+        if position is None:
+            return 0
+        return position.equity
     
     def calculate_fee(self, symbol: str, leverage: float, qty: float, price: float) -> float:
         """计算手续费"""

@@ -1,6 +1,7 @@
 from typing import Literal, Optional, Dict
 from .portfolio import Portfolio
-from .struct import Position, DateType
+from .struct import Position, DateType, _require
+from ..logger import logger as default_logger
 
 class Broker:
     """
@@ -18,34 +19,46 @@ class Broker:
                  leverage: float = 1.0, 
                  margin_mode: Literal['cross', 'isolated'] = 'cross', 
                  warning_margin_level: float = 0.2, 
-                 min_margin_level: float = 0.1):
+                 min_margin_level: float = 0.1,
+                 logger=None):
         """
         Args:
         
         """
-        assert 0 <= fee_rate < 1.0, (
+        _require(initial_cash > 0, f"initial_cash must be greater than 0, initial_cash: {initial_cash}")
+        _require(
+            0 <= fee_rate < 1.0,
             f"fee_rate must be between 0 (inclusive) and 1.0 (exclusive),"
-            f"fee_rate: {fee_rate}"
+            f"fee_rate: {fee_rate}",
         )
-        assert leverage >= 1.0, (
+        _require(
+            leverage >= 1.0,
             f"leverage must be greater than or equal to 1.0,"
-            f"leverage: {leverage}"
+            f"leverage: {leverage}",
         )
-        assert warning_margin_level >= min_margin_level, (
-            f"warning_margin_level must be greater than or equal to min_margin_level,"
-            f"warning_margin_level: {warning_margin_level}, min_margin_level: {min_margin_level}"
+        _require(
+            margin_mode in ['cross', 'isolated'],
+            f"margin_mode must be either cross or isolated, margin_mode: {margin_mode}",
         )
-        assert 0 <= warning_margin_level <= 1.0, (
-            f"warning_margin_level must be between 0 and 1.0,"
-            f"warning_margin_level: {warning_margin_level}"
+        _require(
+            0 <= min_margin_level < 1.0,
+            f"min_margin_level must be between 0 (inclusive) and 1.0 (exclusive),"
+            f"min_margin_level: {min_margin_level}",
         )
-        assert 0 <= min_margin_level <= 1.0, (
-            f"min_margin_level must be between 0 and 1.0,"
-            f"min_margin_level: {min_margin_level}"
+        _require(
+            0 <= warning_margin_level < 1.0,
+            f"warning_margin_level must be between 0 (inclusive) and 1.0 (exclusive),"
+            f"warning_margin_level: {warning_margin_level}",
         )
-        assert portfolio_cash is None or 0 < portfolio_cash <= initial_cash, (
+        _require(
+            min_margin_level < warning_margin_level,
+            f"min_margin_level must be less than warning_margin_level,"
+            f"warning_margin_level: {warning_margin_level}, min_margin_level: {min_margin_level}",
+        )
+        _require(
+            portfolio_cash is None or 0 < portfolio_cash <= initial_cash,
             f"portfolio_cash must be None or greater than 0 and less than or equal to initial_cash,"
-            f"portfolio_cash: {portfolio_cash}, initial_cash: {initial_cash}"
+            f"portfolio_cash: {portfolio_cash}, initial_cash: {initial_cash}",
         )
 
         self.fee_rate = fee_rate
@@ -53,6 +66,7 @@ class Broker:
         self.margin_mode = margin_mode
         self.warning_margin_level = warning_margin_level
         self.min_margin_level = min_margin_level
+        self.logger = logger or default_logger
         self.initial_cash = initial_cash
         self.remaining_free_cash = initial_cash
         self.portfolios = {}
@@ -69,7 +83,11 @@ class Broker:
         """
         if portfolio_id in self.portfolios:
             raise ValueError(f"portfolio_id already exists: {portfolio_id}")
-        assert 0 < initial_cash <= self.remaining_free_cash
+        _require(
+            0 < initial_cash <= self.remaining_free_cash,
+            f"initial_cash must be greater than 0 and less than or equal to remaining_free_cash,"
+            f" initial_cash: {initial_cash}, remaining_free_cash: {self.remaining_free_cash}",
+        )
         self.remaining_free_cash -= initial_cash
         self.portfolios[portfolio_id] = Portfolio(
             initial_cash, 
@@ -77,16 +95,20 @@ class Broker:
             leverage=self.leverage, 
             margin_mode=self.margin_mode, 
             warning_margin_level=self.warning_margin_level, 
-            min_margin_level=self.min_margin_level
+            min_margin_level=self.min_margin_level,
+            logger=self.logger,
         )
     
     def close_portfolio(self, portfolio_id: str):
-        portfolio = self.portfolios.pop(portfolio_id)
+        if portfolio_id not in self.portfolios:
+            raise ValueError(f"portfolio_id not found: {portfolio_id}")
+        portfolio = self.portfolios[portfolio_id]
         portfolio.close_all_positions(self.last_prices)
-        # XXX: 假定没有locked_cash
+        self.portfolios.pop(portfolio_id)
         self.remaining_free_cash += portfolio.total_cash
     
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
+        _require(price > 0, f"price must be positive, price: {price}")
         self.last_prices[symbol] = price
         self.last_price_dates[symbol] = dt
         for portfolio in self.portfolios.values():
@@ -121,7 +143,8 @@ class Broker:
             raise ValueError(f"portfolio_id not found: {portfolio_id}")
         # 注意，此时broker中的last_prices应已经通过on_new_price更新了
         if price is None:
-            assert price_dt is None
+            if price_dt is not None:
+                raise ValueError("price_dt must be None when price is omitted")
             price, price_dt = self.get_last_price(symbol, return_dt=True)
             if price is None:
                 raise ValueError(f"market price not found: {symbol}")
@@ -199,10 +222,15 @@ class Broker:
             portfolio_id = self.portfolio_id
         return self.portfolios[portfolio_id].get_cash(include_locked)
 
-    def get_position(self, symbol: str, portfolio_id: Optional[str] = None) -> Position:
+    def get_position(
+        self,
+        symbol: str,
+        portfolio_id: Optional[str] = None,
+        create_if_missing: bool = True,
+    ) -> Optional[Position]:
         if portfolio_id is None:
             portfolio_id = self.portfolio_id
-        return self.portfolios[portfolio_id].get_position(symbol)
+        return self.portfolios[portfolio_id].get_position(symbol, create_if_missing=create_if_missing)
     
     def get_position_size(self, symbol: str, portfolio_id: Optional[str] = None) -> float:
         if portfolio_id is None:

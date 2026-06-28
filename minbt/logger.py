@@ -23,7 +23,6 @@ MESSAGES = {
     }
 }
 
-logger = I18nLogger(messages=MESSAGES)
-logger.set_logger(create_logger("minbt"))
+logger = I18nLogger(logger=create_logger("minbt"), messages=MESSAGES)
 
 __all__ = ['logger', 'I18nLogger']

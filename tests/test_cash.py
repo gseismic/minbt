@@ -19,13 +19,13 @@ def test_cash_initialization():
     assert cash.locked_cash == 0.0
 
     # 异常情况测试
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         Cash(total_cash=-1000.0, free_cash=800.0)  # 负总现金
     
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         Cash(total_cash=1000.0, free_cash=-800.0)  # 负可用现金
     
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         Cash(total_cash=800.0, free_cash=1000.0)  # 可用现金大于总现金
 
 def test_cash_add():
@@ -44,7 +44,7 @@ def test_cash_add():
     assert cash.free_cash == 1000.0
 
     # 异常情况
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         cash.add_cash(amount=-100.0)  # 不能添加负现金
 
 def test_cash_spend():
@@ -64,10 +64,10 @@ def test_cash_spend():
     assert cash.locked_cash == 200.0
 
     # 异常情况
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         cash.spend_cash(amount=-100.0)  # 不能花费负现金
     
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         cash.spend_cash(amount=600.0)  # 不能花费超过可用现金的金额
 
 def test_cash_lock_unlock():
@@ -87,17 +87,17 @@ def test_cash_lock_unlock():
     assert cash.total_cash == 1000.0
 
     # 异常情况 - 锁定
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         cash.lock_cash(amount=-100.0)  # 不能锁定负现金
     
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         cash.lock_cash(amount=800.0)  # 不能锁定超过可用现金的金额
 
     # 异常情况 - 解锁
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         cash.unlock_cash(amount=-100.0)  # 不能解锁负现金
     
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError):
         cash.unlock_cash(amount=400.0)  # 不能解锁超过已锁定现金的金额
 
 def test_cash_representation():
@@ -133,4 +133,4 @@ def test_cash_edge_cases():
     # 精度测试
     cash = Cash(total_cash=1000.123456789, free_cash=1000.123456789)
     assert abs(cash.total_cash - 1000.123456789) < 1e-9
-    assert abs(cash.free_cash - 1000.123456789) < 1e-9 
+    assert abs(cash.free_cash - 1000.123456789) < 1e-9

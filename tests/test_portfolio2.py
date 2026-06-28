@@ -214,17 +214,16 @@ def test_insufficient_margin():
     # 尝试开超过可用保证金的仓位
     success = portfolio.submit_order("AAPL", qty=1000, price=100.0)  # 需要保证金20,000
     assert not success
-    # portfolio
-    assert portfolio.get_position('AAPL').size == 0
-    # assert "AAPL" not in portfolio.positions
+    assert portfolio.get_position('AAPL', create_if_missing=False) is None
+    assert "AAPL" not in portfolio.positions
     
     # 开仓后剩余保证金不足以开新仓
     portfolio.submit_order("AAPL", qty=400, price=100.0)  # 使用8000保证金
     success = portfolio.submit_order("GOOGL", qty=100, price=100.0)  # 尝试使用2000保证金
     assert not success
     print(portfolio.positions)
-    assert portfolio.get_position('GOOGL').size == 0
-    # assert "GOOGL" not in portfolio.positions
+    assert portfolio.get_position('GOOGL', create_if_missing=False) is None
+    assert "GOOGL" not in portfolio.positions
 
 def test_position_transfer():
     """测试仓位反转"""

@@ -1,4 +1,8 @@
 import pytest
+import os
+import subprocess
+import sys
+from pathlib import Path
 from pytest import approx
 from minbt.broker.broker import Broker
 # from minbt.broker.struct import Order, OrderStatus, OrderType, OrderSide
@@ -158,6 +162,16 @@ def test_add_sub_portfolio_rejects_duplicate_id():
     assert broker.remaining_free_cash == remaining_cash
     assert broker.portfolios['default'] is original_portfolio
 
+def test_add_sub_portfolio_rejects_insufficient_cash():
+    """测试子组合资金不能超过未分配现金"""
+    broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
+
+    with pytest.raises(ValueError):
+        broker.add_sub_portfolio('alt', 500)
+
+    assert broker.remaining_free_cash == 400
+    assert 'alt' not in broker.portfolios
+
 def test_submit_market_order_requires_existing_portfolio_before_price_update():
     """测试无效组合不会污染 broker 或组合行情状态"""
     broker = Broker(initial_cash=1000, fee_rate=0)
@@ -177,6 +191,14 @@ def test_submit_market_order_requires_known_price():
 
     assert broker.portfolios['default'].positions == {}
 
+def test_position_size_query_does_not_create_empty_position():
+    """测试只读持仓数量查询不会创建空仓位"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    assert broker.get_position_size('UNKNOWN') == 0
+    assert broker.get_position('UNKNOWN', create_if_missing=False) is None
+    assert broker.portfolios['default'].positions == {}
+
 def test_total_equity_includes_all_portfolios_and_unallocated_cash():
     """测试 broker 总权益包含所有子组合和未分配现金"""
     broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
@@ -186,6 +208,53 @@ def test_total_equity_includes_all_portfolios_and_unallocated_cash():
     assert broker.remaining_free_cash == 100
     assert broker.get_total_equity() == 1000
     assert broker.get_equity() == 600
+
+def test_broker_rejects_invalid_margin_config():
+    """测试保证金阈值规则在 Broker 和 Portfolio 一致"""
+    with pytest.raises(ValueError):
+        Broker(initial_cash=1000, fee_rate=0, warning_margin_level=0.1, min_margin_level=0.1)
+
+    with pytest.raises(ValueError):
+        Broker(initial_cash=1000, fee_rate=0, warning_margin_level=1.0, min_margin_level=0.1)
+
+def test_broker_validation_survives_optimized_python():
+    """测试 python -O 下输入校验不会被跳过"""
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(repo_root) + os.pathsep + env.get('PYTHONPATH', '')
+    code = """
+from minbt import Broker
+try:
+    Broker(initial_cash=1000, fee_rate=2, portfolio_cash=2000, leverage=0)
+except ValueError:
+    raise SystemExit(0)
+raise SystemExit(1)
+"""
+
+    result = subprocess.run(
+        [sys.executable, '-O', '-c', code],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+def test_close_portfolio_keeps_portfolio_when_close_fails():
+    """测试关闭组合失败时不会先移除组合导致状态丢失"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    portfolio = broker.portfolios['default']
+
+    def fail_close_all_positions(last_prices):
+        raise RuntimeError('close failed')
+
+    portfolio.close_all_positions = fail_close_all_positions
+
+    with pytest.raises(RuntimeError, match='close failed'):
+        broker.close_portfolio('default')
+
+    assert broker.portfolios['default'] is portfolio
 
 if __name__ == "__main__":
     # pytest.main([__file__])
