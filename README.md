@@ -189,30 +189,32 @@ def on_bars(self, dt, bars):
 
 ### Broker 和 Portfolio
 
-`Broker` 管理一个或多个 portfolio。默认创建 `default` portfolio：
+`Broker` 管理一个或多个 portfolio。默认创建 `main` portfolio，`initial_cash` 默认全部进入 `main`：
 
 ```python
-broker = Broker(initial_cash=100_000, fee_rate=0.001, portfolio_cash=60_000)
-broker.add_sub_portfolio("alt", initial_cash=30_000)
+broker = Broker(initial_cash=100_000, fee_rate=0.001)
+broker.add_portfolio("trend", cash=30_000)
+
+broker.order_target_percent("BTCUSDT", 0.8, price=100, portfolio="trend")
 ```
 
 权益查询语义：
 
-- `broker.get_total_equity()`: 所有 portfolio 权益加未分配现金。
-- `broker.get_all_portfolio_equity()`: 所有 portfolio 权益，不含未分配现金。
-- `broker.get_equity(portfolio_id=None)`: 指定 portfolio 权益；默认返回主 portfolio。
-- `broker.get_cash(portfolio_id=None)`: 指定 portfolio 可用现金。
+- `broker.get_total_equity()`: 所有 portfolio 权益加兼容旧接口保留的未分配现金。
+- `broker.get_all_portfolio_equity()`: 所有 portfolio 权益。
+- `broker.get_equity(portfolio=None)`: 指定 portfolio 权益；默认返回 `main`。
+- `broker.get_cash(portfolio=None)`: 指定 portfolio 可用现金。
 
 市场规则可以通过 `market` 参数扩展：
 
 ```python
-from minbt import Broker, ChinaAStockMarket, CryptoMarket
+from minbt import Broker, markets
 
-crypto_broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=CryptoMarket())
-a_stock_broker = Broker(initial_cash=100_000, fee_rate=0.0003, market=ChinaAStockMarket())
+crypto_broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=markets.CRYPTO)
+a_stock_broker = Broker(initial_cash=100_000, fee_rate=0.0003, market=markets.A_STOCK)
 ```
 
-`ChinaAStockMarket` 当前实现最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。同日买入的持仓 `locked_size` 大于 0，`close_position()` 和 `close_portfolio()` 会在可平数量不足时失败，而不是静默部分平仓。直接调用 broker 下单时需要传入 `price_dt`；通过 Exchange 回测时，`date_key` 会自动传入。目标仓位接口产生的买入数量会按整手向 0 方向规范化。
+`markets.A_STOCK` 当前实现最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。同日买入的持仓 `locked_size` 大于 0，`close_position()` 和 `close_portfolio()` 会在可平数量不足时失败，而不是静默部分平仓。直接调用 broker 下单时需要传入 `price_dt`；通过 Exchange 回测时，`date_key` 会自动传入。目标仓位接口产生的买入数量会按整手向 0 方向规范化。
 
 ### 函数式退出规则
 

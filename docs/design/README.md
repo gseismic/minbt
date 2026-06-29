@@ -30,7 +30,7 @@ class MyStrategy(Strategy):
 - Strategy 负责产生交易意图。
 - Broker 是唯一交易入口。
 - Portfolio 和 Position 负责账户状态。
-- MarketModel 负责市场规则差异。
+- Market 负责市场规则差异。
 
 ## 全局推荐实施顺序
 
@@ -50,9 +50,9 @@ class MyStrategy(Strategy):
 
 ### Phase-3：市场特征模型
 
-1. `SimpleMarket` 保持当前行为。
-2. `MarketModel` 支持可交易时间、交易日、T+0/T+1、lot size、tick size、是否允许做空等特征。
-3. `ChinaAStockMarket` 和 `CryptoMarket` 作为特征预设组合。
+1. `Market(...)` 支持可交易时间、交易日、T+0/T+1、lot size、tick size、是否允许做空等特征。
+2. `markets.DEFAULT`、`markets.CRYPTO`、`markets.A_STOCK` 作为推荐预设。
+3. 旧 `SimpleMarket`、`ChinaAStockMarket` 和 `CryptoMarket` 仅保留兼容入口。
 4. `close_position` 在 T+1 下默认全平失败，不静默部分平。
 
 ### Phase-4：函数式退出规则
@@ -82,8 +82,9 @@ class MyStrategy(Strategy):
 - `Strategy.on_bars(dt, bars)`。
 - `Exchange.set_bars(...)`。
 - `Broker.order_target_size/value/percent(...)`。
+- `Broker.add_portfolio(name, cash)`。
+- `Market(...)` 和 `markets.DEFAULT/CRYPTO/A_STOCK`。
 - 函数式止盈止损。
-- `MarketModel`、`SimpleMarket`、`ChinaAStockMarket`、`CryptoMarket`。
 
 尚未实现：
 

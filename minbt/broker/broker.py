@@ -1,29 +1,33 @@
 from typing import Literal, Optional, Dict
 from collections import defaultdict
+import copy
 from .portfolio import Portfolio
 from .struct import Position, DateType, _require
-from .market import MarketModel, SimpleMarket
+from .market import Market, SimpleMarket
 from .exit import ExitRule, ExitContext
 from ..logger import logger as default_logger
+
+
+DEFAULT_PORTFOLIO = "main"
+
 
 class Broker:
     """
     交易经纪商
-    
-    一个Broker可以有多个Portfolio, 共享一个initial_cash
-    多个Portfolio可以有不同的portfolio_cash，总和不能超过initial_cash
+
+    一个 Broker 可以有多个 Portfolio。默认创建 main 组合，initial_cash 默认全部进入 main。
     """
     def __init__(self, 
                  initial_cash: float, 
                  fee_rate: float, 
                  *,
                  portfolio_cash: Optional[float] = None,
-                 portfolio_id: str = 'default',
+                 portfolio_id: str = DEFAULT_PORTFOLIO,
                  leverage: float = 1.0, 
                  margin_mode: Literal['cross', 'isolated'] = 'cross', 
                  warning_margin_level: float = 0.2, 
                  min_margin_level: float = 0.1,
-                 market: Optional[MarketModel] = None,
+                 market: Optional[Market] = None,
                  logger=None):
         """
         Args:
@@ -70,23 +74,64 @@ class Broker:
         self.margin_mode = margin_mode
         self.warning_margin_level = warning_margin_level
         self.min_margin_level = min_margin_level
-        self.market = market or SimpleMarket()
+        self.market = copy.copy(market) if market is not None else SimpleMarket()
         self.logger = logger or default_logger
         self.initial_cash = initial_cash
-        self.remaining_free_cash = initial_cash
         self.portfolios = {}
         self.portfolio_id = portfolio_id
         portfolio_cash = portfolio_cash if portfolio_cash is not None else initial_cash
-        self.add_sub_portfolio(portfolio_id=self.portfolio_id, initial_cash=portfolio_cash)
+        self.remaining_free_cash = initial_cash - portfolio_cash
+        self.portfolios[self.portfolio_id] = self._create_portfolio(portfolio_cash)
         
         self.last_prices = {}
         self.last_price_dates = {}
         self._last_market_dt = None
         self._exit_rules = defaultdict(lambda: defaultdict(list))
+
+    def _create_portfolio(self, initial_cash: float) -> Portfolio:
+        return Portfolio(
+            initial_cash,
+            fee_rate=self.fee_rate,
+            leverage=self.leverage,
+            margin_mode=self.margin_mode,
+            warning_margin_level=self.warning_margin_level,
+            min_margin_level=self.min_margin_level,
+            logger=self.logger,
+        )
+
+    def _resolve_portfolio(
+        self,
+        portfolio: Optional[str] = None,
+        portfolio_id: Optional[str] = None,
+    ) -> str:
+        if portfolio is not None and portfolio_id is not None and portfolio != portfolio_id:
+            raise ValueError(f"portfolio and portfolio_id conflict: {portfolio} != {portfolio_id}")
+        return portfolio or portfolio_id or self.portfolio_id
+
+    def _require_portfolio(self, portfolio_id: str) -> None:
+        if portfolio_id not in self.portfolios:
+            raise ValueError(f"portfolio not found: {portfolio_id}")
     
+    def add_portfolio(self, name: str, cash: float) -> None:
+        """
+        从主组合划拨现金创建新组合。
+        """
+        if name in self.portfolios:
+            raise ValueError(f"portfolio already exists: {name}")
+        _require(cash > 0, f"cash must be greater than 0, cash: {cash}")
+        self._require_portfolio(self.portfolio_id)
+        source = self.portfolios[self.portfolio_id]
+        _require(
+            cash <= source.free_cash,
+            f"cash must be less than or equal to main portfolio free cash,"
+            f" cash: {cash}, free_cash: {source.free_cash}",
+        )
+        source._current_cash.change_cash(-cash)
+        self.portfolios[name] = self._create_portfolio(cash)
+
     def add_sub_portfolio(self, portfolio_id: str, initial_cash: float) -> None:
         """
-        占用 remaining_free_cash 的资金
+        兼容旧入口：占用未分配现金创建组合。新代码建议使用 add_portfolio(name, cash)。
         """
         if portfolio_id in self.portfolios:
             raise ValueError(f"portfolio_id already exists: {portfolio_id}")
@@ -96,19 +141,11 @@ class Broker:
             f" initial_cash: {initial_cash}, remaining_free_cash: {self.remaining_free_cash}",
         )
         self.remaining_free_cash -= initial_cash
-        self.portfolios[portfolio_id] = Portfolio(
-            initial_cash, 
-            fee_rate=self.fee_rate, 
-            leverage=self.leverage, 
-            margin_mode=self.margin_mode, 
-            warning_margin_level=self.warning_margin_level, 
-            min_margin_level=self.min_margin_level,
-            logger=self.logger,
-        )
+        self.portfolios[portfolio_id] = self._create_portfolio(initial_cash)
     
-    def close_portfolio(self, portfolio_id: str) -> bool:
-        if portfolio_id not in self.portfolios:
-            raise ValueError(f"portfolio_id not found: {portfolio_id}")
+    def close_portfolio(self, portfolio: Optional[str] = None, *, portfolio_id: Optional[str] = None) -> bool:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
+        self._require_portfolio(portfolio_id)
         portfolio = self.portfolios[portfolio_id]
 
         close_orders = []
@@ -141,7 +178,10 @@ class Broker:
                 return False
 
         self.portfolios.pop(portfolio_id)
-        self.remaining_free_cash += portfolio.total_cash
+        if portfolio_id != self.portfolio_id and self.portfolio_id in self.portfolios:
+            self.portfolios[self.portfolio_id]._current_cash.change_cash(portfolio.total_cash)
+        else:
+            self.remaining_free_cash += portfolio.total_cash
         return True
     
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
@@ -172,7 +212,9 @@ class Broker:
                    leverage: Optional[float] = None, 
                    price_dt: Optional[DateType] = None,
                    normalize_qty: bool = False,
-                   portfolio_id: str = 'default'):
+                   portfolio_id: Optional[str] = None,
+                   *,
+                   portfolio: Optional[str] = None):
         """
         Arguments:
             last_price: 市价买入价格,也是市价卖出价格
@@ -180,8 +222,8 @@ class Broker:
         1. 如果last_price为None，则使用last_prices中的价格
         2. 否则，使用传入的价格，并更新last_prices
         """
-        if portfolio_id not in self.portfolios:
-            raise ValueError(f"portfolio_id not found: {portfolio_id}")
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
+        self._require_portfolio(portfolio_id)
         # 注意，此时broker中的last_prices应已经通过on_new_price更新了
         if price is None:
             if price_dt is not None:
@@ -211,8 +253,10 @@ class Broker:
         price: Optional[float] = None,
         leverage: Optional[float] = None,
         price_dt: Optional[DateType] = None,
-        portfolio_id: str = 'default',
+        portfolio_id: Optional[str] = None,
+        portfolio: Optional[str] = None,
     ) -> bool:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         current_size = self.get_position_size(symbol, portfolio_id=portfolio_id)
         qty = target_size - current_size
         if qty == 0:
@@ -234,8 +278,10 @@ class Broker:
         price: Optional[float] = None,
         leverage: Optional[float] = None,
         price_dt: Optional[DateType] = None,
-        portfolio_id: str = 'default',
+        portfolio_id: Optional[str] = None,
+        portfolio: Optional[str] = None,
     ) -> bool:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         if price is None:
             price, price_dt = self.get_last_price(symbol, return_dt=True)
             if price is None:
@@ -257,8 +303,10 @@ class Broker:
         price: Optional[float] = None,
         leverage: Optional[float] = None,
         price_dt: Optional[DateType] = None,
-        portfolio_id: str = 'default',
+        portfolio_id: Optional[str] = None,
+        portfolio: Optional[str] = None,
     ) -> bool:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         if price is not None:
             if price_dt is None:
                 price_dt = self.last_price_dates.get(symbol)
@@ -279,8 +327,10 @@ class Broker:
         symbol: str,
         price: Optional[float] = None,
         price_dt: Optional[DateType] = None,
-        portfolio_id: str = 'default',
+        portfolio_id: Optional[str] = None,
+        portfolio: Optional[str] = None,
     ) -> bool:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         position = self.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
         if position is None or position.is_empty():
             self.logger.warning(f'Cannot close empty position: {symbol}')
@@ -301,8 +351,10 @@ class Broker:
         name: Optional[str] = None,
         condition=None,
         state=None,
-        portfolio_id: str = 'default',
+        portfolio_id: Optional[str] = None,
+        portfolio: Optional[str] = None,
     ) -> ExitRule:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         if rule is not None and condition is not None:
             raise ValueError("rule and condition cannot both be provided")
         if rule is None:
@@ -314,7 +366,15 @@ class Broker:
         self._exit_rules[portfolio_id][symbol].append(rule)
         return rule
 
-    def clear_exit_rules(self, symbol: Optional[str] = None, portfolio_id: Optional[str] = None) -> None:
+    def clear_exit_rules(
+        self,
+        symbol: Optional[str] = None,
+        portfolio_id: Optional[str] = None,
+        *,
+        portfolio: Optional[str] = None,
+    ) -> None:
+        if portfolio is not None or portfolio_id is not None:
+            portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         if portfolio_id is None:
             if symbol is None:
                 self._exit_rules.clear()
@@ -364,10 +424,19 @@ class Broker:
                   tp_price: Optional[float] = None, 
                   sl_price: Optional[float] = None, 
                   leverage: Optional[float] = None, 
-                  portfolio_id: str = 'default'):
+                  portfolio_id: Optional[str] = None,
+                  *,
+                  portfolio: Optional[str] = None):
         raise NotImplementedError()
 
-    def cancel_order(self, symbol: str, order_id: str, portfolio_id: str = 'default'):
+    def cancel_order(
+        self,
+        symbol: str,
+        order_id: str,
+        portfolio_id: Optional[str] = None,
+        *,
+        portfolio: Optional[str] = None,
+    ):
         raise NotImplementedError()
     
     def submit_stop_order(self,
@@ -377,7 +446,9 @@ class Broker:
                  tp_price: Optional[float] = None,
                  sl_price: Optional[float] = None,
                  leverage: Optional[float] = None,
-                 portfolio_id: str = 'default'):
+                 portfolio_id: Optional[str] = None,
+                 *,
+                 portfolio: Optional[str] = None):
         """
         下止损买入单(Stop Buy)
         当价格上涨超过stop_price时触发市价买入
@@ -391,7 +462,9 @@ class Broker:
                          tp_price: Optional[float] = None,
                          sl_price: Optional[float] = None,
                          leverage: Optional[float] = None,
-                         portfolio_id: str = 'default'):
+                         portfolio_id: Optional[str] = None,
+                         *,
+                         portfolio: Optional[str] = None):
         """
         下追踪止损买入单
         stop_distance: 追踪止损距离，价格与最低点的距离超过此值时触发买入
@@ -405,26 +478,31 @@ class Broker:
     def get_total_equity(self) -> float:
         return self.remaining_free_cash + self.get_all_portfolio_equity()
     
-    def get_portfolio_equity(self, portfolio_id: Optional[str] = None) -> float:
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+    def get_portfolios(self):
+        return list(self.portfolios.keys())
+
+    def get_portfolio_equity(self, portfolio: Optional[str] = None, *, portfolio_id: Optional[str] = None) -> float:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].get_portfolio_equity()
     
-    def get_portfolio_initial_cash(self, portfolio_id: Optional[str] = None) -> float:
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+    def get_portfolio_initial_cash(self, portfolio: Optional[str] = None, *, portfolio_id: Optional[str] = None) -> float:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].initial_cash
     
     # get 直接开头的，表示获取某个portfolio的值
-    def get_equity(self, portfolio_id: Optional[str] = None) -> float:
+    def get_equity(self, portfolio: Optional[str] = None, *, portfolio_id: Optional[str] = None) -> float:
         # 默认只返回主仓位
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].get_portfolio_equity()
     
-    def get_cash(self, include_locked: bool = False, portfolio_id: Optional[str] = None) -> float:
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+    def get_cash(
+        self,
+        include_locked: bool = False,
+        portfolio_id: Optional[str] = None,
+        *,
+        portfolio: Optional[str] = None,
+    ) -> float:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].get_cash(include_locked)
 
     def get_position(
@@ -432,22 +510,36 @@ class Broker:
         symbol: str,
         portfolio_id: Optional[str] = None,
         create_if_missing: bool = True,
+        *,
+        portfolio: Optional[str] = None,
     ) -> Optional[Position]:
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].get_position(symbol, create_if_missing=create_if_missing)
     
-    def get_position_size(self, symbol: str, portfolio_id: Optional[str] = None) -> float:
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+    def get_position_size(
+        self,
+        symbol: str,
+        portfolio_id: Optional[str] = None,
+        *,
+        portfolio: Optional[str] = None,
+    ) -> float:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].get_position_size(symbol)
     
-    def get_position_sizes(self, portfolio_id: Optional[str] = None) -> Dict[str, float]:
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+    def get_position_sizes(
+        self,
+        portfolio_id: Optional[str] = None,
+        *,
+        portfolio: Optional[str] = None,
+    ) -> Dict[str, float]:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].get_position_sizes()
     
-    def get_positions(self, portfolio_id: Optional[str] = None) -> Dict[str, Position]:
-        if portfolio_id is None:
-            portfolio_id = self.portfolio_id
+    def get_positions(
+        self,
+        portfolio_id: Optional[str] = None,
+        *,
+        portfolio: Optional[str] = None,
+    ) -> Dict[str, Position]:
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         return self.portfolios[portfolio_id].get_positions()

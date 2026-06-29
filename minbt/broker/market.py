@@ -2,7 +2,7 @@ import datetime as _dt
 import math
 import numbers
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Any, Optional, Tuple
 
 
 def _to_datetime(value):
@@ -22,6 +22,16 @@ def _to_datetime(value):
         return None
 
 
+def _to_time(value) -> _dt.time:
+    if isinstance(value, _dt.time):
+        return value
+    if isinstance(value, str):
+        hour, minute, *rest = value.split(":")
+        second = int(rest[0]) if rest else 0
+        return _dt.time(int(hour), int(minute), second)
+    raise TypeError(f"invalid time value: {value!r}")
+
+
 def _is_multiple(value: float, step: Optional[float]) -> bool:
     if step is None or step == 0:
         return True
@@ -35,17 +45,42 @@ class OrderValidation:
     message: str = ""
 
 
-class MarketModel:
-    """最小市场规则模型，负责校验订单和维护市场相关持仓状态。"""
+@dataclass
+class Market:
+    """市场特征配置，负责订单校验和市场相关持仓状态维护。"""
 
-    allow_short = True
-    lot_size = None
-    tick_size = None
-    min_qty = None
-    min_notional = None
+    name: str = "Default"
+    allow_short: bool = True
+    t_plus: int = 0
+    lot_size: Optional[float] = None
+    tick_size: Optional[float] = None
+    min_qty: Optional[float] = None
+    min_notional: Optional[float] = None
+    require_dt: bool = False
+    weekdays_only: bool = False
+    trading_sessions: Optional[Tuple[Tuple[Any, Any], ...]] = None
+    allow_daily_bar: bool = True
+
+    def __post_init__(self):
+        if self.t_plus not in (0, 1):
+            raise ValueError(f"only T+0/T+1 market is supported, got T+{self.t_plus}")
+        if self.trading_sessions is not None:
+            self.trading_sessions = tuple(
+                (_to_time(start), _to_time(end))
+                for start, end in self.trading_sessions
+            )
 
     def is_trading_time(self, dt) -> bool:
-        return True
+        value = _to_datetime(dt)
+        if value is None:
+            return not self.require_dt and not self.weekdays_only and not self.trading_sessions
+        if self.weekdays_only and value.weekday() >= 5:
+            return False
+        if not self.trading_sessions:
+            return True
+        if self.allow_daily_bar and value.time() == _dt.time():
+            return True
+        return any(start <= value.time() <= end for start, end in self.trading_sessions)
 
     def trading_day(self, dt):
         value = _to_datetime(dt)
@@ -54,12 +89,33 @@ class MarketModel:
         return value.date()
 
     def on_new_dt(self, broker, dt) -> None:
-        return None
+        if self.t_plus == 0:
+            return
+        current_day = self.trading_day(dt)
+        if current_day is None:
+            return
+        for portfolio in broker.portfolios.values():
+            for position in portfolio.positions.values():
+                position.unlock_before(current_day)
 
-    def normalize_order_qty(self, broker, symbol: str, qty: float, price: Optional[float] = None, portfolio_id: str = "default") -> float:
-        return qty
+    def normalize_order_qty(
+        self,
+        broker,
+        symbol: str,
+        qty: float,
+        price: Optional[float] = None,
+        portfolio_id: str = "main",
+    ) -> float:
+        if qty <= 0 or self.lot_size is None:
+            return qty
+        position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+        current_size = 0 if position is None else position.size
+        if current_size < 0:
+            return qty
+        normalized = math.floor(abs(qty) / self.lot_size + 1e-12) * self.lot_size
+        return float(normalized)
 
-    def validate_order(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "default") -> OrderValidation:
+    def validate_order(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "main") -> OrderValidation:
         if qty == 0:
             return OrderValidation(False, "qty must be non-zero")
         if price <= 0:
@@ -89,88 +145,50 @@ class MarketModel:
                 )
         return OrderValidation(True)
 
-    def on_order_filled(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "default") -> None:
-        return None
-
-
-class SimpleMarket(MarketModel):
-    """默认市场：保持当前 T+0 市价成交行为。"""
-
-    allow_short = True
-
-
-class CryptoMarket(SimpleMarket):
-    """加密资产市场预设：T+0，允许配置最小数量和价格精度。"""
-
-    def __init__(
-        self,
-        *,
-        min_qty: Optional[float] = None,
-        min_notional: Optional[float] = None,
-        tick_size: Optional[float] = None,
-        allow_short: bool = True,
-    ):
-        self.min_qty = min_qty
-        self.min_notional = min_notional
-        self.tick_size = tick_size
-        self.allow_short = allow_short
-
-
-class ChinaAStockMarket(MarketModel):
-    """A 股市场最小预设：交易日、交易时间、100 股一手、T+1、不可做空。"""
-
-    allow_short = False
-
-    def __init__(self, *, lot_size: int = 100, tick_size: float = 0.01):
-        self.lot_size = lot_size
-        self.tick_size = tick_size
-
-    def is_trading_time(self, dt) -> bool:
-        value = _to_datetime(dt)
-        if value is None:
-            return False
-        if value.weekday() >= 5:
-            return False
-        # 日线数据经常用 00:00:00 表示交易日，视为可交易。
-        if value.time() == _dt.time():
-            return True
-        morning = _dt.time(9, 30) <= value.time() <= _dt.time(11, 30)
-        afternoon = _dt.time(13, 0) <= value.time() <= _dt.time(15, 0)
-        return morning or afternoon
-
-    def on_new_dt(self, broker, dt) -> None:
-        current_day = self.trading_day(dt)
-        if current_day is None:
-            return
-        for portfolio in broker.portfolios.values():
-            for position in portfolio.positions.values():
-                position.unlock_before(current_day)
-
-    def validate_order(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "default") -> OrderValidation:
-        base = super().validate_order(broker, symbol, qty, price, dt=dt, portfolio_id=portfolio_id)
-        if not base.ok:
-            return base
-        position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
-        current_size = 0 if position is None else position.size
-        is_buy_open = qty > 0 and current_size >= 0
-        if is_buy_open and not _is_multiple(abs(qty), self.lot_size):
-            return OrderValidation(False, f"buy qty must be multiple of lot_size {self.lot_size}: {qty}")
-        return OrderValidation(True)
-
-    def normalize_order_qty(self, broker, symbol: str, qty: float, price: Optional[float] = None, portfolio_id: str = "default") -> float:
-        if qty <= 0 or self.lot_size is None:
-            return qty
-        position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
-        current_size = 0 if position is None else position.size
-        if current_size < 0:
-            return qty
-        normalized = math.floor(abs(qty) / self.lot_size + 1e-12) * self.lot_size
-        return float(normalized)
-
-    def on_order_filled(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "default") -> None:
-        if qty <= 0:
+    def on_order_filled(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "main") -> None:
+        if self.t_plus == 0 or qty <= 0:
             return
         position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
         if position is None or position.size <= 0:
             return
         position.lock_size(abs(qty), self.trading_day(dt))
+
+
+MarketModel = Market
+
+
+def SimpleMarket() -> Market:
+    """兼容旧入口；新代码建议使用 Market() 或 markets.DEFAULT。"""
+    return Market(name="Default")
+
+
+def CryptoMarket(
+    *,
+    min_qty: Optional[float] = None,
+    min_notional: Optional[float] = None,
+    tick_size: Optional[float] = None,
+    allow_short: bool = True,
+) -> Market:
+    """兼容旧入口；新代码建议使用 markets.CRYPTO 或 Market(name="Crypto", ...)。"""
+    return Market(
+        name="Crypto",
+        allow_short=allow_short,
+        min_qty=min_qty,
+        min_notional=min_notional,
+        tick_size=tick_size,
+    )
+
+
+def ChinaAStockMarket(*, lot_size: int = 100, tick_size: float = 0.01) -> Market:
+    """兼容旧入口；新代码建议使用 markets.A_STOCK 或 Market(name="AStock", ...)。"""
+    return Market(
+        name="AStock",
+        allow_short=False,
+        t_plus=1,
+        lot_size=lot_size,
+        tick_size=tick_size,
+        require_dt=True,
+        weekdays_only=True,
+        trading_sessions=(("09:30", "11:30"), ("13:00", "15:00")),
+        allow_daily_bar=True,
+    )

@@ -64,13 +64,14 @@ class CrossSectionStrategy(Strategy):
 
 ## Broker 语义
 
-- `Broker(initial_cash, fee_rate, portfolio_cash=None, leverage=1.0, margin_mode="cross")` creates a default portfolio.
+- `Broker(initial_cash, fee_rate, leverage=1.0, margin_mode="cross")` creates the `main` portfolio and puts all initial cash into it.
 - `Broker(..., logger=custom_logger)` can be used to silence or redirect Portfolio order logs.
-- `broker.add_sub_portfolio(id, initial_cash)` allocates cash from `remaining_free_cash`.
-- `broker.get_total_equity()` returns all portfolio equity plus unallocated cash.
-- `broker.get_all_portfolio_equity()` excludes unallocated cash.
-- `broker.get_equity(portfolio_id=None)` returns one portfolio, defaulting to the main portfolio.
-- `broker.submit_market_order(symbol, qty, price=None, leverage=None, portfolio_id="default")` uses the last known price when `price` is omitted.
+- `broker.add_portfolio(name, cash)` transfers cash from `main` to a new portfolio.
+- `broker.add_sub_portfolio(id, initial_cash)` is legacy compatibility only and allocates from `remaining_free_cash`.
+- `broker.get_total_equity()` returns all portfolio equity plus legacy unallocated cash.
+- `broker.get_all_portfolio_equity()` returns all portfolio equity.
+- `broker.get_equity(portfolio=None)` returns one portfolio, defaulting to `main`.
+- `broker.submit_market_order(symbol, qty, price=None, leverage=None, portfolio="trend")` uses the last known price when `price` is omitted.
 - `broker.order_target_size(symbol, target_size, price=None, ...)` adjusts to a target position size.
 - `broker.order_target_value(symbol, target_value, price=None, ...)` adjusts to a target notional value.
 - `broker.order_target_percent(symbol, target_percent, price=None, ...)` adjusts to a target portfolio equity percentage.
@@ -80,9 +81,10 @@ class CrossSectionStrategy(Strategy):
 
 ## 市场与退出规则
 
-- `SimpleMarket` 是默认 T+0 行为。
-- `CryptoMarket` 是加密资产预设，可配置最小数量、最小名义金额、价格 tick 和是否允许做空。
-- `ChinaAStockMarket` 是最小 A 股预设，包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定；直接调用 broker 时必须传 `price_dt`，目标仓位买入数量会按整手向 0 方向规范化。
+- 推荐使用 `Market(...)` 和 `markets.DEFAULT/CRYPTO/A_STOCK` 表达市场特征。
+- `markets.CRYPTO` 是加密资产预设。
+- `markets.A_STOCK` 是最小 A 股预设，包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定；直接调用 broker 时必须传 `price_dt`，目标仓位买入数量会按整手向 0 方向规范化。
+- `SimpleMarket`、`CryptoMarket`、`ChinaAStockMarket` 是 legacy compatibility only，不要在新示例中推荐。
 - `Position.available_size` 和 `Position.locked_size` 是 broker 内部状态，用于 T+1 等市场规则，不作为用户初始化主路径。
 - `broker.add_exit_rule(symbol, stop_loss_pct(...))` 和 `take_profit_pct(...)` 可用于常规止盈止损。
 - 自定义退出规则使用 `condition(ctx) -> bool`；规则在每个 `on_bars` 前检查，触发后通过当前 `close` 市价平仓。

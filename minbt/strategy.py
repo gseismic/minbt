@@ -26,14 +26,16 @@ class BrokerProtocol(Protocol):
         leverage: Optional[float] = None,
         price_dt=None,
         normalize_qty: bool = False,
-        portfolio_id: str = 'default'
+        portfolio_id: Optional[str] = None,
+        *,
+        portfolio: Optional[str] = None,
     ): ...
-    def get_position_size(self, symbol: str, portfolio_id: Optional[str] = None) -> float: ...
-    def get_position_sizes(self, portfolio_id: Optional[str] = None) -> Dict[str, float]: ...
+    def get_position_size(self, symbol: str, portfolio_id: Optional[str] = None, *, portfolio: Optional[str] = None) -> float: ...
+    def get_position_sizes(self, portfolio_id: Optional[str] = None, *, portfolio: Optional[str] = None) -> Dict[str, float]: ...
     def get_total_equity(self) -> float: ...
-    def get_equity(self, portfolio_id: Optional[str] = None) -> float: ...
-    def get_cash(self, include_locked: bool = False, portfolio_id: Optional[str] = None) -> float: ...
-    def get_positions(self, portfolio_id: Optional[str] = None): ...
+    def get_equity(self, portfolio: Optional[str] = None, *, portfolio_id: Optional[str] = None) -> float: ...
+    def get_cash(self, include_locked: bool = False, portfolio_id: Optional[str] = None, *, portfolio: Optional[str] = None) -> float: ...
+    def get_positions(self, portfolio_id: Optional[str] = None, *, portfolio: Optional[str] = None): ...
     def order_target_size(self, symbol: str, target_size: float, price: Optional[float] = None, **kwargs) -> bool: ...
     def order_target_value(self, symbol: str, target_value: float, price: Optional[float] = None, **kwargs) -> bool: ...
     def order_target_percent(self, symbol: str, target_percent: float, price: Optional[float] = None, **kwargs) -> bool: ...
@@ -175,24 +177,45 @@ class Strategy:
             return [p.get(symbol, 0) for p in self._position_size_history]
         return self._position_size_history.get_column(symbol)
     
-    def get_broker_stats(self, portfolio_id: str = 'default'):
+    def get_broker_stats(self, portfolio: Optional[str] = None, *, portfolio_id: Optional[str] = None):
         return {
-            'equity': self.broker.get_equity(portfolio_id=portfolio_id),
-            'cash': self.broker.get_cash(portfolio_id=portfolio_id),
-            'positions': self.broker.get_positions(portfolio_id=portfolio_id)
+            'equity': self.broker.get_equity(portfolio=portfolio, portfolio_id=portfolio_id),
+            'cash': self.broker.get_cash(portfolio=portfolio, portfolio_id=portfolio_id),
+            'positions': self.broker.get_positions(portfolio=portfolio, portfolio_id=portfolio_id)
         }
     
-    def market_buy(self, symbol: str, qty: float, portfolio_id: str = 'default'):
+    def market_buy(
+        self,
+        symbol: str,
+        qty: float,
+        portfolio: Optional[str] = None,
+        *,
+        portfolio_id: Optional[str] = None,
+    ):
         if qty <= 0:
             raise ValueError(f'qty must be positive, got {qty}')
-        return self.broker.submit_market_order(symbol, qty=qty, portfolio_id=portfolio_id)
+        return self.broker.submit_market_order(symbol, qty=qty, portfolio=portfolio, portfolio_id=portfolio_id)
     
-    def market_sell(self, symbol: str, qty: float, portfolio_id: str = 'default'):
+    def market_sell(
+        self,
+        symbol: str,
+        qty: float,
+        portfolio: Optional[str] = None,
+        *,
+        portfolio_id: Optional[str] = None,
+    ):
         if qty <= 0:
             raise ValueError(f'qty must be positive, got {qty}')
-        return self.broker.submit_market_order(symbol, qty=-qty, portfolio_id=portfolio_id)
+        return self.broker.submit_market_order(symbol, qty=-qty, portfolio=portfolio, portfolio_id=portfolio_id)
     
-    def market_order(self, symbol: str, qty: float, portfolio_id: str = 'default'):
+    def market_order(
+        self,
+        symbol: str,
+        qty: float,
+        portfolio: Optional[str] = None,
+        *,
+        portfolio_id: Optional[str] = None,
+    ):
         if qty == 0:
             raise ValueError(f'qty must be non-zero, got {qty}')
-        return self.broker.submit_market_order(symbol, qty=qty, portfolio_id=portfolio_id)
+        return self.broker.submit_market_order(symbol, qty=qty, portfolio=portfolio, portfolio_id=portfolio_id)

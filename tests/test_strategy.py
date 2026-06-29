@@ -30,11 +30,11 @@ def test_strategy_without_broker_skips_broker_history():
 
 
 def test_strategy_get_broker_stats_uses_requested_portfolio():
-    broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
-    broker.add_sub_portfolio('alt', 300)
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.add_portfolio('alt', cash=300)
     strategy = Strategy(strategy_id='test', broker=broker)
 
-    stats = strategy.get_broker_stats(portfolio_id='alt')
+    stats = strategy.get_broker_stats(portfolio='alt')
 
     assert stats['equity'] == 300
     assert stats['cash'] == 300

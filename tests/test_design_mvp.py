@@ -3,9 +3,9 @@ import pytest
 
 from minbt import (
     Broker,
-    ChinaAStockMarket,
     Exchange,
     Strategy,
+    markets,
     stop_loss_pct,
 )
 
@@ -71,7 +71,7 @@ def test_order_target_percent_uses_explicit_price_for_equity():
 
 
 def test_china_a_stock_market_locks_same_day_buy():
-    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 
     assert broker.submit_market_order("600519.SH", qty=100, price=100, price_dt="2026-01-05")
     position = broker.get_position("600519.SH")
@@ -90,14 +90,24 @@ def test_china_a_stock_market_locks_same_day_buy():
 
 
 def test_china_a_stock_market_requires_dt_for_manual_order():
-    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 
     assert not broker.submit_market_order("600519.SH", qty=100, price=100)
     assert broker.get_position_size("600519.SH") == 0
 
 
+def test_market_preset_is_copied_per_broker():
+    broker_a = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+    broker_b = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+
+    broker_a.market.allow_short = True
+
+    assert markets.A_STOCK.allow_short is False
+    assert broker_b.market.allow_short is False
+
+
 def test_china_a_stock_market_normalizes_target_value_to_lot_size():
-    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 
     assert broker.order_target_value("600519.SH", target_value=80000, price=13, price_dt="2026-01-05")
 
@@ -105,7 +115,7 @@ def test_china_a_stock_market_normalizes_target_value_to_lot_size():
 
 
 def test_china_a_stock_market_rejects_explicit_non_lot_market_order():
-    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 
     assert not broker.submit_market_order("600519.SH", qty=150, price=100, price_dt="2026-01-05")
     assert broker.get_position_size("600519.SH") == 0
@@ -119,7 +129,7 @@ class ChinaAStockNoDateKeyStrategy(Strategy):
 
 def test_china_a_stock_market_rejects_exchange_row_number_dt():
     exchange = Exchange()
-    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
     strategy = ChinaAStockNoDateKeyStrategy(strategy_id="a_stock_no_date", broker=broker)
 
     exchange.set_bars([{"symbol": "600519.SH", "close": 100}])
@@ -130,16 +140,16 @@ def test_china_a_stock_market_rejects_exchange_row_number_dt():
 
 
 def test_close_portfolio_respects_market_rules():
-    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 
     assert broker.submit_market_order("600519.SH", qty=100, price=100, price_dt="2026-01-05")
-    assert not broker.close_portfolio("default")
-    assert "default" in broker.portfolios
+    assert not broker.close_portfolio("main")
+    assert "main" in broker.portfolios
     assert broker.get_position_size("600519.SH") == 100
 
     broker.on_new_price("600519.SH", 101, "2026-01-06")
-    assert broker.close_portfolio("default")
-    assert "default" not in broker.portfolios
+    assert broker.close_portfolio("main")
+    assert "main" not in broker.portfolios
 
 
 class StopLossStrategy(Strategy):

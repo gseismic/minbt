@@ -21,9 +21,9 @@ def test_order_submission():
     broker.on_new_price("BTCUSDT", 5000.0)
     assert broker.get_market_price("BTCUSDT") == 5000.0
     assert broker.get_position("BTCUSDT").size == 1.0
-    assert not broker.portfolios['default'].bankrupt
+    assert not broker.portfolios['main'].bankrupt
 
-    assert approx(broker.portfolios['default'].cash) == 10000 - 5000 * 1.0 * (1 + 0.001)
+    assert approx(broker.portfolios['main'].cash) == 10000 - 5000 * 1.0 * (1 + 0.001)
     print(f'total_equity: {broker.get_total_equity()}')
 
     broker.on_new_price("BTCUSDT", 6000.0)
@@ -154,13 +154,13 @@ def test_add_sub_portfolio_rejects_duplicate_id():
     """测试不能重复添加同名子组合"""
     broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
     remaining_cash = broker.remaining_free_cash
-    original_portfolio = broker.portfolios['default']
+    original_portfolio = broker.portfolios['main']
 
     with pytest.raises(ValueError):
-        broker.add_sub_portfolio('default', 100)
+        broker.add_sub_portfolio('main', 100)
 
     assert broker.remaining_free_cash == remaining_cash
-    assert broker.portfolios['default'] is original_portfolio
+    assert broker.portfolios['main'] is original_portfolio
 
 def test_add_sub_portfolio_rejects_insufficient_cash():
     """测试子组合资金不能超过未分配现金"""
@@ -180,7 +180,7 @@ def test_submit_market_order_requires_existing_portfolio_before_price_update():
         broker.submit_market_order("AAPL", qty=1, price=100, portfolio_id="missing")
 
     assert broker.last_prices == {}
-    assert broker.portfolios['default'].positions == {}
+    assert broker.portfolios['main'].positions == {}
 
 def test_submit_market_order_requires_known_price():
     """测试未提供价格且无最新价时给出明确错误"""
@@ -189,7 +189,7 @@ def test_submit_market_order_requires_known_price():
     with pytest.raises(ValueError):
         broker.submit_market_order("AAPL", qty=1)
 
-    assert broker.portfolios['default'].positions == {}
+    assert broker.portfolios['main'].positions == {}
 
 def test_position_size_query_does_not_create_empty_position():
     """测试只读持仓数量查询不会创建空仓位"""
@@ -197,10 +197,57 @@ def test_position_size_query_does_not_create_empty_position():
 
     assert broker.get_position_size('UNKNOWN') == 0
     assert broker.get_position('UNKNOWN', create_if_missing=False) is None
-    assert broker.portfolios['default'].positions == {}
+    assert broker.portfolios['main'].positions == {}
 
-def test_total_equity_includes_all_portfolios_and_unallocated_cash():
-    """测试 broker 总权益包含所有子组合和未分配现金"""
+def test_add_portfolio_transfers_cash_from_main():
+    """测试推荐分仓接口从 main 组合划拨资金"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.add_portfolio('alt', cash=300)
+
+    assert broker.get_portfolios() == ['main', 'alt']
+    assert broker.get_all_portfolio_equity() == 1000
+    assert broker.remaining_free_cash == 0
+    assert broker.get_total_equity() == 1000
+    assert broker.get_equity() == 700
+    assert broker.get_equity(portfolio='alt') == 300
+
+def test_add_portfolio_rejects_duplicate_or_insufficient_cash():
+    """测试推荐分仓接口不会覆盖组合或透支 main 现金"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.add_portfolio('alt', cash=300)
+
+    with pytest.raises(ValueError):
+        broker.add_portfolio('alt', cash=100)
+    with pytest.raises(ValueError):
+        broker.add_portfolio('too_big', cash=800)
+
+    assert broker.get_cash() == 700
+    assert broker.get_cash(portfolio='alt') == 300
+
+def test_close_non_main_portfolio_returns_cash_to_main():
+    """测试关闭非 main 组合后现金回到 main"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.add_portfolio('alt', cash=300)
+
+    assert broker.close_portfolio('alt')
+
+    assert broker.get_portfolios() == ['main']
+    assert broker.get_cash() == 1000
+    assert broker.get_total_equity() == 1000
+
+def test_submit_market_order_supports_portfolio_alias():
+    """测试推荐 portfolio 参数能指定交易组合"""
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.add_portfolio('alt', cash=300)
+
+    assert broker.submit_market_order("AAPL", qty=1, price=100, portfolio="alt")
+
+    assert broker.get_position_size("AAPL") == 0
+    assert broker.get_position_size("AAPL", portfolio="alt") == 1
+    assert broker.get_cash(portfolio="alt") == 200
+
+def test_total_equity_includes_legacy_unallocated_cash():
+    """测试兼容旧 portfolio_cash/add_sub_portfolio 模式下仍统计未分配现金"""
     broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
     broker.add_sub_portfolio('alt', 300)
 
@@ -251,9 +298,9 @@ def test_close_portfolio_keeps_portfolio_when_close_fails():
 
     broker.close_position = reject_close_position
 
-    assert not broker.close_portfolio('default')
+    assert not broker.close_portfolio('main')
 
-    assert 'default' in broker.portfolios
+    assert 'main' in broker.portfolios
     assert broker.get_position_size("AAPL") == 1
 
 if __name__ == "__main__":
