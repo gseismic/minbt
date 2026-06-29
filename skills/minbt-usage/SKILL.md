@@ -71,10 +71,12 @@ class CrossSectionStrategy(Strategy):
 - `broker.get_total_equity()` returns all portfolio equity plus legacy unallocated cash.
 - `broker.get_all_portfolio_equity()` returns all portfolio equity.
 - `broker.get_equity(portfolio=None)` returns one portfolio, defaulting to `main`.
-- `broker.submit_market_order(symbol, qty, price=None, leverage=None, portfolio="trend")` uses the last known price when `price` is omitted.
+- `broker.submit_market_order(symbol, qty, price=None, leverage=None, portfolio="trend", stop_loss=None, take_profit=None)` uses the last known price when `price` is omitted.
 - `broker.order_target_size(symbol, target_size, price=None, ...)` adjusts to a target position size.
 - `broker.order_target_value(symbol, target_value, price=None, ...)` adjusts to a target notional value.
-- `broker.order_target_percent(symbol, target_percent, price=None, ...)` adjusts to a target portfolio equity percentage.
+- `broker.order_target_percent(symbol, target_percent, price=None, stop_loss=None, take_profit=None, ...)` adjusts to a target portfolio equity percentage.
+- `broker.set_exit(symbol, stop_loss=..., take_profit=...)` modifies attached take-profit/stop-loss triggers while a position is open.
+- `broker.clear_exit(symbol)` clears attached take-profit/stop-loss triggers.
 - `broker.close_position(symbol, price=None, ...)` closes the whole current position and fails if market rules disallow the full close.
 - Use `qty > 0` for buy or long exposure and `qty < 0` for sell or short exposure.
 - `size` means current position; `qty` means order delta; do not mix these names.
@@ -86,7 +88,8 @@ class CrossSectionStrategy(Strategy):
 - `markets.A_STOCK` 是最小 A 股预设，包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定；直接调用 broker 时必须传 `price_dt`，目标仓位买入数量会按整手向 0 方向规范化。
 - `SimpleMarket`、`CryptoMarket`、`ChinaAStockMarket` 是 legacy compatibility only，不要在新示例中推荐。
 - `Position.available_size` 和 `Position.locked_size` 是 broker 内部状态，用于 T+1 等市场规则，不作为用户初始化主路径。
-- `broker.add_exit_rule(symbol, stop_loss_pct(...))` 和 `take_profit_pct(...)` 可用于常规止盈止损。
+- 推荐在提交订单或目标仓位时用 `stop_loss=<price>` 和 `take_profit=<price>` 设置止盈止损。
+- `broker.add_exit_rule(symbol, stop_loss_pct(...))` 和 `take_profit_pct(...)` 是高级函数式退出接口。
 - 自定义退出规则使用 `condition(ctx) -> bool`；规则在每个 `on_bars` 前检查，触发后通过当前 `close` 市价平仓。
 
 ## 保证金语义

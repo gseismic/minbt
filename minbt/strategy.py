@@ -14,6 +14,8 @@ BROKER_PROTOCOL_METHODS = (
     'order_target_value',
     'order_target_percent',
     'close_position',
+    'set_exit',
+    'clear_exit',
 )
 
 @runtime_checkable
@@ -40,6 +42,8 @@ class BrokerProtocol(Protocol):
     def order_target_value(self, symbol: str, target_value: float, price: Optional[float] = None, **kwargs) -> bool: ...
     def order_target_percent(self, symbol: str, target_percent: float, price: Optional[float] = None, **kwargs) -> bool: ...
     def close_position(self, symbol: str, price: Optional[float] = None, **kwargs) -> bool: ...
+    def set_exit(self, symbol: str, **kwargs) -> None: ...
+    def clear_exit(self, symbol: str, **kwargs) -> None: ...
 
 class Strategy:
     def __init__(self,

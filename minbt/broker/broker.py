@@ -1,10 +1,11 @@
-from typing import Literal, Optional, Dict
+from typing import Any, Literal, Optional, Dict
 from collections import defaultdict
 import copy
+import numbers
 from .portfolio import Portfolio
 from .struct import Position, DateType, _require
 from .market import Market, SimpleMarket
-from .exit import ExitRule, ExitContext
+from .exit import ExitRule, ExitContext, stop_loss_price, take_profit_price
 from ..logger import logger as default_logger
 
 
@@ -111,6 +112,30 @@ class Broker:
     def _require_portfolio(self, portfolio_id: str) -> None:
         if portfolio_id not in self.portfolios:
             raise ValueError(f"portfolio not found: {portfolio_id}")
+
+    def _replace_exit_rules(self, portfolio_id: str, symbol: str, rules) -> None:
+        if rules:
+            self._exit_rules[portfolio_id][symbol] = rules
+            return
+        if portfolio_id in self._exit_rules:
+            self._exit_rules[portfolio_id].pop(symbol, None)
+
+    def _coerce_attached_exit_rule(self, kind: str, value: Any) -> ExitRule:
+        if isinstance(value, ExitRule):
+            rule = copy.copy(value)
+        elif callable(value):
+            rule = ExitRule(name=getattr(value, "__name__", kind), condition=value)
+        elif isinstance(value, numbers.Number):
+            if kind == "stop_loss":
+                rule = stop_loss_price(float(value))
+            elif kind == "take_profit":
+                rule = take_profit_price(float(value))
+            else:
+                raise ValueError(f"unknown exit kind: {kind}")
+        else:
+            raise TypeError(f"{kind} must be a price, callable or ExitRule, got {type(value).__name__}")
+        rule.attached = True
+        return rule
     
     def add_portfolio(self, name: str, cash: float) -> None:
         """
@@ -142,6 +167,46 @@ class Broker:
         )
         self.remaining_free_cash -= initial_cash
         self.portfolios[portfolio_id] = self._create_portfolio(initial_cash)
+
+    def set_exit(
+        self,
+        symbol: str,
+        *,
+        stop_loss: Any = None,
+        take_profit: Any = None,
+        portfolio_id: Optional[str] = None,
+        portfolio: Optional[str] = None,
+    ) -> None:
+        """
+        设置或修改订单附带的止盈止损。数值表示触发价；callable/ExitRule 用于自定义条件。
+        """
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
+        self._require_portfolio(portfolio_id)
+        current_rules = list(self._exit_rules[portfolio_id].get(symbol, []))
+        persistent_rules = [rule for rule in current_rules if not getattr(rule, "attached", False)]
+        new_rules = []
+        if stop_loss is not None:
+            new_rules.append(self._coerce_attached_exit_rule("stop_loss", stop_loss))
+        if take_profit is not None:
+            new_rules.append(self._coerce_attached_exit_rule("take_profit", take_profit))
+        self._replace_exit_rules(portfolio_id, symbol, persistent_rules + new_rules)
+
+    def clear_exit(
+        self,
+        symbol: str,
+        *,
+        portfolio_id: Optional[str] = None,
+        portfolio: Optional[str] = None,
+    ) -> None:
+        """清除订单附带的止盈止损，不影响 add_exit_rule 添加的持久规则。"""
+        portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
+        self._require_portfolio(portfolio_id)
+        self._clear_attached_exit_rules(symbol, portfolio_id)
+
+    def _clear_attached_exit_rules(self, symbol: str, portfolio_id: str) -> None:
+        current_rules = list(self._exit_rules[portfolio_id].get(symbol, []))
+        remaining_rules = [rule for rule in current_rules if not getattr(rule, "attached", False)]
+        self._replace_exit_rules(portfolio_id, symbol, remaining_rules)
     
     def close_portfolio(self, portfolio: Optional[str] = None, *, portfolio_id: Optional[str] = None) -> bool:
         portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
@@ -214,7 +279,9 @@ class Broker:
                    normalize_qty: bool = False,
                    portfolio_id: Optional[str] = None,
                    *,
-                   portfolio: Optional[str] = None):
+                   portfolio: Optional[str] = None,
+                   stop_loss: Any = None,
+                   take_profit: Any = None):
         """
         Arguments:
             last_price: 市价买入价格,也是市价卖出价格
@@ -244,6 +311,15 @@ class Broker:
         result = self.portfolios[portfolio_id].submit_order(symbol, qty, price=price, leverage=leverage, price_dt=price_dt)
         if result:
             self.market.on_order_filled(self, symbol, qty, price, dt=price_dt, portfolio_id=portfolio_id)
+            if stop_loss is not None or take_profit is not None:
+                position = self.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+                if position is not None and not position.is_empty():
+                    self.set_exit(
+                        symbol,
+                        stop_loss=stop_loss,
+                        take_profit=take_profit,
+                        portfolio_id=portfolio_id,
+                    )
         return result
 
     def order_target_size(
@@ -255,6 +331,8 @@ class Broker:
         price_dt: Optional[DateType] = None,
         portfolio_id: Optional[str] = None,
         portfolio: Optional[str] = None,
+        stop_loss: Any = None,
+        take_profit: Any = None,
     ) -> bool:
         portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         current_size = self.get_position_size(symbol, portfolio_id=portfolio_id)
@@ -269,6 +347,8 @@ class Broker:
             price_dt=price_dt,
             normalize_qty=True,
             portfolio_id=portfolio_id,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
         )
 
     def order_target_value(
@@ -280,6 +360,8 @@ class Broker:
         price_dt: Optional[DateType] = None,
         portfolio_id: Optional[str] = None,
         portfolio: Optional[str] = None,
+        stop_loss: Any = None,
+        take_profit: Any = None,
     ) -> bool:
         portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         if price is None:
@@ -294,6 +376,8 @@ class Broker:
             leverage=leverage,
             price_dt=price_dt,
             portfolio_id=portfolio_id,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
         )
 
     def order_target_percent(
@@ -305,6 +389,8 @@ class Broker:
         price_dt: Optional[DateType] = None,
         portfolio_id: Optional[str] = None,
         portfolio: Optional[str] = None,
+        stop_loss: Any = None,
+        take_profit: Any = None,
     ) -> bool:
         portfolio_id = self._resolve_portfolio(portfolio, portfolio_id)
         if price is not None:
@@ -320,6 +406,8 @@ class Broker:
             leverage=leverage,
             price_dt=price_dt,
             portfolio_id=portfolio_id,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
         )
 
     def close_position(
@@ -413,6 +501,8 @@ class Broker:
                         ok = self.close_position(symbol, price=price, price_dt=dt, portfolio_id=portfolio_id)
                         if ok:
                             self.logger.info(f"Exit rule triggered: {rule.name}, symbol={symbol}, dt={dt}")
+                            if getattr(rule, "attached", False):
+                                self._clear_attached_exit_rules(symbol, portfolio_id)
                         else:
                             self.logger.warning(f"Exit rule rejected: {rule.name}, symbol={symbol}, dt={dt}")
                         break

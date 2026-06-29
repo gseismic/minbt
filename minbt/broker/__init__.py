@@ -3,7 +3,7 @@ from .portfolio import Portfolio
 from .broker import Broker
 from .market import Market, MarketModel, SimpleMarket, CryptoMarket, ChinaAStockMarket
 from . import markets
-from .exit import ExitRule, ExitContext, stop_loss_pct, take_profit_pct
+from .exit import ExitRule, ExitContext, stop_loss_pct, take_profit_pct, stop_loss_price, take_profit_price
 
 __all__ = [
     'Portfolio',
@@ -20,4 +20,6 @@ __all__ = [
     'ExitContext',
     'stop_loss_pct',
     'take_profit_pct',
+    'stop_loss_price',
+    'take_profit_price',
 ]

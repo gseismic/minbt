@@ -179,3 +179,39 @@ def test_exit_rule_runs_before_on_bars():
 
     assert strategy.seen_positions == [1, 0]
     assert broker.get_position_size("BTCUSDT") == 0
+
+
+def test_order_attached_take_profit_closes_position():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    assert broker.submit_market_order("BTCUSDT", qty=1, price=100, stop_loss=95, take_profit=110)
+    broker.on_new_price("BTCUSDT", 112, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+
+    assert broker.get_position_size("BTCUSDT") == 0
+    assert broker.get_cash() == 1012
+
+
+def test_set_exit_updates_attached_stop_loss():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    assert broker.submit_market_order("BTCUSDT", qty=1, price=100, stop_loss=95, take_profit=120)
+    broker.on_new_price("BTCUSDT", 106, "2026-01-02")
+    broker.set_exit("BTCUSDT", stop_loss=104, take_profit=120)
+    broker.on_new_price("BTCUSDT", 103, "2026-01-03")
+    broker.check_exit_rules(dt="2026-01-03")
+
+    assert broker.get_position_size("BTCUSDT") == 0
+    assert broker.get_cash() == 1003
+
+
+def test_clear_exit_removes_attached_rules():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    assert broker.submit_market_order("BTCUSDT", qty=1, price=100, stop_loss=95, take_profit=110)
+    broker.clear_exit("BTCUSDT")
+    broker.on_new_price("BTCUSDT", 112, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+
+    assert broker.get_position_size("BTCUSDT") == 1
+    assert broker.get_cash() == 900

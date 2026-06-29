@@ -19,6 +19,7 @@ class ExitRule:
     name: str
     condition: Callable[[ExitContext], bool]
     state: Any = None
+    attached: bool = False
 
     def get_state(self):
         if callable(self.state):
@@ -55,3 +56,30 @@ def take_profit_pct(pct: float, name: Optional[str] = None) -> ExitRule:
 
     return ExitRule(name=name or f"take_profit_{pct}", condition=condition)
 
+
+def stop_loss_price(price: float, name: Optional[str] = None) -> ExitRule:
+    if price <= 0:
+        raise ValueError(f"price must be positive, got {price}")
+
+    def condition(ctx: ExitContext) -> bool:
+        if ctx.position.size > 0:
+            return ctx.price <= price
+        if ctx.position.size < 0:
+            return ctx.price >= price
+        return False
+
+    return ExitRule(name=name or f"stop_loss_price_{price}", condition=condition)
+
+
+def take_profit_price(price: float, name: Optional[str] = None) -> ExitRule:
+    if price <= 0:
+        raise ValueError(f"price must be positive, got {price}")
+
+    def condition(ctx: ExitContext) -> bool:
+        if ctx.position.size > 0:
+            return ctx.price >= price
+        if ctx.position.size < 0:
+            return ctx.price <= price
+        return False
+
+    return ExitRule(name=name or f"take_profit_price_{price}", condition=condition)

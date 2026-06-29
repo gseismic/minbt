@@ -18,11 +18,13 @@
 - `Broker.order_target_size/value/percent(...)` 目标仓位接口。
 - `Broker.add_portfolio(name, cash)` 分仓接口。
 - `portfolio="xxx"` 作为下单、查询、退出规则的推荐组合参数。
+- 订单附带止盈止损：`stop_loss`、`take_profit`。
+- 持仓中途修改止盈止损：`broker.set_exit(...)`。
 - `Market(...)` 市场特征配置对象。
 - `markets.DEFAULT`、`markets.CRYPTO`、`markets.A_STOCK` 市场预设。
 - A 股最小规则：交易时间、交易日、100 股一手、价格 tick、不可做空、T+1 持仓锁定。
 - `Position.available_size/locked_size` 内部状态。
-- 函数式退出规则、`stop_loss_pct(...)` 和 `take_profit_pct(...)`。
+- 函数式退出规则、`stop_loss_pct(...)` 和 `take_profit_pct(...)` 高级接口。
 - 旧接口 `portfolio_id`、`add_sub_portfolio`、`MarketModel/SimpleMarket/CryptoMarket/ChinaAStockMarket` 的基础兼容。
 
 未实现：
@@ -33,7 +35,7 @@
 - 涨跌停、每个 symbol 独立最小交易单元等更细市场规则。
 - 以已有持仓启动 broker 的账户快照初始化。
 
-README 必须区分两类能力：函数式退出规则已实现；限价单、挂单式止损和追踪止损未实现。
+README 必须区分两类能力：订单附带的 bar 级止盈止损和函数式退出规则已实现；限价单、交易所挂单式止损和追踪止损未实现。
 
 ## 核心目标
 
@@ -67,7 +69,7 @@ self.rebalance(...)
 ```python
 self.broker.submit_market_order("BTCUSDT", qty=1, price=price)
 self.broker.order_target_percent("BTCUSDT", target_percent=0.8, price=price)
-self.broker.add_exit_rule("BTCUSDT", stop_loss_pct(0.03))
+self.broker.order_target_percent("BTCUSDT", 0.8, price=price, stop_loss=95, take_profit=110)
 self.broker.add_portfolio("trend", cash=30_000)
 ```
 
@@ -295,9 +297,46 @@ Market(name="Crypto", t_plus=0, allow_short=True, ...)
 
 `close_position()` 和 `close_portfolio()` 在 T+1 下默认表达“全平”意图，不能全平时返回失败，不静默部分平仓。
 
+## 订单附带止盈止损
+
+推荐用户接口是在提交订单或目标仓位调整时直接设置止盈止损：
+
+```python
+self.broker.order_target_percent(
+    "BTCUSDT",
+    target_percent=0.8,
+    price=price,
+    stop_loss=price * 0.95,
+    take_profit=price * 1.10,
+)
+```
+
+`stop_loss` 和 `take_profit` 的数值含义是触发价：
+
+- 多头持仓：`price <= stop_loss` 触发止损，`price >= take_profit` 触发止盈。
+- 空头持仓：`price >= stop_loss` 触发止损，`price <= take_profit` 触发止盈。
+
+持仓过程中可以修改：
+
+```python
+self.broker.set_exit(
+    "BTCUSDT",
+    stop_loss=price * 0.98,
+    take_profit=price * 1.12,
+)
+```
+
+也可以清除订单附带退出条件：
+
+```python
+self.broker.clear_exit("BTCUSDT")
+```
+
+这些条件在每个 `on_bars` 前检查，触发后使用当前最新价市价平仓。不模拟同一根 bar 内的高低价路径，也不是交易所真实挂单。
+
 ## 函数式退出规则
 
-函数式止盈止损已实现。常规止盈止损只是函数式条件的特殊形式。
+更复杂的退出条件可以使用函数式规则。这是高级接口，不是常规止盈止损的推荐主路径。
 
 ```python
 from minbt import stop_loss_pct, take_profit_pct
@@ -330,7 +369,7 @@ def on_init(self):
 self.broker.add_exit_rule("BTCUSDT", stop_loss_pct(0.05), portfolio="trend")
 ```
 
-退出规则在每个 `on_bars` 前检查，使用当前最新价市价平仓。不模拟同一根 bar 内的高低价路径。
+函数式退出规则同样在每个 `on_bars` 前检查，使用当前最新价市价平仓。
 
 ## 限价单边界
 

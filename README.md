@@ -103,6 +103,7 @@ python examples/single_symbol_sma.py
 python examples/multi_symbol_rotation.py
 
 # 更接近真实研究场景的示例
+python examples/scenario_exit_rules.py
 python examples/scenario_single_breakout.py
 python examples/scenario_multi_rotation.py
 python examples/scenario_pairs_mean_reversion.py
@@ -113,6 +114,7 @@ python examples/scenario_pairs_mean_reversion.py
 - [examples/demo_mini.py](./examples/demo_mini.py)：最小单标的示例，开仓一次并固定步数后平仓。
 - [examples/single_symbol_sma.py](./examples/single_symbol_sma.py)：典型单标的双均线趋势跟随，使用 `on_bars(dt, bars)`。
 - [examples/multi_symbol_rotation.py](./examples/multi_symbol_rotation.py)：典型多标的横截面动量轮动，使用 `on_bars(dt, bars)`。
+- [examples/scenario_exit_rules.py](./examples/scenario_exit_rules.py)：真实场景订单附带止盈止损，提交订单时设置，持仓过程中可修改。
 - [examples/scenario_single_breakout.py](./examples/scenario_single_breakout.py)：真实场景单标的趋势突破，包含波动过滤、目标仓位和策略内止损。
 - [examples/scenario_multi_rotation.py](./examples/scenario_multi_rotation.py)：真实场景多标的横截面轮动，包含动量排序、等权目标仓位和定期再平衡。
 - [examples/scenario_pairs_mean_reversion.py](./examples/scenario_pairs_mean_reversion.py)：真实场景双标的配对均值回归，包含 z-score 入场、双腿持仓和退出条件。
@@ -216,9 +218,46 @@ a_stock_broker = Broker(initial_cash=100_000, fee_rate=0.0003, market=markets.A_
 
 `markets.A_STOCK` 当前实现最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。同日买入的持仓 `locked_size` 大于 0，`close_position()` 和 `close_portfolio()` 会在可平数量不足时失败，而不是静默部分平仓。直接调用 broker 下单时需要传入 `price_dt`；通过 Exchange 回测时，`date_key` 会自动传入。目标仓位接口产生的买入数量会按整手向 0 方向规范化。
 
+### 订单附带止盈止损
+
+推荐在提交订单或目标仓位调整时直接设置止盈止损，数值表示触发价：
+
+```python
+def on_bars(self, dt, bars):
+    price = bars["BTCUSDT"]["close"]
+
+    if not self.entered:
+        self.broker.order_target_percent(
+            "BTCUSDT",
+            target_percent=0.8,
+            price=price,
+            stop_loss=price * 0.95,
+            take_profit=price * 1.10,
+        )
+        self.entered = True
+```
+
+持仓过程中可以修改：
+
+```python
+self.broker.set_exit(
+    "BTCUSDT",
+    stop_loss=price * 0.98,
+    take_profit=price * 1.12,
+)
+```
+
+也可以清除订单附带的止盈止损：
+
+```python
+self.broker.clear_exit("BTCUSDT")
+```
+
+这些退出条件会在每个 `on_bars` 前检查，触发后按当前 `close` 市价平仓。不模拟同一根 bar 内的高低价路径，也不是交易所真实挂单。
+
 ### 函数式退出规则
 
-Broker 支持在每个 `on_bars` 前检查退出规则。常规止盈止损只是函数式条件的特殊形式：
+如果需要更复杂的退出条件，可以使用函数式规则。常规止盈止损是函数式条件的特殊形式：
 
 ```python
 from minbt import stop_loss_pct, take_profit_pct
