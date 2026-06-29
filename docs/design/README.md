@@ -2,6 +2,7 @@
 
 ## 当前有效设计
 
+- `broker-20260629-interface.md`：Broker 目标接口完整规格，区分用户接口、高级接口和内部接口。
 - `DESIGN-001-broker-account-market-api.md`：Broker 用户接口、账户初始状态、多市场扩展、函数式止盈止损、限价单边界。
 - `DESIGN-002-data-feeds-and-callbacks.md`：Exchange 数据接入、`on_bars` 当前回调、未来 `on_books/on_trades/on_news` 扩展。
 
@@ -55,11 +56,12 @@ class MyStrategy(Strategy):
 3. 旧 `SimpleMarket`、`ChinaAStockMarket` 和 `CryptoMarket` 仅保留兼容入口。
 4. `close_position` 在 T+1 下默认全平失败，不静默部分平。
 
-### Phase-4：函数式退出规则
+### Phase-4：退出条件
 
-1. `broker.add_exit_rule(...)`。
-2. `stop_loss_pct(...)` 和 `take_profit_pct(...)`。
-3. 退出规则使用当前价格和上一轮策略状态。
+1. 常规止盈止损使用下单参数 `stop_loss/take_profit`。
+2. 持仓中途修改使用 `broker.set_exit(...)`。
+3. 函数式退出条件使用 `broker.add_exit(...)`，旧 `add_exit_rule(...)` 保留兼容。
+4. 退出规则使用当前价格和上一轮策略状态。
 
 ### Phase-5：最小限价单
 
@@ -84,6 +86,7 @@ class MyStrategy(Strategy):
 - `Broker.order_target_size/value/percent(...)`。
 - `Broker.add_portfolio(name, cash)`。
 - `Market(...)` 和 `markets.DEFAULT/CRYPTO/A_STOCK`。
+- 订单附带止盈止损。
 - 函数式止盈止损。
 
 尚未实现：
