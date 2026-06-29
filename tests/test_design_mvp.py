@@ -104,6 +104,31 @@ def test_china_a_stock_market_normalizes_target_value_to_lot_size():
     assert broker.get_position_size("600519.SH") == 6100
 
 
+def test_china_a_stock_market_rejects_explicit_non_lot_market_order():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+
+    assert not broker.submit_market_order("600519.SH", qty=150, price=100, price_dt="2026-01-05")
+    assert broker.get_position_size("600519.SH") == 0
+
+
+class ChinaAStockNoDateKeyStrategy(Strategy):
+    def on_bars(self, dt, bars):
+        price = bars["600519.SH"]["close"]
+        self.broker.submit_market_order("600519.SH", qty=100, price=price)
+
+
+def test_china_a_stock_market_rejects_exchange_row_number_dt():
+    exchange = Exchange()
+    broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
+    strategy = ChinaAStockNoDateKeyStrategy(strategy_id="a_stock_no_date", broker=broker)
+
+    exchange.set_bars([{"symbol": "600519.SH", "close": 100}])
+    exchange.add_strategy(strategy)
+    exchange.run()
+
+    assert broker.get_position_size("600519.SH") == 0
+
+
 def test_close_portfolio_respects_market_rules():
     broker = Broker(initial_cash=100000, fee_rate=0, market=ChinaAStockMarket())
 

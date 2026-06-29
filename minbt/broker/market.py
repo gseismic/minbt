@@ -1,11 +1,14 @@
 import datetime as _dt
 import math
+import numbers
 from dataclasses import dataclass
 from typing import Optional, Any
 
 
 def _to_datetime(value):
     if value is None:
+        return None
+    if isinstance(value, numbers.Number):
         return None
     if isinstance(value, _dt.datetime):
         return value

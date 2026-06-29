@@ -25,6 +25,7 @@ class BrokerProtocol(Protocol):
         price: Optional[float] = None,
         leverage: Optional[float] = None,
         price_dt=None,
+        normalize_qty: bool = False,
         portfolio_id: str = 'default'
     ): ...
     def get_position_size(self, symbol: str, portfolio_id: Optional[str] = None) -> float: ...

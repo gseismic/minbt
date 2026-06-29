@@ -171,6 +171,7 @@ class Broker:
                    price: Optional[float] = None, 
                    leverage: Optional[float] = None, 
                    price_dt: Optional[DateType] = None,
+                   normalize_qty: bool = False,
                    portfolio_id: str = 'default'):
         """
         Arguments:
@@ -192,7 +193,8 @@ class Broker:
             if price_dt is None:
                 price_dt = self.last_price_dates.get(symbol)
             self.on_new_price(symbol, price, price_dt)
-        qty = self.market.normalize_order_qty(self, symbol, qty, price=price, portfolio_id=portfolio_id)
+        if normalize_qty:
+            qty = self.market.normalize_order_qty(self, symbol, qty, price=price, portfolio_id=portfolio_id)
         validation = self.market.validate_order(self, symbol, qty, price, dt=price_dt, portfolio_id=portfolio_id)
         if not validation.ok:
             self.logger.warning(f"Order rejected: {symbol}, qty={qty}, price={price}, reason={validation.message}")
@@ -221,6 +223,7 @@ class Broker:
             price=price,
             leverage=leverage,
             price_dt=price_dt,
+            normalize_qty=True,
             portfolio_id=portfolio_id,
         )
 
