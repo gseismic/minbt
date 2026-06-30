@@ -3,7 +3,7 @@ from collections import deque
 
 import pandas as pd
 
-from example_utils import QuietLogger, target_position_value
+from example_utils import target_position_value
 from minbt import Broker, Exchange, Strategy
 
 
@@ -114,12 +114,11 @@ class PairMeanReversionStrategy(Strategy):
         print(f"last_z={self.last_z:.4f}")
 
 
-def run_strategy(quiet: bool = True):
-    quiet_logger = QuietLogger() if quiet else None
-    exchange = Exchange(logger=quiet_logger)
+def run_strategy():
+    exchange = Exchange()
     exchange.set_bars(build_sample_data(), date_key="dt")
 
-    broker = Broker(initial_cash=100_000, fee_rate=0.0005, leverage=2.0, logger=quiet_logger)
+    broker = Broker(initial_cash=100_000, fee_rate=0.0005, leverage=2.0)
     strategy = PairMeanReversionStrategy(strategy_id="scenario_pairs_mean_reversion", broker=broker)
 
     exchange.add_strategy(strategy)

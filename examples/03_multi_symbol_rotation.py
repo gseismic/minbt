@@ -15,20 +15,6 @@ from minbt import Broker, Exchange, Strategy
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 
 
-class QuietLogger:
-    def debug(self, *args, **kwargs):
-        pass
-
-    def info(self, *args, **kwargs):
-        pass
-
-    def warning(self, *args, **kwargs):
-        pass
-
-    def error(self, *args, **kwargs):
-        pass
-
-
 def build_sample_data() -> pd.DataFrame:
     """构造一个多标的同时间截面行情样本。"""
     price_paths = {
@@ -100,14 +86,12 @@ class CrossSectionMomentumStrategy(Strategy):
         print(f"rebalance_count={self.rebalance_count}")
 
 
-def run_strategy(quiet: bool = True):
-    quiet_logger = QuietLogger() if quiet else None
-
+def run_strategy():
     data = build_sample_data()
-    exchange = Exchange(logger=quiet_logger)
+    exchange = Exchange()
     exchange.set_bars(data, date_key="dt")
 
-    broker = Broker(initial_cash=10_000, fee_rate=0.001, logger=quiet_logger)
+    broker = Broker(initial_cash=10_000, fee_rate=0.001)
     strategy = CrossSectionMomentumStrategy(strategy_id="multi_symbol_rotation", broker=broker)
 
     exchange.add_strategy(strategy)

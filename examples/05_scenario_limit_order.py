@@ -1,6 +1,12 @@
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import pandas as pd
 
-from example_utils import QuietLogger
 from minbt import Broker, Exchange, Strategy
 
 
@@ -46,12 +52,11 @@ class LimitOrderStrategy(Strategy):
         print(f"position_log={self.position_log}")
 
 
-def run_strategy(quiet: bool = True):
-    quiet_logger = QuietLogger() if quiet else None
-    exchange = Exchange(logger=quiet_logger)
+def run_strategy():
+    exchange = Exchange()
     exchange.set_bars(build_sample_data())
 
-    broker = Broker(initial_cash=1_000, fee_rate=0, logger=quiet_logger)
+    broker = Broker(initial_cash=1_000, fee_rate=0)
     strategy = LimitOrderStrategy(strategy_id="scenario_limit_order", broker=broker)
 
     exchange.add_strategy(strategy)

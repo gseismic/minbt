@@ -119,7 +119,7 @@ python examples/08_scenario_pairs_mean_reversion.py
 - [examples/06_scenario_single_breakout.py](./examples/06_scenario_single_breakout.py)：真实场景单标的趋势突破，包含波动过滤、目标仓位和策略内止损。
 - [examples/07_scenario_multi_rotation.py](./examples/07_scenario_multi_rotation.py)：真实场景多标的横截面轮动，包含动量排序、等权目标仓位和定期再平衡。
 - [examples/08_scenario_pairs_mean_reversion.py](./examples/08_scenario_pairs_mean_reversion.py)：真实场景双标的配对均值回归，包含 z-score 入场、双腿持仓和退出条件。
-- [examples/example_utils.py](./examples/example_utils.py)：示例共用工具，包括静默 logger 和目标名义金额调仓辅助函数。
+- [examples/example_utils.py](./examples/example_utils.py)：高级示例共用的目标名义金额调仓辅助函数。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
 ## 行情数据约定

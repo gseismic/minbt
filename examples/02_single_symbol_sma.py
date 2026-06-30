@@ -16,20 +16,6 @@ DATA_PATH = Path(__file__).with_name("data.csv")
 SYMBOL = "BTCUSDT"
 
 
-class QuietLogger:
-    def debug(self, *args, **kwargs):
-        pass
-
-    def info(self, *args, **kwargs):
-        pass
-
-    def warning(self, *args, **kwargs):
-        pass
-
-    def error(self, *args, **kwargs):
-        pass
-
-
 class SingleSymbolSmaStrategy(Strategy):
     """单标的双均线趋势跟随示例。"""
 
@@ -74,14 +60,12 @@ class SingleSymbolSmaStrategy(Strategy):
         print(f"trade_count={self.trade_count}")
 
 
-def run_strategy(quiet: bool = True):
-    quiet_logger = QuietLogger() if quiet else None
-
+def run_strategy():
     data = pd.read_csv(DATA_PATH)
-    exchange = Exchange(logger=quiet_logger)
+    exchange = Exchange()
     exchange.set_bars(data[["date", "symbol", "close"]], date_key="date")
 
-    broker = Broker(initial_cash=10_000, fee_rate=0.001, leverage=2, logger=quiet_logger)
+    broker = Broker(initial_cash=10_000, fee_rate=0.001, leverage=2)
     strategy = SingleSymbolSmaStrategy(strategy_id="single_symbol_sma", broker=broker)
 
     exchange.add_strategy(strategy)

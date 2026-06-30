@@ -3,7 +3,7 @@ from collections import defaultdict, deque
 
 import pandas as pd
 
-from example_utils import QuietLogger, flatten_position, target_position_value
+from example_utils import flatten_position, target_position_value
 from minbt import Broker, Exchange, Strategy
 
 
@@ -111,12 +111,11 @@ class CrossSectionRotationStrategy(Strategy):
         print(f"rebalance_count={self.rebalance_count}")
 
 
-def run_strategy(quiet: bool = True):
-    quiet_logger = QuietLogger() if quiet else None
-    exchange = Exchange(logger=quiet_logger)
+def run_strategy():
+    exchange = Exchange()
     exchange.set_bars(build_sample_data(), date_key="dt")
 
-    broker = Broker(initial_cash=100_000, fee_rate=0.0005, leverage=1.5, logger=quiet_logger)
+    broker = Broker(initial_cash=100_000, fee_rate=0.0005, leverage=1.5)
     strategy = CrossSectionRotationStrategy(strategy_id="scenario_multi_rotation", broker=broker)
 
     exchange.add_strategy(strategy)

@@ -3,7 +3,7 @@ from collections import deque
 
 import pandas as pd
 
-from example_utils import QuietLogger, target_position_value
+from example_utils import target_position_value
 from minbt import Broker, Exchange, Strategy
 
 
@@ -109,12 +109,11 @@ class BreakoutWithStopStrategy(Strategy):
         print(f"stop_count={self.stop_count}")
 
 
-def run_strategy(quiet: bool = True):
-    quiet_logger = QuietLogger() if quiet else None
-    exchange = Exchange(logger=quiet_logger)
+def run_strategy():
+    exchange = Exchange()
     exchange.set_bars(build_sample_data(), date_key="dt")
 
-    broker = Broker(initial_cash=100_000, fee_rate=0.0005, leverage=2.0, logger=quiet_logger)
+    broker = Broker(initial_cash=100_000, fee_rate=0.0005, leverage=2.0)
     strategy = BreakoutWithStopStrategy(strategy_id="scenario_single_breakout", broker=broker)
 
     exchange.add_strategy(strategy)

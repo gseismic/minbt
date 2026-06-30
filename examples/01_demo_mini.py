@@ -14,20 +14,6 @@ DATA_PATH = Path(__file__).with_name("data.csv")
 SYMBOL = "BTCUSDT"
 
 
-class QuietLogger:
-    def debug(self, *args, **kwargs):
-        pass
-
-    def info(self, *args, **kwargs):
-        pass
-
-    def warning(self, *args, **kwargs):
-        pass
-
-    def error(self, *args, **kwargs):
-        pass
-
-
 class MiniStrategy(Strategy):
     """最小单标的示例：开仓一次，固定步数后平仓。"""
 
@@ -47,14 +33,12 @@ class MiniStrategy(Strategy):
         print(f"final_position={self.broker.get_position_size(SYMBOL):.6f}")
 
 
-def run_strategy(quiet: bool = True):
-    quiet_logger = QuietLogger() if quiet else None
-
+def run_strategy():
     data = pd.read_csv(DATA_PATH)
-    exchange = Exchange(logger=quiet_logger)
+    exchange = Exchange()
     exchange.set_bars(data[["date", "symbol", "close"]], date_key="date")
 
-    broker = Broker(initial_cash=10_000, fee_rate=0.001, logger=quiet_logger)
+    broker = Broker(initial_cash=10_000, fee_rate=0.001)
     strategy = MiniStrategy(strategy_id="mini", broker=broker)
 
     exchange.add_strategy(strategy)
