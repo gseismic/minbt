@@ -124,7 +124,7 @@ python examples/08_scenario_pairs_mean_reversion.py
 
 ## 行情数据约定
 
-推荐使用 `Exchange.set_bars(data, date_key="dt")` 接入 K 线或类似 bar 结构的数据。目标用户接口不再提供 `set_data(...)`。
+推荐使用 `Exchange.set_bars(data, date_key="dt")` 接入 K 线或类似 bar 结构的数据。
 
 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol", price_key="close")` 支持三种输入：
 

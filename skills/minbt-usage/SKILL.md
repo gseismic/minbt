@@ -16,7 +16,7 @@ description: Use when building, reviewing, debugging, or documenting minbt backt
 
 ## 数据契约
 
-- 推荐入口是 `Exchange.set_bars(data, date_key="dt")`，用户接口不提供 `set_data(...)`。
+- 推荐入口是 `Exchange.set_bars(data, date_key="dt")`。
 - `data` 支持 pandas DataFrame、polars DataFrame 或 `list[dict]`。
 - bars 必需字段是 `dt`、`symbol` 和 `close`，字段名可通过参数调整。
 - `list[dict]` 由 Exchange 原生迭代，不要假设 list 输入必须依赖 polars。
@@ -80,7 +80,7 @@ class CrossSectionStrategy(Strategy):
 - 推荐使用 `Market(...)` 和 `markets.DEFAULT/CRYPTO/A_STOCK` 表达市场特征。
 - `markets.CRYPTO` 是加密资产预设。
 - `markets.A_STOCK` 是最小 A 股预设，包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定；直接调用 broker 时必须传 `price_dt`，目标仓位买入数量会按整手向 0 方向规范化。
-- 不存在 `MarketModel/SimpleMarket/CryptoMarket/ChinaAStockMarket` 兼容入口。
+- 用户市场入口只使用 `Market(...)` 和 `markets` 预设。
 - `Position.available_size` 和 `Position.locked_size` 是 broker 内部状态，用于 T+1 等市场规则，不作为用户初始化主路径。
 - 推荐在提交订单或目标仓位时用 `stop_loss_price/take_profit_price` 设置固定退出价。
 - `trailing_stop_pct` 和 `trailing_stop_amount` 互斥。
