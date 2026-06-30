@@ -34,14 +34,16 @@ class MyStrategy(Strategy):
 
 ## 当前文档结论
 
-1. 用户回调统一推荐 `on_bars(dt, bars)`。
-2. 用户交易统一通过 `self.broker`。
-3. 市场差异通过 `Market(...)` 特征和 `markets.*` 预设表达，不推荐市场子类。
-4. 分仓入口是 `broker.add_portfolio(name, cash)`，用户参数是 `portfolio="..."`。
-5. 退出条件应绑定 `Order`，目标接口使用 `order.id`。
-6. 标准止盈止损命名为 `stop_loss_price/take_profit_price`。
-7. 函数型退出条件使用独立高级接口，不混进标准止盈止损参数。
-8. 限价单当前未实现，未来只做最小 pending limit order。
+1. 用户回调一次性定义为 `on_bars/on_books/on_trades/on_news`，目标设计不保留 `on_data/on_bar`。
+2. Exchange 用户入口一次性定义为 `set_bars/set_books/set_trades/set_news`，目标设计不保留 `set_data`。
+3. 用户交易统一通过 `self.broker`。
+4. 所有下单类接口统一返回 `Order`，无交易用 `status="skipped"`，业务失败用 `status="rejected"`。
+5. 市场差异通过 `Market(...)` 特征和 `markets.*` 预设表达，不推荐市场子类。
+6. 分仓入口是 `broker.add_portfolio(name, cash)`，用户参数是 `portfolio="..."`。
+7. 退出条件应绑定 `Order`，目标接口使用 `order.id`。
+8. 标准止盈止损命名为 `stop_loss_price/take_profit_price`，移动止损命名为 `trailing_stop_pct/trailing_stop_amount`。
+9. 函数型退出条件使用独立高级接口，不混进标准止盈止损参数。
+10. 限价单当前未实现，目标只做最小 pending limit order。
 
 ## 阅读顺序
 
