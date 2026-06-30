@@ -43,8 +43,8 @@ class MyStrategy(Strategy):
 7. 退出条件应绑定 `Order`，目标接口使用 `order.id`。
 8. 标准止盈止损命名为 `stop_loss_price/take_profit_price`，移动止损命名为 `trailing_stop_pct/trailing_stop_amount`。
 9. 函数型退出条件使用独立高级接口，不混进标准止盈止损参数。
-10. 限价单当前未实现，目标只做最小 pending limit order。
-11. 首批实现仍以 `set_bars/on_bars` 为主路径，books/trades/news 是已定义的目标契约，不强迫首批同时实现。
+10. 限价单、撤单和最小 pending limit order 已实现；不模拟队列位置、部分成交和 intrabar 路径。
+11. 当前实现仍以 `set_bars/on_bars` 为主路径，同时已定义并实现 `set_books/set_trades/set_news` 的同一时间截面契约。
 
 ## 阅读顺序
 

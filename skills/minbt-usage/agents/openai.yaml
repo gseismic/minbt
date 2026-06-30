@@ -1,4 +1,4 @@
 interface:
   display_name: "minbt Usage"
-  short_description: "Build and review minbt backtests"
-  default_prompt: "Use $minbt-usage to build a minimal minbt backtest from local OHLCV data."
+  short_description: "Write user-facing minbt strategies"
+  default_prompt: "Use $minbt-usage to write a minimal minbt Strategy from my local OHLCV data."
