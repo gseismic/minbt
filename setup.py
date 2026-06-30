@@ -8,7 +8,7 @@ setup(
     description='Minimalistic Backtesting Library',
     install_requires=['numpy', 'pandas', 'polars', 'loguru'],
     extras_require={
-        'pyta': ['pyta_dev'],
+        'pyta': ['pyta2'],
         'plot': ['matplotlib'],
     },
     scripts=[],

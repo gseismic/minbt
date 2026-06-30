@@ -9,7 +9,7 @@ def test_strategy_history_without_pyta(monkeypatch):
     real_import = builtins.__import__
 
     def block_pyta(name, *args, **kwargs):
-        if name.startswith("pyta_dev"):
+        if name.startswith("pyta2"):
             raise ImportError(name)
         return real_import(name, *args, **kwargs)
 

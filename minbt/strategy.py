@@ -67,7 +67,7 @@ class Strategy:
     def _check_pyta(self):
         if self._pyta_available is None:
             try:
-                from pyta_dev.utils.vector import NumpyVector, VectorTable
+                from pyta2.utils.vector import NumpyVector, VectorTable
 
                 self._pyta_NumpyVector = NumpyVector
                 self._pyta_VectorTable = VectorTable

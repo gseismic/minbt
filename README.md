@@ -40,7 +40,7 @@ loguru
 pip install -e ".[pyta]"
 ```
 
-`pyta_dev` 可用于更高效的历史向量存储；未安装时 minbt 会自动回退为 Python list。
+`pyta2` 可用于更高效的历史向量存储；未安装时 minbt 会自动回退为 Python list。
 
 绘图示例需要额外安装：
 

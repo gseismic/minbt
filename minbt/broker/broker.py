@@ -279,6 +279,7 @@ class Broker:
             price,
             dt=dt,
             portfolio=order.portfolio,
+            old_size=old_size,
         )
 
         position = self.get_position(order.symbol, portfolio=order.portfolio, create_if_missing=False)
@@ -467,7 +468,6 @@ class Broker:
         take_profit_price: Optional[float] = None,
         trailing_stop_pct: Optional[float] = None,
         trailing_stop_amount: Optional[float] = None,
-        source: OrderSource = "target_value",
     ) -> Order:
         if qty == 0:
             raise ValueError(f"qty must be non-zero, got {qty}")
@@ -521,11 +521,29 @@ class Broker:
             raise ValueError(f"order not found: {order_id}")
         order = self.orders[order_id]
         if order.status != "pending":
-            return order
+            return self._create_order(
+                symbol=order.symbol,
+                portfolio=order.portfolio,
+                order_type=order.order_type,
+                source="cancel_order",
+                qty=0,
+                status="skipped",
+                reason=f"order is not pending: {order.status}",
+            )
         self._pending_order_ids = [pending_id for pending_id in self._pending_order_ids if pending_id != order_id]
         self._pending_leverage.pop(order_id, None)
         self._pending_exit_params.pop(order_id, None)
-        return self._update_order(order, status="canceled", reason="canceled by user")
+        self._update_order(order, status="canceled", reason="canceled by user")
+        return self._create_order(
+            symbol=order.symbol,
+            portfolio=order.portfolio,
+            order_type=order.order_type,
+            source="cancel_order",
+            qty=0,
+            status="canceled",
+            reason=f"order canceled: {order_id}",
+            updated_dt=order.updated_dt,
+        )
 
     def process_pending_orders(self, dt=None) -> None:
         for order_id in list(self._pending_order_ids):

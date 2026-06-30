@@ -1,4 +1,5 @@
 import os
+import inspect
 import subprocess
 import sys
 from pathlib import Path
@@ -6,7 +7,7 @@ from pathlib import Path
 import pytest
 from pytest import approx
 
-from minbt import Broker, markets
+from minbt import Broker, Market, markets
 
 
 def test_submit_market_order_returns_filled_order():
@@ -154,9 +155,29 @@ def test_submit_limit_order_can_fill_and_cancel():
     pending = broker.submit_limit_order("AAPL", qty=1, limit_price=90)
     canceled = broker.cancel_order(pending.id)
     assert canceled.status == "canceled"
+    assert canceled.source == "cancel_order"
+    assert pending.status == "canceled"
     broker.on_new_price("AAPL", 89, "2026-01-04")
     broker.process_pending_orders(dt="2026-01-04")
     assert broker.get_position_size("AAPL") == 1
+
+
+def test_cancel_order_returns_clear_result_for_done_order():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    filled_order = broker.submit_market_order("AAPL", qty=1, price=100)
+    cancel_result = broker.cancel_order(filled_order.id)
+
+    assert filled_order.status == "filled"
+    assert cancel_result.status == "skipped"
+    assert cancel_result.source == "cancel_order"
+    assert "not pending" in cancel_result.reason
+
+
+def test_submit_limit_order_does_not_expose_source_parameter():
+    signature = inspect.signature(Broker.submit_limit_order)
+
+    assert "source" not in signature.parameters
 
 
 def test_order_attached_take_profit_closes_position():
@@ -307,6 +328,29 @@ def test_a_stock_market_rejects_explicit_non_lot_market_order():
 
     assert order.status == "rejected"
     assert broker.get_position_size("600519.SH") == 0
+
+
+def test_t1_market_locks_only_new_long_size_when_reversing_short_to_long():
+    market = Market(name="T1Short", t_plus=1, allow_short=True)
+    broker = Broker(initial_cash=100000, fee_rate=0, market=market)
+
+    short_order = broker.submit_market_order("TEST", qty=-100, price=10, price_dt="2026-01-05")
+    reverse_order = broker.submit_market_order("TEST", qty=150, price=9, price_dt="2026-01-06")
+    position = broker.get_position("TEST")
+
+    assert short_order.status == "filled"
+    assert reverse_order.status == "filled"
+    assert position.size == 50
+    assert position.locked_size == 50
+    assert position.available_size == 0
+
+    same_day_close = broker.close_position("TEST", price=9, price_dt="2026-01-06")
+    assert same_day_close.status == "rejected"
+
+    broker.on_new_price("TEST", 9, "2026-01-07")
+    assert position.available_size == 50
+    next_day_close = broker.close_position("TEST", price=9, price_dt="2026-01-07")
+    assert next_day_close.status == "filled"
 
 
 def test_close_portfolio_respects_market_rules():

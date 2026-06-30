@@ -145,13 +145,25 @@ class Market:
                 )
         return OrderValidation(True)
 
-    def on_order_filled(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio: str = "main") -> None:
+    def on_order_filled(
+        self,
+        broker,
+        symbol: str,
+        qty: float,
+        price: float,
+        dt=None,
+        portfolio: str = "main",
+        old_size: float = 0.0,
+    ) -> None:
         if self.t_plus == 0 or qty <= 0:
             return
         position = broker.get_position(symbol, portfolio=portfolio, create_if_missing=False)
         if position is None or position.size <= 0:
             return
-        position.lock_size(abs(qty), self.trading_day(dt))
+        new_long_size = max(position.size, 0.0)
+        old_long_size = max(old_size, 0.0)
+        opened_size = max(0.0, new_long_size - old_long_size)
+        position.lock_size(opened_size, self.trading_day(dt))
 
 
 MarketModel = Market
