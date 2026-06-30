@@ -1096,8 +1096,8 @@ class Broker:
         self,
         order_id: str,
         *,
-        condition,
         name: Optional[str] = None,
+        condition,
         state=None,
     ) -> ExitRule:
         if order_id not in self.orders:
@@ -1134,6 +1134,9 @@ class Broker:
             position = self.get_position(order.symbol, portfolio=order.portfolio)
             if position is None or position.is_empty():
                 state.active = False
+                key = (order.portfolio, order.symbol)
+                self._active_exit_order_by_position.pop(key, None)
+                self._position_order_ids.pop(key, None)
                 continue
             price = self.get_last_price(order.symbol)
             if price is None:

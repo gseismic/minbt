@@ -50,7 +50,7 @@ pip install -e ".[plot]"
 
 ## 快速开始
 
-下面示例使用内存行情数据完成一个最小回测。行情至少需要 `symbol` 和 `close` 两列；如果提供 `date_key`，Exchange 会按 `date_key` 和 `symbol` 稳定排序。同一个 `date_key` 下的全部标的价格会先完整更新，再触发策略回调；同一时间截面内同一个 `symbol` 只能出现一次。
+下面示例使用内存行情数据完成一个最小回测。bars 行情至少需要 `dt`、`symbol` 和 `close` 三列，时间字段可通过 `date_key` 改名。Exchange 会按 `date_key` 和 `symbol` 稳定排序；同一个 `date_key` 下的全部标的价格会先完整更新，再触发策略回调；同一时间截面内同一个 `symbol` 只能出现一次。
 
 ```python
 import pandas as pd
@@ -197,7 +197,7 @@ def on_bars(self, dt, bars):
         self.broker.submit_market_order("BTCUSDT", qty=1)
 ```
 
-如果 `submit_market_order()` 不传 `price`，Broker 会使用 Exchange 在当前 bar 开始时写入的最新价。
+如果 `submit_market_order()` 不传 `price`，Broker 会使用 Exchange 在当前 bar 开始时写入的最新价；标的尚无最新价时抛出 `ValueError`，不会生成 rejected Order。
 
 ### Broker 和 Portfolio
 
@@ -213,9 +213,10 @@ broker.order_target_percent("BTCUSDT", 0.8, price=100, portfolio="trend")
 权益查询语义：
 
 - `broker.get_total_equity()`: 所有 portfolio 权益。
-- `broker.get_all_portfolio_equity()`: 所有 portfolio 权益。
 - `broker.get_equity(portfolio="main")`: 指定 portfolio 权益；默认返回 `main`。
 - `broker.get_cash(portfolio="main")`: 指定 portfolio 可用现金。
+- `broker.get_position(symbol, portfolio="main")`: 查询持仓；不存在时返回 `None`，不会创建空持仓。
+- `broker.get_orders(portfolio=..., symbol=...)`: 按组合和标的筛选订单。
 
 市场规则可以通过 `market` 参数扩展：
 
@@ -287,8 +288,8 @@ def on_bars(self, dt, bars):
         order = self.broker.submit_market_order("BTCUSDT", qty=1, price=price)
         self.broker.add_exit(
             order.id,
-            exit_if_breaks_support,
             name="support_break",
+            condition=exit_if_breaks_support,
             state={"support": price * 0.96},
         )
         self.entered = True
@@ -312,7 +313,7 @@ order = self.broker.submit_limit_order(
 self.broker.cancel_order(order.id)
 ```
 
-买入限价单在最新价小于等于 `limit_price` 时成交，卖出限价单在最新价大于等于 `limit_price` 时成交。
+买入限价单在最新价小于等于 `limit_price` 时成交，卖出限价单在最新价大于等于 `limit_price` 时成交。提交时会按当前账户状态预检资金，但 MVP 不为 pending 订单预留资金；触发时资金不足会将订单更新为 rejected，且不会产生部分成交。
 
 ## 资金和保证金模型
 
@@ -374,7 +375,7 @@ pytest -q
 运行基础编译检查：
 
 ```bash
-python -m compileall -q minbt tests
+python -m compileall -q minbt tests examples
 ```
 
 当前测试环境可能出现 `Polars binary is missing!` warning；这属于环境依赖警告，不影响现有测试通过。

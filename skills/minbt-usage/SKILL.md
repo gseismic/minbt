@@ -9,27 +9,27 @@ description: Use when building, reviewing, debugging, or documenting minbt backt
 
 1. 修改行为前先读当前代码：`minbt/exchange.py`、`minbt/strategy.py`、`minbt/broker/broker.py`、`minbt/broker/portfolio.py`、`minbt/broker/struct.py`。
 2. 写用户示例前先读 `README.md`、基础示例和真实场景示例。
-3. 基础示例：`examples/demo_mini.py`、`examples/single_symbol_sma.py`、`examples/multi_symbol_rotation.py`。
-4. 真实场景示例：`examples/scenario_single_breakout.py`、`examples/scenario_multi_rotation.py`、`examples/scenario_pairs_mean_reversion.py`。
+3. 基础示例：`examples/01_demo_mini.py`、`examples/02_single_symbol_sma.py`、`examples/03_multi_symbol_rotation.py`。
+4. 真实场景示例：`examples/04_scenario_exit_rules.py` 至 `examples/08_scenario_pairs_mean_reversion.py`。
 5. 行为变更需要补聚焦测试，并运行相关测试和 `pytest -q`。
 6. 遵守 `AGENTS.md`：实施类工作在 `docs/dev/PLAN-XXX-*.md` 和 `*-OUTCOME.md` 写中文计划与结果。
 
 ## 数据契约
 
-- 推荐入口是 `Exchange.set_bars(data, date_key=None)`；`Exchange.set_data(...)` 只作为兼容旧代码的 bars 入口。
+- 推荐入口是 `Exchange.set_bars(data, date_key="dt")`，用户接口不提供 `set_data(...)`。
 - `data` 支持 pandas DataFrame、polars DataFrame 或 `list[dict]`。
-- 必需字段是 `symbol` 和 `close`。
+- bars 必需字段是 `dt`、`symbol` 和 `close`，字段名可通过参数调整。
 - `list[dict]` 由 Exchange 原生迭代，不要假设 list 输入必须依赖 polars。
-- 如果提供 `date_key`，数据按 `[date_key, symbol]` 排序。
-- 如果提供 `date_key`，`(date_key, symbol)` 必须唯一；同一 bar 内重复 symbol 应在 `set_bars()` 阶段失败。
-- 如果省略 `date_key`，数据只能包含一个 symbol，并使用输入行号作为时间键；不要依赖 pandas DataFrame index。
-- `Exchange.run()` 会把同一 `date_key` 的行聚合为一个 bar。
-- 每个 bar 内，Exchange 和 Broker 会先更新全部 symbol 的价格，再调用 `Strategy.on_bars(dt, bars)`。
+- `date_key` 和 `symbol_key` 必须存在，不支持用行号代替时间。
+- bars 和 books 的 `(date_key, symbol_key)` 必须唯一。
+- trades 同一时间和标的可以包含多条记录，news 同一时间可以包含多条记录。
+- `Exchange.run()` 按 `on_bars -> on_books -> on_trades -> on_news` 调度。
+- 每个 dt 内先整体更新价格，再处理 pending 订单和退出条件，最后调用策略回调。
 - 如果多个策略共享同一个 Broker，Exchange 每个 bar 只更新该 Broker 一次价格。
 
 ## 策略写法
 
-示例和 README 只推荐 `on_bars(dt, bars)`。单标的是多标的结构的特例，不再展示 `on_data(row)` 作为主路径。
+Strategy 用户回调只有 `on_init/on_bars/on_books/on_trades/on_news/on_finish`。单标的是多标的结构特例，交易统一通过 `self.broker`，不要添加 Strategy 交易语法糖。
 
 ```python
 from minbt import Broker, Exchange, Strategy
@@ -60,37 +60,34 @@ class CrossSectionStrategy(Strategy):
             self.broker.submit_market_order("BTCUSDT", qty=1)
 ```
 
-兼容说明：旧的 `on_data(row)` 和 `on_bar(dt, rows_by_symbol)` 仍可用于旧测试或旧项目，但不要在新示例中推荐。
-
 ## Broker 语义
 
-- `Broker(initial_cash, fee_rate, leverage=1.0, margin_mode="cross")` creates the `main` portfolio and puts all initial cash into it.
-- `Broker(..., logger=custom_logger)` can be used to silence or redirect Portfolio order logs.
-- `broker.add_portfolio(name, cash)` transfers cash from `main` to a new portfolio.
-- `broker.add_sub_portfolio(id, initial_cash)` is legacy compatibility only and allocates from `remaining_free_cash`.
-- `broker.get_total_equity()` returns all portfolio equity plus legacy unallocated cash.
-- `broker.get_all_portfolio_equity()` returns all portfolio equity.
-- `broker.get_equity(portfolio=None)` returns one portfolio, defaulting to `main`.
-- `broker.submit_market_order(symbol, qty, price=None, leverage=None, portfolio="trend", stop_loss=None, take_profit=None)` uses the last known price when `price` is omitted.
-- `broker.order_target_size(symbol, target_size, price=None, ...)` adjusts to a target position size.
-- `broker.order_target_value(symbol, target_value, price=None, ...)` adjusts to a target notional value.
-- `broker.order_target_percent(symbol, target_percent, price=None, stop_loss=None, take_profit=None, ...)` adjusts to a target portfolio equity percentage.
-- `broker.set_exit(symbol, stop_loss=..., take_profit=...)` modifies attached take-profit/stop-loss triggers while a position is open.
-- `broker.clear_exit(symbol)` clears attached take-profit/stop-loss triggers.
-- `broker.close_position(symbol, price=None, ...)` closes the whole current position and fails if market rules disallow the full close.
-- Use `qty > 0` for buy or long exposure and `qty < 0` for sell or short exposure.
-- `size` means current position; `qty` means order delta; do not mix these names.
+- `Broker(initial_cash, fee_rate, leverage=1.0, margin_mode="cross")` 创建 `main` 并放入全部初始现金。
+- `broker.add_portfolio(name, cash)` 从 `main` 可用现金划拨资金。
+- `broker.submit_market_order(symbol, qty, price=None, *, leverage=None, price_dt=None, portfolio=None, ...)` 返回 Order。
+- `price=None` 使用最新价；没有最新价时抛 `ValueError`，不创建订单。
+- `order_target_size/value/percent(...)` 分别调整目标净持仓、目标名义金额和目标权益比例。
+- `close_position(...)` 全平指定持仓；空仓返回 skipped，市场规则拒绝时返回 rejected。
+- `close_portfolio(portfolio)` 原子关闭组合；任一仓位不能关闭时不执行任何成交。
+- `submit_limit_order(...)` 提交 pending 限价单，提交和触发时均检查资金。
+- `cancel_order(order_id)` 成功撤单会更新原挂单并返回取消动作；terminal 订单原样返回。
+- `get_orders(portfolio=..., symbol=...)` 支持筛选。
+- `get_position(symbol, portfolio=None)` 不创建空持仓。
+- `qty > 0` 表示买入，`qty < 0` 表示卖出；`size` 只表示当前净持仓。
 
 ## 市场与退出规则
 
 - 推荐使用 `Market(...)` 和 `markets.DEFAULT/CRYPTO/A_STOCK` 表达市场特征。
 - `markets.CRYPTO` 是加密资产预设。
 - `markets.A_STOCK` 是最小 A 股预设，包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定；直接调用 broker 时必须传 `price_dt`，目标仓位买入数量会按整手向 0 方向规范化。
-- `SimpleMarket`、`CryptoMarket`、`ChinaAStockMarket` 是 legacy compatibility only，不要在新示例中推荐。
+- 不存在 `MarketModel/SimpleMarket/CryptoMarket/ChinaAStockMarket` 兼容入口。
 - `Position.available_size` 和 `Position.locked_size` 是 broker 内部状态，用于 T+1 等市场规则，不作为用户初始化主路径。
-- 推荐在提交订单或目标仓位时用 `stop_loss=<price>` 和 `take_profit=<price>` 设置止盈止损。
-- `broker.add_exit_rule(symbol, stop_loss_pct(...))` 和 `take_profit_pct(...)` 是高级函数式退出接口。
-- 自定义退出规则使用 `condition(ctx) -> bool`；规则在每个 `on_bars` 前检查，触发后通过当前 `close` 市价平仓。
+- 推荐在提交订单或目标仓位时用 `stop_loss_price/take_profit_price` 设置固定退出价。
+- `trailing_stop_pct` 和 `trailing_stop_amount` 互斥。
+- 中途修改使用 `set_exit(order_id, ...)`，清除使用 `clear_exit(order_id, ...)`。
+- 自定义退出使用 `add_exit(order_id, name=..., condition=..., state=...)`。
+- `state` 可以是字典或返回字典的工厂；工厂只调用一次，状态在多个 dt 之间持久化。
+- Order 只有在仍属于当前净持仓生命周期时才能新增或修改退出规则。
 
 ## 保证金语义
 
@@ -106,12 +103,13 @@ class CrossSectionStrategy(Strategy):
 
 ```bash
 pytest -q tests/test_design_mvp.py
+pytest -q tests/test_api_contract.py
 pytest -q tests/test_exchange.py tests/test_strategy.py tests/test_broker.py
 pytest -q tests/test_portfolio.py tests/test_portfolio2.py tests/test_position.py
 pytest -q tests/test_logger.py tests/test_examples.py
-python examples/scenario_single_breakout.py
-python examples/scenario_multi_rotation.py
-python examples/scenario_pairs_mean_reversion.py
+python examples/06_scenario_single_breakout.py
+python examples/07_scenario_multi_rotation.py
+python examples/08_scenario_pairs_mean_reversion.py
 pytest -q
 python -m compileall -q minbt tests examples
 git diff --check
@@ -124,5 +122,5 @@ git diff --check
 - 用户文档保持中文。
 - README 示例优先展示可直接运行的内存数据片段。
 - 新示例只展示 `set_bars/on_bars` 和 `self.broker` 交易。
-- 当前限制必须写清楚：限价单、挂单式止损、追踪止损、滑点、订单簿撮合和部分成交未实现。
-- 函数式退出规则已实现，不要再笼统写“止盈止损未实现”；应区分函数式退出规则和挂单式止损。
+- 当前限制必须写清楚：不模拟入场 stop order、滑点、订单簿队列、部分成交和 intrabar 路径。
+- 限价单、订单附带固定退出价、追踪止损和函数式退出规则已经实现。

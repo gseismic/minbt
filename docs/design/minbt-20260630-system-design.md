@@ -1062,7 +1062,7 @@ take_profit_price(110)
 
 ## 限价单边界
 
-当前代码中的限价单接口尚未实现。
+当前代码已实现以下最小限价单接口。
 
 目标最小接口：
 
@@ -1091,7 +1091,9 @@ MVP 限价单规则：
 
 - 提交成功后返回 `Order(status="pending")`。
 - 资金不足或市场规则拒绝时返回 `Order(status="rejected", reason=...)`。
-- `cancel_order(...)` 取消 pending 订单时返回 `Order(status="canceled")`。
+- 提交时按 `limit_price` 和当前账户状态预检资金，但不为 pending 订单预留资金。
+- 触发时再次执行账户校验；期间资金被占用时返回 `Order(status="rejected", reason=...)`，不成交。
+- `cancel_order(...)` 取消 pending 订单时，原订单更新为 canceled，并返回 `source="cancel_order"` 的取消动作 Order。
 - 取消已成交、已取消或已拒绝订单时返回订单当前状态，不产生新订单。
 - 每个新 bar 后，broker 只用当前最新价判断是否满足限价。
 - bars 数据下当前最新价默认是 `close`，不使用 `high/low` 推断同一根 bar 内路径。
@@ -1101,6 +1103,7 @@ MVP 限价单规则：
 - 不模拟部分成交。
 - 不做逐笔成交路径。
 - 限价单成交后才激活其退出条件。
+- pending 期间持仓方向变化导致附加退出条件失效时，整笔限价单 rejected，不先成交再抛异常。
 
 暂不推荐暴露：
 
@@ -1331,87 +1334,18 @@ Position 不负责：
 
 ## 当前代码现状
 
-已实现且符合目标方向：
+截至 2026-06-30，本文定义的 MVP 主路径已经实现：
 
-- `Exchange.set_bars(...)`。
-- `Strategy.on_bars(dt, bars)`。
-- 多标的同一 `dt` 下整体更新 broker 最新价。
-- `Broker.submit_market_order(...)` 市价成交。
-- `Broker.order_target_size/value/percent(...)`。
-- `Broker.add_portfolio(name, cash)`。
-- `portfolio="..."` 参数。
-- `Market(...)` 特征对象。
-- `markets.DEFAULT/CRYPTO/A_STOCK`。
-- A 股基础规则：交易时间、交易日、整手、tick、不可做空、T+1 锁定。
-- `Position.locked_size/available_size`。
+1. Exchange 提供 `set_bars/set_books/set_trades/set_news`，要求显式时间字段，并按固定顺序调度完整时间切片。
+2. Strategy 用户回调收敛为 `on_init/on_bars/on_books/on_trades/on_news/on_finish`，交易统一通过 `self.broker`。
+3. Broker 构造、分仓、交易和查询接口使用 `portfolio`，不暴露旧的账户初始化与内部控制参数。
+4. 市价单、目标仓位、平仓和限价单统一返回 Order，业务失败写入 status 和 reason。
+5. 标准退出、追踪止损和函数型退出按当前持仓生命周期内有效的 order ID 管理。
+6. `close_portfolio()` 在成交前完成市场与账户顺序预检，避免部分关闭。
+7. Market 特征和预设支持交易时间、整手、tick、不可做空和 T+1；跨零反手也必须满足可平数量。
+8. README、编号示例和 usage skill 使用本文定义的目标接口。
 
-待删除、待重命名或待实现：
-
-1. 删除 `set_data(...)`，目标用户接口只保留 `set_bars/set_books/set_trades/set_news`。
-2. 删除 `date_key=None` 行号时间语义，目标用户接口要求显式 `date_key`。
-3. 删除 `Strategy.on_data/on_bar`。
-4. 当前没有 `set_books/on_books`、`set_trades/on_trades`、`set_news/on_news`。
-5. 当前交易接口返回 `bool`，目标设计始终返回 `Order`。
-6. 当前目标仓位无变化返回 `False`，目标设计返回 `Order(status="skipped")`。
-7. 当前业务失败返回 `False`，目标设计返回 `Order(status="rejected", reason=...)`。
-8. 当前退出条件按 `symbol` 绑定，目标设计按 `order_id` 作为用户句柄。
-9. 当前参数名是 `stop_loss/take_profit`，目标设计是 `stop_loss_price/take_profit_price`。
-10. 删除 `set_exit` 的 callable 参数，目标设计中函数型退出使用 `add_exit(order_id, condition=...)`。
-11. 当前没有 `trailing_stop_pct/trailing_stop_amount`。
-12. 当前没有 `Order` 模型、`get_order`、`get_exit`。
-13. 当前 `submit_limit_order/cancel_order/submit_stop_order/submit_trailing_stop_order` 是未实现占位；目标只保留 `submit_limit_order/cancel_order`。
-14. 删除 `Broker.__init__` 的 `portfolio_cash/portfolio_id` 用户参数。
-15. 删除 `SimpleMarket/CryptoMarket/ChinaAStockMarket` 用户入口。
-16. 当前 README 和 examples 仍可能出现旧参数名，需要在实现目标接口时同步更新。
-
-## 推荐迁移顺序
-
-### Phase 1：文档与用户心智统一
-
-1. docs/design 只保留本系统设计稿和 README 索引。
-2. README 只展示目标用户接口，不展示 `set_data/on_data/on_bar`。
-3. examples 分为单标的、多标的、分仓、退出条件四类典型场景。
-4. README 明确限价单尚未实现。
-
-### Phase 2：统一数据源和回调
-
-1. 删除目标用户接口中的 `set_data(...)`。
-2. 删除 `Strategy.on_data/on_bar`。
-3. 实现 `set_bars/on_bars` 的目标签名。
-4. 实现 `set_books/on_books`、`set_trades/on_trades`、`set_news/on_news`。
-5. 固定同一 `dt` 下的调度顺序。
-
-### Phase 3：Order 最小模型
-
-1. 新增 `Order` 数据结构。
-2. 市价单成交成功返回 `Order(status="filled")`。
-3. 目标无变化返回 `Order(status="skipped")`。
-4. 业务失败返回 `Order(status="rejected", reason=...)`。
-5. 增加 `get_order/get_orders/get_active_order`。
-
-### Phase 4：退出条件绑定到 Order
-
-1. 新增 `stop_loss_price/take_profit_price` 参数。
-2. 删除目标用户接口中的旧 `stop_loss/take_profit`。
-3. `set_exit(order_id, ...)` 替代 `set_exit(symbol, ...)`。
-4. `clear_exit(order_id, ...)` 支持按类型清除。
-5. `get_exit(order_id)`。
-6. 函数型退出迁移为 `add_exit(order_id, condition=...)`。
-
-### Phase 5：Trailing stop
-
-1. 支持 `trailing_stop_pct`。
-2. 支持 `trailing_stop_amount`。
-3. 实现 `trailing_stop_pct` 与 `trailing_stop_amount` 的冲突校验。
-4. 明确移动止损锚点更新规则。
-5. 增加多头和空头测试。
-
-### Phase 6：最小限价单
-
-1. 实现 pending limit order。
-2. `cancel_order(order_id)`。
-3. 基于当前最新价判断触发，bars 数据下默认使用 close。
-4. 不做队列位置和部分成交。
+当前仍明确不进入 MVP 的能力见文末“明确不进入当前 MVP”。后续扩展必须先更新设计，不恢复已删除的兼容入口。
 
 ## 典型用户场景
 

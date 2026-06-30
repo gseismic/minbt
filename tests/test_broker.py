@@ -521,6 +521,20 @@ def test_new_exit_config_deactivates_previous_config_for_same_position():
     assert broker.get_active_order("TEST") is second
 
 
+def test_liquidation_expires_active_exit_order():
+    broker = Broker(initial_cash=1000, fee_rate=0, leverage=10)
+    order = broker.submit_market_order("TEST", qty=50, price=100, stop_loss_price=90)
+
+    broker.on_new_price("TEST", 80, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+
+    assert broker.get_position_size("TEST") == 0
+    assert broker.get_exit(order.id).active is False
+    assert broker.get_active_order("TEST") is None
+    with pytest.raises(ValueError, match="no longer associated"):
+        broker.set_exit(order.id, stop_loss_price=70)
+
+
 def test_order_queries_support_filters_and_do_not_create_positions():
     broker = Broker(initial_cash=1000, fee_rate=0)
     broker.add_portfolio("alt", cash=300)
