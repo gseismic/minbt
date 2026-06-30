@@ -192,6 +192,8 @@ def test_strategy_and_package_do_not_export_legacy_entry_points():
         assert not hasattr(Strategy, name)
     for name in ("MarketModel", "SimpleMarket", "CryptoMarket", "ChinaAStockMarket"):
         assert not hasattr(minbt, name)
+    for name in ("I18nLogger", "configure_logging", "disable_logging", "create_logger"):
+        assert not hasattr(minbt, name)
 
 
 def test_exit_config_fields_match_design():

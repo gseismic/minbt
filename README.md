@@ -47,6 +47,31 @@ pip install -e ".[plot]"
 
 `pyta2` 用于更高效的历史向量存储；未安装时会自动回退为 Python list。`plot` 额外依赖只在绘图时需要。
 
+## 日志
+
+minbt 默认关闭库内部日志，入门示例不会输出下单过程、调度过程等调试信息。
+
+需要诊断时，直接使用 loguru：
+
+```python
+from minbt import logger
+
+logger.enable("minbt")          # 输出 minbt 内部日志到当前 loguru sink，默认是 stderr
+logger.add("logs/minbt.log")    # 也可以增加文件输出
+```
+
+如果脚本由你完全控制，并且只希望写文件、不希望输出到屏幕，可以按 loguru 原生方式配置：
+
+```python
+from minbt import logger
+
+logger.remove()
+logger.add("logs/minbt.log", level="INFO")
+logger.enable("minbt")
+```
+
+`logger.remove()` 会影响当前进程的全局 loguru sink；如果你的应用已经有日志系统，不要在库代码或共享模块里调用它。
+
 ## 快速开始
 
 下面是一个完整可运行的最小回测：

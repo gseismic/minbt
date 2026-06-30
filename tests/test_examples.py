@@ -34,3 +34,4 @@ def test_examples_run_from_repo_root(script_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "final_equity=" in result.stdout
+    assert result.stderr == ""

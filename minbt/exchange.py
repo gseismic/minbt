@@ -284,7 +284,7 @@ class Exchange:
             raise ValueError("Exchange data is not set; call set_bars() before run().")
 
         self.reset_market_state()
-        self.logger.info("[start_parallel]", len(self.strategies))
+        self.logger.info(f"Start running {len(self.strategies)} strategies...")
         start_time = time.time()
 
         for strategy in self.strategies.values():
@@ -318,7 +318,7 @@ class Exchange:
             strategy.on_finish()
 
         total_time = time.time() - start_time
-        self.logger.info("[all_complete]", total_time)
+        self.logger.info(f"All strategies completed, total time: {total_time:.2f}s")
         if step > 0:
             self.logger.info(f"{total_time / step:.2f}s/step")
         else:

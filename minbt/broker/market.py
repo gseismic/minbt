@@ -17,7 +17,12 @@ def _to_datetime(value):
     try:
         import pandas as pd
 
-        return pd.Timestamp(value).to_pydatetime()
+        timestamp = pd.Timestamp(value)
+        if pd.isna(timestamp):
+            return None
+        if getattr(timestamp, "nanosecond", 0):
+            timestamp = timestamp.floor("us")
+        return timestamp.to_pydatetime()
     except Exception:
         return None
 

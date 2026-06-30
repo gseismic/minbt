@@ -82,6 +82,8 @@ exchange.run()
 |`portfolio`|分仓名称|
 |`Market`|市场特征配置|
 
+`logger` 不进入入门概念。日志只用于诊断，不属于 minbt 核心策略接口。
+
 用户接口不暴露：
 
 - pending order 状态机细节。
@@ -100,6 +102,42 @@ exchange.run()
 - 自定义 `Market(...)` 特征。
 
 这些接口仍然是用户接口，不应要求用户理解内部状态机。
+
+### 日志接口
+
+日志设计保持最小：
+
+- 直接使用 `loguru.logger`，不再封装 `I18nLogger`。
+- 不提供 `configure_logging()` / `disable_logging()` 等二次配置接口。
+- minbt 导入时执行 `logger.disable("minbt")`，默认关闭库内部日志。
+- 用户需要诊断时调用 `logger.enable("minbt")`。
+- 用户需要文件、屏幕、轮转、保留等能力时，直接使用 loguru 原生 `logger.add(...)`。
+
+示例：
+
+```python
+from minbt import logger
+
+logger.enable("minbt")
+logger.add("logs/minbt.log", level="INFO")
+```
+
+如果用户脚本完全拥有当前进程的 loguru 配置，可以使用：
+
+```python
+from minbt import logger
+
+logger.remove()
+logger.add("logs/minbt.log", level="INFO")
+logger.enable("minbt")
+```
+
+约束：
+
+- `logger.remove()` 会影响进程级 loguru sink，只应由应用入口调用。
+- examples 不应自定义 `QuietLogger`。
+- `Broker`、`Exchange`、`Strategy` 的 `logger=None` 是调试/测试注入参数，不属于入门主路径。
+- 自定义 logger 注入只要求提供用到的方法：`debug(...)`、`info(...)`、`warning(...)`、`error(...)`。
 
 ### 内部接口
 
