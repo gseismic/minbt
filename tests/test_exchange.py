@@ -37,6 +37,14 @@ class DtCaptureStrategy(Strategy):
         self.dts.append(self.exchange.get_current_dt())
 
 
+class PriceCaptureStrategy(Strategy):
+    def on_init(self):
+        self.prices = []
+
+    def on_bars(self, dt, bars):
+        self.prices.append(bars["A"]["close"])
+
+
 class MultiFeedStrategy(Strategy):
     def on_init(self):
         self.calls = []
@@ -81,6 +89,39 @@ def _make_duplicate_bar_data(kind):
         except Exception as exc:
             pytest.skip(f"polars DataFrame unavailable: {exc}")
     return rows
+
+
+def _make_multi_asset_data(kind):
+    rows = [
+        {"dt": "2026-01-02", "symbol": "B", "close": 190.0},
+        {"dt": "2026-01-01", "symbol": "B", "close": 200.0},
+        {"dt": "2026-01-02", "symbol": "A", "close": 110.0},
+        {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
+    ]
+    if kind == "pandas":
+        return pd.DataFrame(rows)
+    if kind == "polars":
+        try:
+            return pl.DataFrame(rows)
+        except Exception as exc:
+            pytest.skip(f"polars DataFrame unavailable: {exc}")
+    return rows
+
+
+class PandasLikeData:
+    columns = ["dt", "symbol", "close"]
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.to_dict_calls = 0
+
+    def to_dict(self, orient):
+        assert orient == "records"
+        self.to_dict_calls += 1
+        return self.rows
+
+    def iterrows(self):
+        raise AssertionError("iterrows should not be called when to_dict('records') is available")
 
 
 def test_exchange_run_empty_bars_does_not_divide_by_zero():
@@ -143,6 +184,46 @@ def test_exchange_set_bars_rejects_duplicate_symbol_in_same_dt(data_kind):
 
     with pytest.raises(ValueError, match="duplicate"):
         exchange.set_bars(data)
+
+
+@pytest.mark.parametrize("data_kind", ["pandas", "polars", "list"])
+def test_exchange_set_bars_input_formats_produce_same_payload(data_kind):
+    exchange = Exchange()
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    strategy = MultiAssetStrategy(strategy_id=data_kind, broker=broker)
+    data = _make_multi_asset_data(data_kind)
+
+    exchange.set_bars(data)
+    exchange.add_strategy(strategy)
+    exchange.run()
+
+    assert strategy.snapshots == [
+        ("2026-01-01", ["A", "B"], 100.0, 200.0, "2026-01-01"),
+        ("2026-01-02", ["A", "B"], 110.0, 190.0, "2026-01-02"),
+    ]
+
+
+def test_exchange_prefers_pandas_records_over_iterrows():
+    rows = [{"dt": "2026-01-01", "symbol": "A", "close": 100.0}]
+    data = PandasLikeData(rows)
+    exchange = Exchange()
+
+    exchange.set_bars(data)
+
+    assert data.to_dict_calls == 1
+
+
+def test_exchange_copies_list_rows_before_storing_feed():
+    rows = [{"dt": "2026-01-01", "symbol": "A", "close": 100.0}]
+    exchange = Exchange()
+    strategy = PriceCaptureStrategy(strategy_id="copy")
+
+    exchange.set_bars(rows)
+    rows[0]["close"] = 999.0
+    exchange.add_strategy(strategy)
+    exchange.run()
+
+    assert strategy.prices == [100.0]
 
 
 def test_exchange_requires_explicit_date_key():

@@ -171,7 +171,18 @@ class Exchange:
             return [dict(row) for row in data]
         if isinstance(data, pl.DataFrame) or hasattr(data, "iter_rows"):
             return [dict(row) for row in data.iter_rows(named=True)]
-        if isinstance(data, pd.DataFrame) or hasattr(data, "iterrows"):
+        if isinstance(data, pd.DataFrame):
+            return [dict(row) for row in data.to_dict("records")]
+        if hasattr(data, "to_dict") and hasattr(data, "columns"):
+            try:
+                rows = data.to_dict("records")
+            except TypeError:
+                rows = None
+            if rows is not None:
+                if any(not isinstance(row, dict) for row in rows):
+                    raise TypeError("data.to_dict('records') must return dictionaries")
+                return [dict(row) for row in rows]
+        if hasattr(data, "iterrows"):
             return [row.to_dict() for _, row in data.iterrows()]
         raise TypeError(
             f"data type not supported: {type(data)}. "
