@@ -35,3 +35,23 @@ def test_examples_run_from_repo_root(script_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "final_equity=" in result.stdout
     assert result.stderr == ""
+
+
+def test_100k_benchmark_example_runs_without_logs():
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    result = subprocess.run(
+        [sys.executable, "examples/09_benchmark_100k_empty.py"],
+        cwd=repo_root,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "rows=100000" in result.stdout
+    assert "set_bars_seconds=" in result.stdout
+    assert "run_seconds=" in result.stdout
+    assert "total_seconds=" in result.stdout
+    assert result.stderr == ""
