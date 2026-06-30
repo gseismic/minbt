@@ -4,6 +4,12 @@ import numpy as np
 from ..logger import logger as default_logger
 from .struct import Position, Cash, DateType, _require
 
+
+class _PreviewLogger:
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
+
 class Portfolio:
     
     def __init__(self, 
@@ -217,6 +223,26 @@ class Portfolio:
             f'released_cash={released_cash}, realized_pnl={realized_pnl}'
         )
         return True
+
+    def can_submit_orders(self, orders) -> Tuple[bool, Optional[int]]:
+        """按顺序模拟订单，不修改当前组合。"""
+        preview = copy.copy(self)
+        preview.last_prices = self.last_prices.copy()
+        preview.last_prices_dt = self.last_prices_dt.copy()
+        preview._current_cash = copy.deepcopy(self._current_cash)
+        preview._positions = copy.deepcopy(self._positions)
+        preview.logger = _PreviewLogger()
+
+        for index, order in enumerate(orders):
+            if not preview.submit_order(
+                order["symbol"],
+                order["qty"],
+                price=order["price"],
+                leverage=order.get("leverage"),
+                price_dt=order.get("price_dt"),
+            ):
+                return False, index
+        return True, None
     
     def close_position(self, symbol: str, last_price: Optional[float] = None) -> bool:
         """平仓: 提交与当前持仓方向相反、数量相同的订单"""

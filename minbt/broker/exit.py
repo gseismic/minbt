@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -19,20 +19,32 @@ class ExitContext:
 class ExitRule:
     name: str
     condition: Callable[[ExitContext], bool]
-    state: Any = None
+    state: Dict = field(default_factory=dict)
     attached: bool = False
 
     def get_state(self):
-        if callable(self.state):
-            return self.state()
-        if self.state is None:
-            return {}
         return self.state
 
 
 @dataclass
 class ExitConfig:
     order_id: str
+    symbol: str
+    portfolio: str
+    active: bool = False
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
+    trailing_stop_pct: Optional[float] = None
+    trailing_stop_amount: Optional[float] = None
+    trailing_anchor: Optional[float] = None
+    custom_rules: Tuple[str, ...] = ()
+
+
+@dataclass
+class _ExitState:
+    order_id: str
+    symbol: str
+    portfolio: str
     active: bool = False
     stop_loss_price: Optional[float] = None
     take_profit_price: Optional[float] = None
@@ -51,6 +63,20 @@ class ExitConfig:
                 self.trailing_stop_amount,
             )
         ) or bool(self.custom_rules)
+
+    def to_config(self) -> ExitConfig:
+        return ExitConfig(
+            order_id=self.order_id,
+            symbol=self.symbol,
+            portfolio=self.portfolio,
+            active=self.active,
+            stop_loss_price=self.stop_loss_price,
+            take_profit_price=self.take_profit_price,
+            trailing_stop_pct=self.trailing_stop_pct,
+            trailing_stop_amount=self.trailing_stop_amount,
+            trailing_anchor=self.trailing_anchor,
+            custom_rules=tuple(rule.name for rule in self.custom_rules),
+        )
 
 
 def stop_loss_pct(pct: float, name: Optional[str] = None) -> ExitRule:

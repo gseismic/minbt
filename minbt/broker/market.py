@@ -108,7 +108,7 @@ class Market:
     ) -> float:
         if qty <= 0 or self.lot_size is None:
             return qty
-        position = broker.get_position(symbol, portfolio=portfolio, create_if_missing=False)
+        position = broker.get_position(symbol, portfolio=portfolio)
         current_size = 0 if position is None else position.size
         if current_size < 0:
             return qty
@@ -132,16 +132,17 @@ class Market:
         if self.tick_size is not None and not _is_multiple(price, self.tick_size):
             return OrderValidation(False, f"price must be multiple of tick_size {self.tick_size}: {price}")
 
-        position = broker.get_position(symbol, portfolio=portfolio, create_if_missing=False)
+        position = broker.get_position(symbol, portfolio=portfolio)
         current_size = 0 if position is None else position.size
         new_size = current_size + qty
         if not self.allow_short and new_size < -1e-12:
             return OrderValidation(False, f"short is not allowed: {symbol}")
-        if position is not None and current_size * qty < 0 and abs(qty) <= abs(current_size):
-            if abs(qty) > position.available_size + 1e-12:
+        if position is not None and current_size * qty < 0:
+            close_size = min(abs(qty), abs(current_size))
+            if close_size > position.available_size + 1e-12:
                 return OrderValidation(
                     False,
-                    f"insufficient available position: qty={abs(qty)}, available={position.available_size}",
+                    f"insufficient available position: qty={close_size}, available={position.available_size}",
                 )
         return OrderValidation(True)
 
@@ -157,13 +158,10 @@ class Market:
     ) -> None:
         if self.t_plus == 0 or qty <= 0:
             return
-        position = broker.get_position(symbol, portfolio=portfolio, create_if_missing=False)
+        position = broker.get_position(symbol, portfolio=portfolio)
         if position is None or position.size <= 0:
             return
         new_long_size = max(position.size, 0.0)
         old_long_size = max(old_size, 0.0)
         opened_size = max(0.0, new_long_size - old_long_size)
         position.lock_size(opened_size, self.trading_day(dt))
-
-
-MarketModel = Market

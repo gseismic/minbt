@@ -25,14 +25,14 @@ def test_submit_market_order_returns_filled_order():
     assert approx(broker.get_cash()) == 10000 - 5000 * (1 + 0.001)
 
 
-def test_submit_market_order_rejects_missing_price_as_order():
+def test_submit_market_order_raises_when_market_price_is_missing():
     broker = Broker(initial_cash=1000, fee_rate=0)
 
-    order = broker.submit_market_order("AAPL", qty=1)
+    with pytest.raises(ValueError, match="market price not found"):
+        broker.submit_market_order("AAPL", qty=1)
 
-    assert order.status == "rejected"
-    assert "market price not found" in order.reason
-    assert broker.get_position("AAPL", create_if_missing=False) is None
+    assert broker.get_orders() == []
+    assert broker.get_position("AAPL") is None
 
 
 def test_submit_market_order_requires_existing_portfolio_before_price_update():
@@ -49,7 +49,7 @@ def test_position_size_query_does_not_create_empty_position():
     broker = Broker(initial_cash=1000, fee_rate=0)
 
     assert broker.get_position_size("UNKNOWN") == 0
-    assert broker.get_position("UNKNOWN", create_if_missing=False) is None
+    assert broker.get_position("UNKNOWN") is None
     assert broker.portfolios["main"].positions == {}
 
 
@@ -166,12 +166,13 @@ def test_cancel_order_returns_clear_result_for_done_order():
     broker = Broker(initial_cash=1000, fee_rate=0)
 
     filled_order = broker.submit_market_order("AAPL", qty=1, price=100)
+    order_count = len(broker.get_orders())
     cancel_result = broker.cancel_order(filled_order.id)
 
     assert filled_order.status == "filled"
-    assert cancel_result.status == "skipped"
-    assert cancel_result.source == "cancel_order"
-    assert "not pending" in cancel_result.reason
+    assert cancel_result is filled_order
+    assert cancel_result.status == "filled"
+    assert len(broker.get_orders()) == order_count
 
 
 def test_submit_limit_order_does_not_expose_source_parameter():
@@ -248,7 +249,7 @@ def test_custom_exit_condition_uses_exit_context():
     def exit_if_price_breaks(ctx):
         return ctx.order_id == order.id and ctx.price < 98
 
-    broker.add_exit(order.id, exit_if_price_breaks)
+    broker.add_exit(order.id, condition=exit_if_price_breaks)
     broker.on_new_price("BTCUSDT", 97, "2026-01-02")
     broker.check_exit_rules(dt="2026-01-02")
 
@@ -351,6 +352,186 @@ def test_t1_market_locks_only_new_long_size_when_reversing_short_to_long():
     assert position.available_size == 50
     next_day_close = broker.close_position("TEST", price=9, price_dt="2026-01-07")
     assert next_day_close.status == "filled"
+
+
+def test_t1_market_rejects_cross_zero_sale_of_locked_long_position():
+    market = Market(name="T1Short", t_plus=1, allow_short=True)
+    broker = Broker(initial_cash=100000, fee_rate=0, market=market)
+
+    broker.submit_market_order("TEST", qty=100, price=10, price_dt="2026-01-05")
+    reverse_order = broker.submit_market_order("TEST", qty=-150, price=10, price_dt="2026-01-05")
+
+    assert reverse_order.status == "rejected"
+    assert "insufficient available position" in reverse_order.reason
+    assert broker.get_position_size("TEST") == 100
+
+
+def test_limit_order_rejects_insufficient_cash_at_submission():
+    broker = Broker(initial_cash=100, fee_rate=0)
+    broker.on_new_price("AAPL", 10, "2026-01-01")
+
+    order = broker.submit_limit_order("AAPL", qty=20, limit_price=10)
+
+    assert order.status == "rejected"
+    assert order.id not in broker._pending_order_ids
+
+
+def test_limit_order_exit_validation_is_atomic_when_position_direction_changes():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.on_new_price("TEST", 110, "2026-01-01")
+    pending = broker.submit_limit_order("TEST", qty=1, limit_price=100, stop_loss_price=95)
+    broker.submit_market_order("TEST", qty=-2, price=110, price_dt="2026-01-01")
+
+    broker.on_new_price("TEST", 99, "2026-01-02")
+    broker.process_pending_orders(dt="2026-01-02")
+
+    assert pending.status == "rejected"
+    assert "exit conditions invalid at fill" in pending.reason
+    assert broker.get_position_size("TEST") == -2
+    assert broker.get_exit(pending.id) is None
+    assert pending.id not in broker._pending_order_ids
+
+
+def test_limit_order_rejects_atomically_when_cash_is_spent_before_fill():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.on_new_price("LIMIT", 110, "2026-01-01")
+    pending = broker.submit_limit_order("LIMIT", qty=5, limit_price=100)
+    broker.submit_market_order("OTHER", qty=8, price=100, price_dt="2026-01-01")
+
+    broker.on_new_price("LIMIT", 99, "2026-01-02")
+    broker.process_pending_orders(dt="2026-01-02")
+
+    assert pending.status == "rejected"
+    assert broker.get_position_size("LIMIT") == 0
+    assert broker.get_position_size("OTHER") == 8
+    assert pending.id not in broker._pending_order_ids
+    assert pending.id not in broker._pending_exit_params
+
+
+def test_limit_order_activates_valid_exit_config_after_fill():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.on_new_price("TEST", 110, "2026-01-01")
+    pending = broker.submit_limit_order(
+        "TEST",
+        qty=1,
+        limit_price=100,
+        stop_loss_price=90,
+        trailing_stop_pct=0.1,
+    )
+
+    broker.on_new_price("TEST", 99, "2026-01-02")
+    broker.process_pending_orders(dt="2026-01-02")
+    config = broker.get_exit(pending.id)
+
+    assert pending.status == "filled"
+    assert pending.avg_price == 100
+    assert config.active is True
+    assert config.stop_loss_price == 90
+    assert config.trailing_anchor == 100
+    assert broker.get_active_order("TEST") is pending
+
+
+def test_close_portfolio_preflight_prevents_partial_close():
+    broker = Broker(initial_cash=300, fee_rate=0.8, leverage=10)
+    broker.submit_market_order("A", qty=10, price=10)
+    broker.submit_market_order("B", qty=10, price=10)
+
+    orders = broker.close_portfolio("main")
+
+    assert [order.status for order in orders] == ["rejected"]
+    assert broker.get_position_sizes() == {"A": 10, "B": 10}
+
+
+def test_expired_order_cannot_control_reopened_position():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    old_order = broker.submit_market_order("TEST", qty=1, price=100)
+    broker.close_position("TEST", price=100)
+    broker.submit_market_order("TEST", qty=1, price=100)
+
+    with pytest.raises(ValueError, match="no longer associated"):
+        broker.set_exit(old_order.id, stop_loss_price=90)
+    with pytest.raises(ValueError, match="no longer associated"):
+        broker.add_exit(old_order.id, condition=lambda ctx: False)
+
+
+def test_position_lifecycle_keeps_same_side_orders_and_expires_them_on_reversal():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    entry = broker.submit_market_order("TEST", qty=2, price=100)
+    reduction = broker.order_target_size("TEST", target_size=1, price=100)
+
+    broker.set_exit(entry.id, stop_loss_price=90)
+    broker.set_exit(reduction.id, stop_loss_price=90)
+    reversal = broker.submit_market_order("TEST", qty=-2, price=100)
+
+    with pytest.raises(ValueError, match="no longer associated"):
+        broker.set_exit(entry.id, stop_loss_price=110)
+    with pytest.raises(ValueError, match="no longer associated"):
+        broker.set_exit(reduction.id, stop_loss_price=110)
+
+    config = broker.set_exit(reversal.id, stop_loss_price=110)
+    assert config.active is True
+    assert broker.get_position_size("TEST") == -1
+
+
+def test_callable_exit_state_is_initialized_once_and_persists():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    order = broker.submit_market_order("TEST", qty=1, price=100)
+    factory_calls = 0
+
+    def state_factory():
+        nonlocal factory_calls
+        factory_calls += 1
+        return {}
+
+    def exit_after_two_checks(ctx):
+        ctx.state["checks"] = ctx.state.get("checks", 0) + 1
+        return ctx.state["checks"] >= 2
+
+    broker.add_exit(order.id, condition=exit_after_two_checks, state=state_factory)
+    broker.on_new_price("TEST", 101, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+    broker.on_new_price("TEST", 102, "2026-01-03")
+    broker.check_exit_rules(dt="2026-01-03")
+
+    assert factory_calls == 1
+    assert broker.get_position_size("TEST") == 0
+
+
+def test_exit_config_is_public_snapshot():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    order = broker.submit_market_order("TEST", qty=1, price=100, stop_loss_price=90)
+    broker.add_exit(order.id, condition=lambda ctx: False, name="custom")
+
+    config = broker.get_exit(order.id)
+    config.stop_loss_price = 80
+
+    assert config.symbol == "TEST"
+    assert config.portfolio == "main"
+    assert config.custom_rules == ("custom",)
+    assert broker.get_exit(order.id).stop_loss_price == 90
+
+
+def test_new_exit_config_deactivates_previous_config_for_same_position():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    first = broker.submit_market_order("TEST", qty=1, price=100, stop_loss_price=90)
+    second = broker.submit_market_order("TEST", qty=1, price=100, stop_loss_price=80)
+
+    assert broker.get_exit(first.id).active is False
+    assert broker.get_exit(second.id).active is True
+    assert broker.get_active_order("TEST") is second
+
+
+def test_order_queries_support_filters_and_do_not_create_positions():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.add_portfolio("alt", cash=300)
+    main_order = broker.submit_market_order("MAIN", qty=1, price=100)
+    alt_order = broker.submit_market_order("ALT", qty=1, price=100, portfolio="alt")
+
+    assert broker.get_orders(portfolio="alt") == [alt_order]
+    assert broker.get_orders(symbol="MAIN") == [main_order]
+    assert broker.get_position("UNKNOWN", "alt") is None
+    assert broker.get_positions("alt") == {"ALT": broker.get_position("ALT", "alt")}
+    assert broker.get_cash("alt") == 200
 
 
 def test_close_portfolio_respects_market_rules():

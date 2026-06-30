@@ -42,6 +42,7 @@ def test_old_user_interfaces_are_not_exported():
     assert not hasattr(minbt, "SimpleMarket")
     assert not hasattr(minbt, "CryptoMarket")
     assert not hasattr(minbt, "ChinaAStockMarket")
+    assert not hasattr(minbt, "MarketModel")
 
 
 def test_order_contract_has_stable_fields():
