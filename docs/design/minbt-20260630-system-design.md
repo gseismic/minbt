@@ -111,7 +111,6 @@ class MyStrategy(Strategy):
 |目标名义金额|`target_value`|希望调到多少名义金额|
 |目标权重|`target_percent`|希望调到组合权益的多少比例|
 |组合名|`portfolio`|用户接口使用的分仓名称|
-|组合内部标识|`portfolio_id`|内部和兼容参数，新代码不推荐|
 |订单对象|`order`|用户提交交易后的句柄|
 |订单 ID|`order_id`|用于修改该订单关联退出条件|
 |止损触发价|`stop_loss_price`|标准价格型退出条件|
@@ -127,7 +126,7 @@ class MyStrategy(Strategy):
 4. 不用 `sl_price/tp_price` 作为用户接口，缩写降低可读性。
 5. 不用 `stop_loss=my_func` 或 `take_profit=my_func` 表示函数型退出条件。
 6. 函数型退出条件统一叫退出条件，不强行区分止盈或止损。
-7. 用户接口使用 `portfolio`，内部兼容可以继续接受 `portfolio_id`。
+7. 用户接口只使用 `portfolio`，不暴露 `portfolio_id`。
 
 ## 数据接入与策略回调
 
@@ -354,18 +353,17 @@ on_bars -> on_books -> on_trades -> on_news
 
 1. Exchange 进入下一个 `dt`。
 2. Exchange 收集该 `dt` 下所有已注册数据源的数据切片。
-3. 按固定顺序处理每类数据。
-4. 如果该数据源配置了 `price_key`，先整体更新 broker 最新价。
-5. Broker 基于最新价检查 pending order 和退出条件。
-6. Strategy 收到对应 `on_xx(dt, data)` 回调。
-7. 同一 `dt` 的所有回调结束后，记录权益和持仓历史。
+3. 对所有配置了 `price_key` 的数据源，按调度顺序更新 broker 最新价。
+4. Broker 基于该 `dt` 的完整可见价格检查 pending order 和退出条件。
+5. Strategy 按固定顺序收到对应 `on_xx(dt, data)` 回调。
+6. 同一 `dt` 的所有回调结束后，记录权益和持仓历史。
 
 关键约束：
 
 - 多标的策略在任意 `on_xx` 中都必须看到该数据类型的完整时间截面。
-- Broker 只使用已经调度到的当前数据源更新最新价，不提前读取同一 `dt` 下后续数据源，避免未来信息泄漏。
-- 退出条件在对应 `on_xx` 前处理，因此策略看到的是该数据源价格更新和退出处理后的账户状态。
-- 如果同一 `dt` 下 bars 和 trades 都提供价格，`on_bars` 前只使用 bars 价格，`on_trades` 前再使用 trades 价格。
+- 同一 `dt` 只有一次 pending order 和退出条件检查，避免一个时间点内多次隐式交易。
+- 如果同一 `dt` 下多个数据源都提供同一 symbol 的价格，后调度的数据源覆盖先调度的数据源。
+- 策略回调看到的是该 `dt` 完整价格更新和退出处理后的账户状态。
 
 当前不模拟同一根 bar 内的路径顺序。若同一根 bar 内同时达到止盈和止损，MVP 不做高低价路径推断。
 
@@ -401,18 +399,17 @@ broker = Broker(
 - 默认不支持初始持仓。
 - 默认市场是 `markets.DEFAULT`。
 
-不推荐用户使用：
+不进入目标用户接口：
 
-```python
-Broker(..., portfolio_cash=...)
-Broker(..., portfolio_id=...)
-Broker(..., initial_positions=...)
-```
+- `portfolio_cash`
+- `portfolio_id`
+- `initial_positions`
 
-其中：
+原因：
 
-- `portfolio_cash` 和 `portfolio_id` 是当前代码里的兼容/历史参数，目标用户接口不保留。
-- `initial_positions` 不进入 MVP，避免引入成本价、杠杆、保证金、可用数量和锁定批次的复杂初始化语义。
+- `portfolio_cash` 会引入总现金、主组合现金和未分配现金三套概念。
+- `portfolio_id` 是内部标识命名，不应进入用户接口。
+- `initial_positions` 会引入成本价、杠杆、保证金、可用数量和锁定批次的复杂初始化语义。
 
 ## 分仓接口
 
@@ -448,18 +445,6 @@ broker.get_position_size("BTCUSDT", portfolio="trend")
 broker.get_positions(portfolio="trend")
 broker.get_total_equity()
 ```
-
-兼容但不推荐：
-
-```python
-broker.add_sub_portfolio("old", initial_cash=10_000)
-broker.submit_market_order("BTCUSDT", qty=1, portfolio_id="old")
-```
-
-原因：
-
-- `sub_portfolio` 暗示层级，但实际只是并列分仓。
-- `portfolio_id` 暴露内部标识，不符合用户心智模型。
 
 ## Market 市场特征
 
@@ -500,13 +485,6 @@ a_stock_like = Market(
 
 ### 为什么是特征而不是市场类
 
-不推荐：
-
-```python
-ChinaAStockMarket()
-CryptoMarket()
-```
-
 推荐：
 
 ```python
@@ -521,7 +499,7 @@ Market(name="Crypto", t_plus=0, allow_short=True, ...)
 - 预设对象 `markets.A_STOCK` 和 `markets.CRYPTO` 足够表达常用场景。
 - 后续增加最小交易额、tick、交易时间等规则时，只扩展特征字段。
 
-当前代码中的 `SimpleMarket()`、`CryptoMarket()`、`ChinaAStockMarket()` 仅作为兼容工厂保留，不作为推荐用户接口。
+目标用户接口不提供 `SimpleMarket()`、`CryptoMarket()`、`ChinaAStockMarket()` 这类市场工厂。
 
 ### 当前 Market 字段
 
@@ -596,7 +574,17 @@ class Order:
     id: str
     symbol: str
     portfolio: str
-    order_type: Literal["market", "limit", "target", "close"]
+    order_type: Literal["market", "limit"]
+    source: Literal[
+        "submit_market_order",
+        "submit_limit_order",
+        "target_size",
+        "target_value",
+        "target_percent",
+        "close_position",
+        "close_portfolio",
+        "cancel_order",
+    ]
     side: Literal["buy", "sell", "none"]
     qty: float
     status: Literal["pending", "filled", "canceled", "rejected", "skipped"]
@@ -617,6 +605,7 @@ class Order:
 |`symbol`|交易标的|
 |`portfolio`|分仓名称|
 |`order_type`|订单类型|
+|`source`|产生订单的用户接口|
 |`side`|买、卖或无交易|
 |`qty`|本次订单增量数量，目标不变时为 `0`|
 |`status`|当前订单状态|
@@ -791,27 +780,16 @@ broker.close_position(
 关闭组合：
 
 ```python
-broker.close_portfolio(portfolio: str) -> PortfolioCloseResult
-```
-
-返回结构：
-
-```python
-@dataclass
-class PortfolioCloseResult:
-    portfolio: str
-    status: Literal["closed", "rejected", "skipped"]
-    orders: list[Order]
-    reason: str | None = None
+broker.close_portfolio(portfolio: str) -> list[Order]
 ```
 
 语义：
 
 - 先检查该组合所有仓位是否都能关闭。
-- 任一仓位无法关闭，则整个关闭失败。
-- 成功后平掉全部仓位，并将现金回到 `main`，返回 `status="closed"`。
-- 组合为空时返回 `status="skipped"`。
-- 因 T+1、缺少价格或市场规则无法全平时返回 `status="rejected"`。
+- 任一仓位无法关闭，则不执行任何平仓订单，返回对应 `Order(status="rejected", reason=...)`。
+- 成功后平掉全部仓位，并将现金回到 `main`。
+- 组合为空时返回一个 `Order(status="skipped", side="none", qty=0, reason="portfolio empty")`。
+- 返回值始终是 `list[Order]`，避免引入额外用户结果类型。
 - 关闭 `main` 不是主路径，不建议普通用户使用。
 
 ## 标准退出条件
@@ -949,7 +927,7 @@ broker.clear_exit(
     take_profit_price: bool = True,
     trailing_stop: bool = True,
     custom: bool = True,
-) -> ExitConfig | None
+) -> ExitConfig
 ```
 
 语义：
@@ -961,7 +939,7 @@ broker.clear_exit(
 - `custom=True` 表示清除函数型退出条件。
 - 四个布尔参数全为 `False` 时抛 `ValueError`。
 - 清除后如果仍有退出条件，返回更新后的 `ExitConfig`。
-- 清除后如果没有任何退出条件，返回 `None`。
+- 清除后如果没有任何退出条件，返回 `ExitConfig(active=False)`。
 
 查询：
 
@@ -977,6 +955,7 @@ class ExitConfig:
     order_id: str
     symbol: str
     portfolio: str
+    active: bool = True
     stop_loss_price: float | None = None
     take_profit_price: float | None = None
     trailing_stop_pct: float | None = None
@@ -1114,7 +1093,8 @@ MVP 限价单规则：
 - 资金不足或市场规则拒绝时返回 `Order(status="rejected", reason=...)`。
 - `cancel_order(...)` 取消 pending 订单时返回 `Order(status="canceled")`。
 - 取消已成交、已取消或已拒绝订单时返回订单当前状态，不产生新订单。
-- 每个新 bar 后，broker 用 `high/low` 判断是否触及限价。
+- 每个新 bar 后，broker 只用当前最新价判断是否满足限价。
+- bars 数据下当前最新价默认是 `close`，不使用 `high/low` 推断同一根 bar 内路径。
 - 成交价格默认使用 `limit_price`。
 - 成交仍必须通过 `Market.validate_order(...)`。
 - 不模拟队列位置。
@@ -1256,10 +1236,10 @@ Market 负责：
 内部接口：
 
 ```python
-Market.validate_order(broker, symbol, qty, price, dt=None, portfolio_id="main") -> OrderValidation
-Market.normalize_order_qty(broker, symbol, qty, price=None, portfolio_id="main") -> float
+Market.validate_order(broker, symbol, qty, price, dt=None, portfolio="main") -> OrderValidation
+Market.normalize_order_qty(broker, symbol, qty, price=None, portfolio="main") -> float
 Market.on_new_dt(broker, dt) -> None
-Market.on_order_filled(broker, symbol, qty, price, dt=None, portfolio_id="main") -> None
+Market.on_order_filled(broker, symbol, qty, price, dt=None, portfolio="main") -> None
 ```
 
 ### Portfolio
@@ -1324,14 +1304,14 @@ Position 不负责：
 
 这样用户不需要记住哪些下单类接口可能返回 `None`。
 
-### 批量接口返回专用结果
+### 批量接口复用 Order
 
-`close_portfolio(...)` 返回 `PortfolioCloseResult`：
+`close_portfolio(...)` 返回 `list[Order]`：
 
-- `status="closed"` 表示全部持仓已关闭。
-- `status="skipped"` 表示组合为空。
-- `status="rejected"` 表示无法原子关闭全部持仓。
-- `orders` 记录实际产生的平仓订单。
+- 成功关闭时返回每个平仓订单。
+- 组合为空时返回一个 `Order(status="skipped", reason="portfolio empty")`。
+- 无法原子关闭全部持仓时返回一个或多个 `Order(status="rejected", reason=...)`。
+- 不新增专用结果类型，避免用户接口概念扩散。
 
 ### 抛异常
 
@@ -1349,14 +1329,12 @@ Position 不负责：
 - 多标的数据未提供 `date_key`。
 - 同一 `(dt, symbol)` 重复。
 
-## 当前实现状态
+## 当前代码现状
 
-已实现：
+已实现且符合目标方向：
 
-- `Exchange.set_data(...)`。
 - `Exchange.set_bars(...)`。
 - `Strategy.on_bars(dt, bars)`。
-- 当前代码仍保留 `on_data/on_bar`。
 - 多标的同一 `dt` 下整体更新 broker 最新价。
 - `Broker.submit_market_order(...)` 市价成交。
 - `Broker.order_target_size/value/percent(...)`。
@@ -1366,27 +1344,24 @@ Position 不负责：
 - `markets.DEFAULT/CRYPTO/A_STOCK`。
 - A 股基础规则：交易时间、交易日、整手、tick、不可做空、T+1 锁定。
 - `Position.locked_size/available_size`。
-- `stop_loss/take_profit` 形式的订单附带退出条件。
-- `set_exit(symbol, ...)` 形式的退出条件修改。
-- `add_exit_rule(symbol, ...)` 形式的函数型退出规则。
 
-未实现或与目标设计不一致：
+待删除、待重命名或待实现：
 
-1. 当前代码保留 `set_data(...)`，目标用户接口只保留 `set_bars/set_books/set_trades/set_news`。
-2. 当前代码允许 `date_key=None`，目标用户接口要求显式 `date_key`。
-3. 当前代码保留 `on_data/on_bar`，目标设计删除这两个用户回调。
+1. 删除 `set_data(...)`，目标用户接口只保留 `set_bars/set_books/set_trades/set_news`。
+2. 删除 `date_key=None` 行号时间语义，目标用户接口要求显式 `date_key`。
+3. 删除 `Strategy.on_data/on_bar`。
 4. 当前没有 `set_books/on_books`、`set_trades/on_trades`、`set_news/on_news`。
 5. 当前交易接口返回 `bool`，目标设计始终返回 `Order`。
 6. 当前目标仓位无变化返回 `False`，目标设计返回 `Order(status="skipped")`。
 7. 当前业务失败返回 `False`，目标设计返回 `Order(status="rejected", reason=...)`。
 8. 当前退出条件按 `symbol` 绑定，目标设计按 `order_id` 作为用户句柄。
 9. 当前参数名是 `stop_loss/take_profit`，目标设计是 `stop_loss_price/take_profit_price`。
-10. 当前 `set_exit` 允许 callable，目标设计中函数型退出使用 `add_exit(order_id, condition=...)`。
+10. 删除 `set_exit` 的 callable 参数，目标设计中函数型退出使用 `add_exit(order_id, condition=...)`。
 11. 当前没有 `trailing_stop_pct/trailing_stop_amount`。
-12. 当前没有 `Order` 模型、`PortfolioCloseResult`、`get_order`、`get_exit`。
-13. 当前 `submit_limit_order/cancel_order/submit_stop_order/submit_trailing_stop_order` 是未实现占位。
-14. 当前 `Broker.__init__` 仍暴露 `portfolio_cash/portfolio_id`，目标设计不推荐。
-15. 当前还导出 `SimpleMarket/CryptoMarket/ChinaAStockMarket`，目标设计只推荐 `Market` 和 `markets.*` 预设。
+12. 当前没有 `Order` 模型、`get_order`、`get_exit`。
+13. 当前 `submit_limit_order/cancel_order/submit_stop_order/submit_trailing_stop_order` 是未实现占位；目标只保留 `submit_limit_order/cancel_order`。
+14. 删除 `Broker.__init__` 的 `portfolio_cash/portfolio_id` 用户参数。
+15. 删除 `SimpleMarket/CryptoMarket/ChinaAStockMarket` 用户入口。
 16. 当前 README 和 examples 仍可能出现旧参数名，需要在实现目标接口时同步更新。
 
 ## 推荐迁移顺序
@@ -1435,9 +1410,8 @@ Position 不负责：
 
 1. 实现 pending limit order。
 2. `cancel_order(order_id)`。
-3. 基于 bar high/low 判断触发。
+3. 基于当前最新价判断触发，bars 数据下默认使用 close。
 4. 不做队列位置和部分成交。
-4. 多数据源固定调度顺序。
 
 ## 典型用户场景
 
