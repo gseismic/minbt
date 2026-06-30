@@ -86,7 +86,8 @@ class CrossSectionMomentumStrategy(Strategy):
         for symbol in SYMBOLS:
             target_size = self.target_qty if symbol == selected_symbol else 0
             price = float(bars[symbol]["close"])
-            if self.broker.order_target_size(symbol, target_size=target_size, price=price):
+            order = self.broker.order_target_size(symbol, target_size=target_size, price=price)
+            if order.status == "filled":
                 changed = True
         if changed:
             self.rebalance_count += 1

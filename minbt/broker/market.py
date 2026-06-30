@@ -104,18 +104,18 @@ class Market:
         symbol: str,
         qty: float,
         price: Optional[float] = None,
-        portfolio_id: str = "main",
+        portfolio: str = "main",
     ) -> float:
         if qty <= 0 or self.lot_size is None:
             return qty
-        position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+        position = broker.get_position(symbol, portfolio=portfolio, create_if_missing=False)
         current_size = 0 if position is None else position.size
         if current_size < 0:
             return qty
         normalized = math.floor(abs(qty) / self.lot_size + 1e-12) * self.lot_size
         return float(normalized)
 
-    def validate_order(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "main") -> OrderValidation:
+    def validate_order(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio: str = "main") -> OrderValidation:
         if qty == 0:
             return OrderValidation(False, "qty must be non-zero")
         if price <= 0:
@@ -132,7 +132,7 @@ class Market:
         if self.tick_size is not None and not _is_multiple(price, self.tick_size):
             return OrderValidation(False, f"price must be multiple of tick_size {self.tick_size}: {price}")
 
-        position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+        position = broker.get_position(symbol, portfolio=portfolio, create_if_missing=False)
         current_size = 0 if position is None else position.size
         new_size = current_size + qty
         if not self.allow_short and new_size < -1e-12:
@@ -145,50 +145,13 @@ class Market:
                 )
         return OrderValidation(True)
 
-    def on_order_filled(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio_id: str = "main") -> None:
+    def on_order_filled(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio: str = "main") -> None:
         if self.t_plus == 0 or qty <= 0:
             return
-        position = broker.get_position(symbol, portfolio_id=portfolio_id, create_if_missing=False)
+        position = broker.get_position(symbol, portfolio=portfolio, create_if_missing=False)
         if position is None or position.size <= 0:
             return
         position.lock_size(abs(qty), self.trading_day(dt))
 
 
 MarketModel = Market
-
-
-def SimpleMarket() -> Market:
-    """兼容旧入口；新代码建议使用 Market() 或 markets.DEFAULT。"""
-    return Market(name="Default")
-
-
-def CryptoMarket(
-    *,
-    min_qty: Optional[float] = None,
-    min_notional: Optional[float] = None,
-    tick_size: Optional[float] = None,
-    allow_short: bool = True,
-) -> Market:
-    """兼容旧入口；新代码建议使用 markets.CRYPTO 或 Market(name="Crypto", ...)。"""
-    return Market(
-        name="Crypto",
-        allow_short=allow_short,
-        min_qty=min_qty,
-        min_notional=min_notional,
-        tick_size=tick_size,
-    )
-
-
-def ChinaAStockMarket(*, lot_size: int = 100, tick_size: float = 0.01) -> Market:
-    """兼容旧入口；新代码建议使用 markets.A_STOCK 或 Market(name="AStock", ...)。"""
-    return Market(
-        name="AStock",
-        allow_short=False,
-        t_plus=1,
-        lot_size=lot_size,
-        tick_size=tick_size,
-        require_dt=True,
-        weekdays_only=True,
-        trading_sessions=(("09:30", "11:30"), ("13:00", "15:00")),
-        allow_daily_bar=True,
-    )

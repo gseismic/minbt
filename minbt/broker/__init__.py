@@ -1,21 +1,21 @@
 from .struct import Position, Cash
 from .portfolio import Portfolio
 from .broker import Broker
-from .market import Market, MarketModel, SimpleMarket, CryptoMarket, ChinaAStockMarket
+from .market import Market, MarketModel
+from .order import Order
 from . import markets
-from .exit import ExitRule, ExitContext, stop_loss_pct, take_profit_pct, stop_loss_price, take_profit_price
+from .exit import ExitConfig, ExitRule, ExitContext, stop_loss_pct, take_profit_pct, stop_loss_price, take_profit_price
 
 __all__ = [
     'Portfolio',
     'Position',
     'Cash',
     'Broker',
+    'Order',
     'Market',
     'markets',
     'MarketModel',
-    'SimpleMarket',
-    'CryptoMarket',
-    'ChinaAStockMarket',
+    'ExitConfig',
     'ExitRule',
     'ExitContext',
     'stop_loss_pct',

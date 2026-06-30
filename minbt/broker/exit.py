@@ -1,15 +1,16 @@
-from dataclasses import dataclass
-from typing import Callable, Optional, Any, Dict
+from dataclasses import dataclass, field
+from typing import Callable, Optional, Any, Dict, List
 
 
 @dataclass
 class ExitContext:
+    order_id: str
     symbol: str
+    portfolio: str
     dt: Any
     price: float
     position: Any
     broker: Any
-    portfolio_id: str
     data: Any = None
     state: Dict = None
 
@@ -27,6 +28,29 @@ class ExitRule:
         if self.state is None:
             return {}
         return self.state
+
+
+@dataclass
+class ExitConfig:
+    order_id: str
+    active: bool = False
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
+    trailing_stop_pct: Optional[float] = None
+    trailing_stop_amount: Optional[float] = None
+    trailing_anchor: Optional[float] = None
+    custom_rules: List[ExitRule] = field(default_factory=list)
+
+    def refresh_active(self) -> None:
+        self.active = any(
+            value is not None
+            for value in (
+                self.stop_loss_price,
+                self.take_profit_price,
+                self.trailing_stop_pct,
+                self.trailing_stop_amount,
+            )
+        ) or bool(self.custom_rules)
 
 
 def stop_loss_pct(pct: float, name: Optional[str] = None) -> ExitRule:

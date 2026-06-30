@@ -34,11 +34,13 @@ def target_position_value(
     current_value = broker.get_position_size(symbol) * price
     if abs(target_value - current_value) <= min_qty * price:
         return False
-    return broker.order_target_value(symbol, target_value=target_value, price=price, leverage=leverage)
+    order = broker.order_target_value(symbol, target_value=target_value, price=price, leverage=leverage)
+    return order.status == "filled"
 
 
 def flatten_position(broker, symbol: str, price: float, *, min_qty: float = 1e-12) -> bool:
     current_size = broker.get_position_size(symbol)
     if abs(current_size) <= min_qty:
         return False
-    return broker.close_position(symbol, price=price)
+    order = broker.close_position(symbol, price=price)
+    return order.status == "filled"

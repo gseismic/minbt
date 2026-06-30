@@ -1,285 +1,353 @@
-import pytest
 import os
 import subprocess
 import sys
 from pathlib import Path
-from pytest import approx
-from minbt.broker.broker import Broker
-# from minbt.broker.struct import Order, OrderStatus, OrderType, OrderSide
 
-def test_order_submission():
-    """测试订单提交功能"""
+import pytest
+from pytest import approx
+
+from minbt import Broker, markets
+
+
+def test_submit_market_order_returns_filled_order():
     broker = Broker(initial_cash=10000, fee_rate=0.001)
-    
-    # 测试市价单提交
-    order = broker.submit_market_order(
-        symbol="BTCUSDT",
-        qty=1.0,
-        price=5000.0
-    )
-    
-    broker.on_new_price("BTCUSDT", 5000.0)
+
+    order = broker.submit_market_order("BTCUSDT", qty=1.0, price=5000.0)
+
+    assert order.status == "filled"
+    assert order.order_type == "market"
+    assert order.source == "submit_market_order"
+    assert order.filled_qty == 1.0
+    assert order.avg_price == 5000.0
     assert broker.get_market_price("BTCUSDT") == 5000.0
     assert broker.get_position("BTCUSDT").size == 1.0
-    assert not broker.portfolios['main'].bankrupt
+    assert approx(broker.get_cash()) == 10000 - 5000 * (1 + 0.001)
 
-    assert approx(broker.portfolios['main'].cash) == 10000 - 5000 * 1.0 * (1 + 0.001)
-    print(f'total_equity: {broker.get_total_equity()}')
 
-    broker.on_new_price("BTCUSDT", 6000.0)
-    print(f'total_equity: {broker.get_total_equity()}')
-    broker.on_new_price("BTCUSDT", 5000.0)
-    print(f'total_equity: {broker.get_total_equity()}')
-    print(f'total_initial_cash: {broker.initial_cash}')
-    
-    # assert order.status == OrderStatus.FILLED
-    # assert order.type == OrderType.MARKET
-    # assert order.filled_qty == 1.0
-    
-    # 测试限价单提交
-    # order = broker.submit_limit_order(
-    #     symbol="BTCUSDT",
-    #     qty=0.5,
-    #     side=OrderSide.SELL,
-    #     price=55000.0
-    # )
-    # assert order.status == OrderStatus.PENDING
-    # assert order.type == OrderType.LIMIT
-    # assert order.filled_qty == 0
+def test_submit_market_order_rejects_missing_price_as_order():
+    broker = Broker(initial_cash=1000, fee_rate=0)
 
-# def test_position_management():
-#     """测试仓位管理"""
-#     broker = Broker(initial_cash=10000, fee_rate=0.001)
-    
-#     # 开仓
-#     broker.submit_market_order("BTCUSDT", 1.0, OrderSide.BUY, 50000.0)
-#     position = broker.get_position("BTCUSDT")
-#     assert position.size == 1.0
-#     assert position.avg_price == 50000.0
-    
-#     # 加仓
-#     broker.submit_market_order("BTCUSDT", 0.5, OrderSide.BUY, 48000.0)
-#     assert position.size == 1.5
-#     assert pytest.approx(position.avg_price) == 49333.33  # (50000*1 + 48000*0.5)/1.5
-    
-#     # 减仓
-#     broker.submit_market_order("BTCUSDT", 1.0, OrderSide.SELL, 52000.0)
-#     assert position.size == 0.5
+    order = broker.submit_market_order("AAPL", qty=1)
 
-# def test_cash_management():
-#     """测试资金管理"""
-#     initial_cash = 10000
-#     broker = Broker(initial_cash=initial_cash, fee_rate=0.001)
-    
-#     # 买入消耗资金
-#     price = 100.0
-#     qty = 10
-#     fee = price * qty * 0.001
-#     broker.submit_market_order("AAPL", qty, OrderSide.BUY, price)
-#     expected_cash = initial_cash - (price * qty + fee)
-#     assert pytest.approx(broker.cash) == expected_cash
-    
-#     # 卖出增加资金
-#     sell_price = 110.0
-#     sell_fee = sell_price * qty * 0.001
-#     broker.submit_market_order("AAPL", qty, OrderSide.SELL, sell_price)
-#     profit = (sell_price - price) * qty - fee - sell_fee
-#     assert pytest.approx(broker.cash) == initial_cash + profit
+    assert order.status == "rejected"
+    assert "market price not found" in order.reason
+    assert broker.get_position("AAPL", create_if_missing=False) is None
 
-# def test_order_cancellation():
-#     """测试订单取消"""
-#     broker = Broker(initial_cash=10000, fee_rate=0.001)
-    
-#     # 提交限价单
-#     order = broker.submit_limit_order(
-#         symbol="BTCUSDT",
-#         qty=1.0,
-#         side=OrderSide.BUY,
-#         price=45000.0
-#     )
-#     order_id = order.order_id
-    
-#     # 取消订单
-#     success = broker.cancel_order(order_id)
-#     assert success
-#     assert broker.get_order(order_id).status == OrderStatus.CANCELLED
-
-# def test_margin_trading():
-#     """测试保证金交易"""
-#     broker = Broker(initial_cash=10000, fee_rate=0.001, leverage=3.0)
-    
-#     # 测试杠杆开仓
-#     order = broker.submit_market_order(
-#         symbol="BTCUSDT",
-#         qty=1.0,
-#         side=OrderSide.BUY,
-#         price=30000.0,
-#         leverage=3.0
-#     )
-#     position = broker.get_position("BTCUSDT")
-#     assert position.leverage == 3.0
-#     assert position.margin == 10000.0  # 30000/3
-    
-#     # 测试保证金率计算
-#     broker.update_market_price("BTCUSDT", 33000.0)  # 价格上涨10%
-#     assert pytest.approx(position.margin_level) == 1.1  # (10000 + 3000) / 10000
-
-# def test_error_handling():
-#     """测试错误处理"""
-#     broker = Broker(initial_cash=10000, fee_rate=0.001)
-    
-#     # 测试资金不足
-#     order = broker.submit_market_order(
-#         symbol="BTCUSDT",
-#         qty=1.0,
-#         side=OrderSide.BUY,
-#         price=20000.0
-#     )
-#     assert order.status == OrderStatus.REJECTED
-    
-#     # 测试取消不存在的订单
-#     success = broker.cancel_order("non_existent_order_id")
-#     assert not success
-    
-#     # 测试无效的订单数量
-#     order = broker.submit_market_order(
-#         symbol="BTCUSDT",
-#         qty=0,
-#         side=OrderSide.BUY,
-#         price=10000.0
-#     )
-#     assert order.status == OrderStatus.REJECTED
-
-def test_add_sub_portfolio_rejects_duplicate_id():
-    """测试不能重复添加同名子组合"""
-    broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
-    remaining_cash = broker.remaining_free_cash
-    original_portfolio = broker.portfolios['main']
-
-    with pytest.raises(ValueError):
-        broker.add_sub_portfolio('main', 100)
-
-    assert broker.remaining_free_cash == remaining_cash
-    assert broker.portfolios['main'] is original_portfolio
-
-def test_add_sub_portfolio_rejects_insufficient_cash():
-    """测试子组合资金不能超过未分配现金"""
-    broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
-
-    with pytest.raises(ValueError):
-        broker.add_sub_portfolio('alt', 500)
-
-    assert broker.remaining_free_cash == 400
-    assert 'alt' not in broker.portfolios
 
 def test_submit_market_order_requires_existing_portfolio_before_price_update():
-    """测试无效组合不会污染 broker 或组合行情状态"""
     broker = Broker(initial_cash=1000, fee_rate=0)
 
     with pytest.raises(ValueError):
-        broker.submit_market_order("AAPL", qty=1, price=100, portfolio_id="missing")
+        broker.submit_market_order("AAPL", qty=1, price=100, portfolio="missing")
 
     assert broker.last_prices == {}
-    assert broker.portfolios['main'].positions == {}
+    assert broker.portfolios["main"].positions == {}
 
-def test_submit_market_order_requires_known_price():
-    """测试未提供价格且无最新价时给出明确错误"""
-    broker = Broker(initial_cash=1000, fee_rate=0)
-
-    with pytest.raises(ValueError):
-        broker.submit_market_order("AAPL", qty=1)
-
-    assert broker.portfolios['main'].positions == {}
 
 def test_position_size_query_does_not_create_empty_position():
-    """测试只读持仓数量查询不会创建空仓位"""
     broker = Broker(initial_cash=1000, fee_rate=0)
 
-    assert broker.get_position_size('UNKNOWN') == 0
-    assert broker.get_position('UNKNOWN', create_if_missing=False) is None
-    assert broker.portfolios['main'].positions == {}
+    assert broker.get_position_size("UNKNOWN") == 0
+    assert broker.get_position("UNKNOWN", create_if_missing=False) is None
+    assert broker.portfolios["main"].positions == {}
+
 
 def test_add_portfolio_transfers_cash_from_main():
-    """测试推荐分仓接口从 main 组合划拨资金"""
     broker = Broker(initial_cash=1000, fee_rate=0)
-    broker.add_portfolio('alt', cash=300)
+    broker.add_portfolio("alt", cash=300)
 
-    assert broker.get_portfolios() == ['main', 'alt']
+    assert broker.get_portfolios() == ["main", "alt"]
     assert broker.get_all_portfolio_equity() == 1000
-    assert broker.remaining_free_cash == 0
     assert broker.get_total_equity() == 1000
     assert broker.get_equity() == 700
-    assert broker.get_equity(portfolio='alt') == 300
+    assert broker.get_equity(portfolio="alt") == 300
+
 
 def test_add_portfolio_rejects_duplicate_or_insufficient_cash():
-    """测试推荐分仓接口不会覆盖组合或透支 main 现金"""
     broker = Broker(initial_cash=1000, fee_rate=0)
-    broker.add_portfolio('alt', cash=300)
+    broker.add_portfolio("alt", cash=300)
 
     with pytest.raises(ValueError):
-        broker.add_portfolio('alt', cash=100)
+        broker.add_portfolio("alt", cash=100)
     with pytest.raises(ValueError):
-        broker.add_portfolio('too_big', cash=800)
+        broker.add_portfolio("too_big", cash=800)
 
     assert broker.get_cash() == 700
-    assert broker.get_cash(portfolio='alt') == 300
+    assert broker.get_cash(portfolio="alt") == 300
 
-def test_close_non_main_portfolio_returns_cash_to_main():
-    """测试关闭非 main 组合后现金回到 main"""
+
+def test_close_empty_non_main_portfolio_returns_cash_to_main():
     broker = Broker(initial_cash=1000, fee_rate=0)
-    broker.add_portfolio('alt', cash=300)
+    broker.add_portfolio("alt", cash=300)
 
-    assert broker.close_portfolio('alt')
+    orders = broker.close_portfolio("alt")
 
-    assert broker.get_portfolios() == ['main']
+    assert len(orders) == 1
+    assert orders[0].status == "skipped"
+    assert broker.get_portfolios() == ["main"]
     assert broker.get_cash() == 1000
     assert broker.get_total_equity() == 1000
 
-def test_submit_market_order_supports_portfolio_alias():
-    """测试推荐 portfolio 参数能指定交易组合"""
+
+def test_submit_market_order_supports_portfolio():
     broker = Broker(initial_cash=1000, fee_rate=0)
-    broker.add_portfolio('alt', cash=300)
+    broker.add_portfolio("alt", cash=300)
 
-    assert broker.submit_market_order("AAPL", qty=1, price=100, portfolio="alt")
+    order = broker.submit_market_order("AAPL", qty=1, price=100, portfolio="alt")
 
+    assert order.status == "filled"
     assert broker.get_position_size("AAPL") == 0
     assert broker.get_position_size("AAPL", portfolio="alt") == 1
     assert broker.get_cash(portfolio="alt") == 200
 
-def test_total_equity_includes_legacy_unallocated_cash():
-    """测试兼容旧 portfolio_cash/add_sub_portfolio 模式下仍统计未分配现金"""
-    broker = Broker(initial_cash=1000, fee_rate=0, portfolio_cash=600)
-    broker.add_sub_portfolio('alt', 300)
 
-    assert broker.get_all_portfolio_equity() == 900
-    assert broker.remaining_free_cash == 100
-    assert broker.get_total_equity() == 1000
-    assert broker.get_equity() == 600
+def test_order_target_interfaces_return_order():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    order = broker.order_target_percent("BTCUSDT", 0.5, price=100)
+    assert order.status == "filled"
+    assert order.source == "target_percent"
+    assert broker.get_position_size("BTCUSDT") == 5
+    assert broker.get_cash() == 500
+
+    order = broker.order_target_size("BTCUSDT", 2, price=100)
+    assert order.status == "filled"
+    assert order.source == "target_size"
+    assert broker.get_position_size("BTCUSDT") == 2
+    assert broker.get_cash() == 800
+
+    order = broker.order_target_value("BTCUSDT", 0, price=100)
+    assert order.status == "filled"
+    assert order.source == "target_value"
+    assert broker.get_position_size("BTCUSDT") == 0
+
+    order = broker.order_target_size("BTCUSDT", 0, price=100)
+    assert order.status == "skipped"
+
+
+def test_order_target_percent_uses_explicit_price_for_equity():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    broker.submit_market_order("BTCUSDT", qty=5, price=100)
+    order = broker.order_target_percent("BTCUSDT", 0.5, price=200)
+
+    assert order.status == "filled"
+    assert broker.get_position_size("BTCUSDT") == pytest.approx(3.75)
+
+
+def test_submit_limit_order_can_fill_and_cancel():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.on_new_price("AAPL", 100, "2026-01-01")
+
+    order = broker.submit_limit_order("AAPL", qty=1, limit_price=95)
+    assert order.status == "pending"
+    broker.on_new_price("AAPL", 96, "2026-01-02")
+    broker.process_pending_orders(dt="2026-01-02")
+    assert order.status == "pending"
+
+    broker.on_new_price("AAPL", 94, "2026-01-03")
+    broker.process_pending_orders(dt="2026-01-03")
+    assert order.status == "filled"
+    assert order.avg_price == 95
+    assert broker.get_position_size("AAPL") == 1
+
+    pending = broker.submit_limit_order("AAPL", qty=1, limit_price=90)
+    canceled = broker.cancel_order(pending.id)
+    assert canceled.status == "canceled"
+    broker.on_new_price("AAPL", 89, "2026-01-04")
+    broker.process_pending_orders(dt="2026-01-04")
+    assert broker.get_position_size("AAPL") == 1
+
+
+def test_order_attached_take_profit_closes_position():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    order = broker.submit_market_order("BTCUSDT", qty=1, price=100, take_profit_price=110)
+    broker.on_new_price("BTCUSDT", 112, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+
+    assert order.status == "filled"
+    assert broker.get_position_size("BTCUSDT") == 0
+    assert broker.get_cash() == 1012
+
+
+def test_set_exit_updates_attached_stop_loss_by_order_id():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    order = broker.submit_market_order(
+        "BTCUSDT",
+        qty=1,
+        price=100,
+        stop_loss_price=95,
+        take_profit_price=120,
+    )
+    broker.on_new_price("BTCUSDT", 106, "2026-01-02")
+    config = broker.set_exit(order.id, stop_loss_price=104)
+    broker.on_new_price("BTCUSDT", 103, "2026-01-03")
+    broker.check_exit_rules(dt="2026-01-03")
+
+    assert config.stop_loss_price == 104
+    assert broker.get_position_size("BTCUSDT") == 0
+    assert broker.get_cash() == 1003
+
+
+def test_clear_exit_removes_attached_rules():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    order = broker.submit_market_order("BTCUSDT", qty=1, price=100, take_profit_price=110)
+    config = broker.clear_exit(order.id)
+    broker.on_new_price("BTCUSDT", 112, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+
+    assert not config.active
+    assert broker.get_position_size("BTCUSDT") == 1
+    assert broker.get_cash() == 900
+
+
+def test_trailing_stop_closes_after_pullback():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    order = broker.submit_market_order("BTCUSDT", qty=1, price=100, trailing_stop_pct=0.1)
+    broker.on_new_price("BTCUSDT", 120, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+    assert broker.get_position_size("BTCUSDT") == 1
+
+    broker.on_new_price("BTCUSDT", 107, "2026-01-03")
+    broker.check_exit_rules(dt="2026-01-03")
+
+    assert broker.get_exit(order.id).active is False
+    assert broker.get_position_size("BTCUSDT") == 0
+    assert broker.get_cash() == 1007
+
+
+def test_custom_exit_condition_uses_exit_context():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    order = broker.submit_market_order("BTCUSDT", qty=1, price=100)
+
+    def exit_if_price_breaks(ctx):
+        return ctx.order_id == order.id and ctx.price < 98
+
+    broker.add_exit(order.id, exit_if_price_breaks)
+    broker.on_new_price("BTCUSDT", 97, "2026-01-02")
+    broker.check_exit_rules(dt="2026-01-02")
+
+    assert broker.get_position_size("BTCUSDT") == 0
+    assert broker.get_cash() == 997
+
+
+def test_exit_trailing_modes_are_mutually_exclusive():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    with pytest.raises(ValueError, match="cannot both be set"):
+        broker.submit_market_order(
+            "BTCUSDT",
+            qty=1,
+            price=100,
+            trailing_stop_pct=0.1,
+            trailing_stop_amount=5,
+        )
+
+    assert broker.get_orders() == []
+
+
+def test_a_stock_market_locks_same_day_buy():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+
+    buy = broker.submit_market_order("600519.SH", qty=100, price=100, price_dt="2026-01-05")
+    position = broker.get_position("600519.SH")
+    assert buy.status == "filled"
+    assert position.size == 100
+    assert position.available_size == 0
+    assert position.locked_size == 100
+
+    close = broker.close_position("600519.SH", price=99, price_dt="2026-01-05")
+    assert close.status == "rejected"
+    assert broker.get_position_size("600519.SH") == 100
+
+    broker.on_new_price("600519.SH", 101, "2026-01-06")
+    assert position.available_size == 100
+    assert position.locked_size == 0
+    close = broker.close_position("600519.SH", price=101, price_dt="2026-01-06")
+    assert close.status == "filled"
+    assert broker.get_position_size("600519.SH") == 0
+
+
+def test_a_stock_market_requires_dt_for_manual_order():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+
+    order = broker.submit_market_order("600519.SH", qty=100, price=100)
+
+    assert order.status == "rejected"
+    assert broker.get_position_size("600519.SH") == 0
+
+
+def test_market_preset_is_copied_per_broker():
+    broker_a = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+    broker_b = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+
+    broker_a.market.allow_short = True
+
+    assert markets.A_STOCK.allow_short is False
+    assert broker_b.market.allow_short is False
+
+
+def test_a_stock_market_normalizes_target_value_to_lot_size():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+
+    order = broker.order_target_value("600519.SH", target_value=80000, price=13, price_dt="2026-01-05")
+
+    assert order.status == "filled"
+    assert broker.get_position_size("600519.SH") == 6100
+
+
+def test_a_stock_market_rejects_explicit_non_lot_market_order():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+
+    order = broker.submit_market_order("600519.SH", qty=150, price=100, price_dt="2026-01-05")
+
+    assert order.status == "rejected"
+    assert broker.get_position_size("600519.SH") == 0
+
+
+def test_close_portfolio_respects_market_rules():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
+
+    broker.submit_market_order("600519.SH", qty=100, price=100, price_dt="2026-01-05")
+    same_day_orders = broker.close_portfolio("main")
+    assert same_day_orders[0].status == "rejected"
+    assert "main" in broker.portfolios
+    assert broker.get_position_size("600519.SH") == 100
+
+    broker.on_new_price("600519.SH", 101, "2026-01-06")
+    next_day_orders = broker.close_portfolio("main")
+    assert next_day_orders[0].status == "filled"
+    assert "main" in broker.portfolios
+    assert broker.get_position_size("600519.SH") == 0
+
 
 def test_broker_rejects_invalid_margin_config():
-    """测试保证金阈值规则在 Broker 和 Portfolio 一致"""
     with pytest.raises(ValueError):
         Broker(initial_cash=1000, fee_rate=0, warning_margin_level=0.1, min_margin_level=0.1)
 
     with pytest.raises(ValueError):
         Broker(initial_cash=1000, fee_rate=0, warning_margin_level=1.0, min_margin_level=0.1)
 
+
 def test_broker_validation_survives_optimized_python():
-    """测试 python -O 下输入校验不会被跳过"""
     repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env['PYTHONPATH'] = str(repo_root) + os.pathsep + env.get('PYTHONPATH', '')
+    env["PYTHONPATH"] = str(repo_root) + os.pathsep + env.get("PYTHONPATH", "")
     code = """
 from minbt import Broker
 try:
-    Broker(initial_cash=1000, fee_rate=2, portfolio_cash=2000, leverage=0)
+    Broker(initial_cash=-1, fee_rate=2, leverage=0)
 except ValueError:
     raise SystemExit(0)
 raise SystemExit(1)
 """
 
     result = subprocess.run(
-        [sys.executable, '-O', '-c', code],
+        [sys.executable, "-O", "-c", code],
         cwd=repo_root,
         env=env,
         text=True,
@@ -287,22 +355,3 @@ raise SystemExit(1)
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-
-def test_close_portfolio_keeps_portfolio_when_close_fails():
-    """测试关闭组合失败时不会先移除组合导致状态丢失"""
-    broker = Broker(initial_cash=1000, fee_rate=0)
-    broker.submit_market_order("AAPL", qty=1, price=100)
-
-    def reject_close_position(*args, **kwargs):
-        return False
-
-    broker.close_position = reject_close_position
-
-    assert not broker.close_portfolio('main')
-
-    assert 'main' in broker.portfolios
-    assert broker.get_position_size("AAPL") == 1
-
-if __name__ == "__main__":
-    # pytest.main([__file__])
-    test_order_submission()

@@ -1,263 +1,337 @@
+from collections import OrderedDict
+from dataclasses import dataclass
+import time
+from typing import Dict, List, Optional, Union
+
 import pandas as pd
 import polars as pl
-from typing import List, Dict, Union, Optional
-from collections import OrderedDict
-from .strategy import Strategy
+
 from .logger import logger as default_logger
-import time
+from .strategy import Strategy
+
+
+@dataclass
+class _Feed:
+    name: str
+    callback: str
+    mode: str
+    price_key: Optional[str]
+    grouped: OrderedDict
 
 
 class Exchange:
-    """
-    轻量级： 不维护API，用户需要历史数据，自己存取
-    """
-    
+    """事件驱动的最简回测 Exchange。"""
+
+    _FEED_ORDER = ("bars", "books", "trades", "news")
+
     def __init__(self, logger=None):
-        self.data = None
         self.strategies = OrderedDict()
         self.logger = logger or default_logger
-        self._is_polars_like = False
-        self._date_key = None
+        self._feeds: Dict[str, _Feed] = OrderedDict()
         self.reset_market_state()
-    
-    def _check_data(self, data, date_key):
-        self._validate_data_columns(data, date_key)
-        if date_key is not None:
-            return
-        # date_key is None: must have exactly one symbol
-        if isinstance(data, list):
-            symbols = set(d.get('symbol') for d in data if isinstance(d, dict))
-        elif isinstance(data, (pd.DataFrame, pl.DataFrame)) or hasattr(data, '__getitem__'):
-            symbols = set(data['symbol'])
-        else:
-            raise TypeError(f"Cannot inspect symbols from data type: {type(data)}")
-        if len(symbols) != 1:
-            raise ValueError(f'Data contains {len(symbols)} symbols, but no date_key provided')
-    
-    def set_data(self, data: Union[pd.DataFrame, pl.DataFrame, List[Dict]], date_key: Optional[str] = None):
-        """设置数据,支持Pandas DataFrame、Polars DataFrame或字典列表
-        
-        date_key 为None时，使用行号作为时间戳，这时要求只能是单symbol
-        数据会按照date_key和symbol稳定排序（如果提供date_key）
-        
-        Args:
-            data: 可以是pandas.DataFrame、polars.DataFrame或list[dict]格式
-            date_key: 日期列的键名
-        """
-        self._check_data(data, date_key)
-        self._date_key = date_key
-        if isinstance(data, pl.DataFrame) or hasattr(data, 'iter_rows'):
-            self.data = data
-            self._is_polars_like = True
-        elif isinstance(data, pd.DataFrame) or hasattr(data, 'iterrows'):
-            self.data = data
-            self._is_polars_like = False
-        elif isinstance(data, list) and (len(data) == 0 or isinstance(data[0], dict)):
-            self.data = list(data)
-            self._is_polars_like = False
-        else:
-            raise TypeError(f"data type not supported: {type(data)}. Expected types are: pd.DataFrame, pl.DataFrame, or list of dictionaries.")
-    
-        self._validate_unique_bar_symbols()
-        if date_key is not None:
-            if isinstance(self.data, list):
-                self.data = sorted(self.data, key=lambda row: (row[date_key], row["symbol"]))
-            elif self._is_polars_like:
-                self.data = self.data.sort([date_key, "symbol"], descending=[False, False])
-            else:
-                self.data = self.data.sort_values([date_key, "symbol"], ascending=[True, True])
 
-    def set_bars(self, data: Union[pd.DataFrame, pl.DataFrame, List[Dict]], date_key: Optional[str] = None):
-        """设置 bars 数据。当前等价于 set_data，是推荐的新用户入口。"""
-        self.set_data(data, date_key=date_key)
+    def set_bars(
+        self,
+        data: Union[pd.DataFrame, pl.DataFrame, List[Dict]],
+        *,
+        date_key: str = "dt",
+        symbol_key: str = "symbol",
+        price_key: str = "close",
+    ) -> None:
+        self._set_feed(
+            "bars",
+            "on_bars",
+            data,
+            date_key=date_key,
+            symbol_key=symbol_key,
+            price_key=price_key,
+            mode="by_symbol",
+            require_unique=True,
+        )
+
+    def set_books(
+        self,
+        data: Union[pd.DataFrame, pl.DataFrame, List[Dict]],
+        *,
+        date_key: str = "dt",
+        symbol_key: str = "symbol",
+        price_key: Optional[str] = None,
+    ) -> None:
+        self._set_feed(
+            "books",
+            "on_books",
+            data,
+            date_key=date_key,
+            symbol_key=symbol_key,
+            price_key=price_key,
+            mode="by_symbol",
+            require_unique=True,
+        )
+
+    def set_trades(
+        self,
+        data: Union[pd.DataFrame, pl.DataFrame, List[Dict]],
+        *,
+        date_key: str = "dt",
+        symbol_key: str = "symbol",
+        price_key: str = "price",
+    ) -> None:
+        self._set_feed(
+            "trades",
+            "on_trades",
+            data,
+            date_key=date_key,
+            symbol_key=symbol_key,
+            price_key=price_key,
+            mode="by_symbol_list",
+            require_unique=False,
+        )
+
+    def set_news(
+        self,
+        data: Union[pd.DataFrame, pl.DataFrame, List[Dict]],
+        *,
+        date_key: str = "dt",
+    ) -> None:
+        self._set_feed(
+            "news",
+            "on_news",
+            data,
+            date_key=date_key,
+            symbol_key=None,
+            price_key=None,
+            mode="list",
+            require_unique=False,
+        )
 
     def add_strategy(self, strategy: Strategy) -> None:
-        if not hasattr(strategy, 'strategy_id'):
-            raise TypeError('strategy must have `strategy_id` attribute')
-        if not hasattr(strategy, 'on_init'):
-            raise TypeError('strategy must have `on_init` method')
-        if not hasattr(strategy, 'on_data'):
-            raise TypeError('strategy must have `on_data` method')
-        if not hasattr(strategy, 'on_bar'):
-            raise TypeError('strategy must have `on_bar` method')
-        if not hasattr(strategy, 'on_bars'):
-            raise TypeError('strategy must have `on_bars` method')
-        if not hasattr(strategy, 'on_finish'):
-            raise TypeError('strategy must have `on_finish` method')
+        if not hasattr(strategy, "strategy_id"):
+            raise TypeError("strategy must have `strategy_id` attribute")
+        for method in ("on_init", "on_bars", "on_books", "on_trades", "on_news", "on_finish"):
+            if not hasattr(strategy, method):
+                raise TypeError(f"strategy must have `{method}` method")
         strategy.set_exchange(self)
         self.strategies[strategy.strategy_id] = strategy
-    
+
     def remove_strategy(self, strategy_id: str) -> None:
         self.strategies.pop(strategy_id)
 
-    def reset_market_state(self):
-        """重置市场价格相关的状态"""
+    def reset_market_state(self) -> None:
         self._last_prices = {}
         self._last_price_dates = {}
         self._current_dt = None
 
-    def _get_data_columns(self, data) -> set:
+    def _set_feed(
+        self,
+        name: str,
+        callback: str,
+        data,
+        *,
+        date_key: str,
+        symbol_key: Optional[str],
+        price_key: Optional[str],
+        mode: str,
+        require_unique: bool,
+    ) -> None:
+        rows = self._to_rows(data)
+        required_columns = [date_key]
+        if symbol_key is not None:
+            required_columns.append(symbol_key)
+        if price_key is not None:
+            required_columns.append(price_key)
+        self._validate_required_columns(rows, required_columns, name, data=data)
+        grouped = self._group_rows(
+            rows,
+            date_key=date_key,
+            symbol_key=symbol_key,
+            mode=mode,
+            require_unique=require_unique,
+            feed_name=name,
+        )
+        self._feeds[name] = _Feed(
+            name=name,
+            callback=callback,
+            mode=mode,
+            price_key=price_key,
+            grouped=grouped,
+        )
+        self._sort_feeds()
+
+    def _sort_feeds(self) -> None:
+        ordered = OrderedDict()
+        for name in self._FEED_ORDER:
+            if name in self._feeds:
+                ordered[name] = self._feeds[name]
+        self._feeds = ordered
+
+    def _to_rows(self, data) -> List[Dict]:
         if isinstance(data, list):
-            columns = set()
-            for item in data:
-                if isinstance(item, dict):
-                    columns.update(item.keys())
-            return columns
-        if hasattr(data, 'columns'):
+            if any(not isinstance(row, dict) for row in data):
+                raise TypeError("list data must contain dictionaries")
+            return [dict(row) for row in data]
+        if isinstance(data, pl.DataFrame) or hasattr(data, "iter_rows"):
+            return [dict(row) for row in data.iter_rows(named=True)]
+        if isinstance(data, pd.DataFrame) or hasattr(data, "iterrows"):
+            return [row.to_dict() for _, row in data.iterrows()]
+        raise TypeError(
+            f"data type not supported: {type(data)}. "
+            "Expected pd.DataFrame, pl.DataFrame, or list[dict]."
+        )
+
+    def _data_columns(self, data, rows: List[Dict]) -> set:
+        if hasattr(data, "columns"):
             return set(data.columns)
-        return set()
+        columns = set()
+        for row in rows:
+            columns.update(row.keys())
+        return columns
 
-    def _validate_data_columns(self, data, date_key) -> None:
-        required_columns = {'symbol', 'close'}
-        if date_key is not None:
-            required_columns.add(date_key)
-        columns = self._get_data_columns(data)
-        missing_columns = sorted(required_columns - columns)
+    def _validate_required_columns(self, rows: List[Dict], required_columns: List[str], feed_name: str, *, data) -> None:
+        columns = self._data_columns(data, rows)
+        missing_columns = sorted(set(required_columns) - columns)
         if missing_columns:
-            raise ValueError(f"data missing required columns: {missing_columns}")
+            raise ValueError(f"{feed_name} data missing required columns: {missing_columns}")
 
-    def _iter_data_rows(self):
-        if isinstance(self.data, list):
-            yield from enumerate(self.data)
-            return
-        if self._is_polars_like:
-            yield from enumerate(self.data.iter_rows(named=True))
-        else:
-            for row_number, (_, row) in enumerate(self.data.iterrows()):
-                yield row_number, row
-
-    def _get_row_dt(self, idx, row):
-        if self._date_key is not None:
-            return row[self._date_key]
-        return idx
-
-    def _get_row_symbol_price(self, row):
-        return row['symbol'], row['close']
-
-    def _validate_unique_bar_symbols(self) -> None:
-        if self._date_key is None:
-            return
-
+    def _group_rows(
+        self,
+        rows: List[Dict],
+        *,
+        date_key: str,
+        symbol_key: Optional[str],
+        mode: str,
+        require_unique: bool,
+        feed_name: str,
+    ) -> OrderedDict:
+        sorted_rows = sorted(
+            rows,
+            key=lambda row: (row[date_key], row[symbol_key] if symbol_key is not None else 0),
+        )
+        grouped = OrderedDict()
         seen = set()
         duplicate_keys = []
-        duplicate_seen = set()
-        for _, row in self._iter_data_rows():
-            key = (row[self._date_key], row['symbol'])
-            if key in seen and key not in duplicate_seen:
-                duplicate_keys.append(key)
-                duplicate_seen.add(key)
-            seen.add(key)
+
+        for row in sorted_rows:
+            dt = row[date_key]
+            if mode == "by_symbol":
+                symbol = row[symbol_key]
+                key = (dt, symbol)
+                if require_unique and key in seen:
+                    duplicate_keys.append(key)
+                seen.add(key)
+                grouped.setdefault(dt, OrderedDict())[symbol] = row
+            elif mode == "by_symbol_list":
+                symbol = row[symbol_key]
+                grouped.setdefault(dt, OrderedDict()).setdefault(symbol, []).append(row)
+            elif mode == "list":
+                grouped.setdefault(dt, []).append(row)
+            else:
+                raise ValueError(f"unknown feed mode: {mode}")
 
         if duplicate_keys:
-            preview = ', '.join(
-                f"({dt!r}, {symbol!r})" for dt, symbol in duplicate_keys[:5]
-            )
+            preview = ", ".join(f"({dt!r}, {symbol!r})" for dt, symbol in duplicate_keys[:5])
             if len(duplicate_keys) > 5:
-                preview += ', ...'
-            raise ValueError(
-                f"data contains duplicate ({self._date_key}, symbol) rows: {preview}"
-            )
+                preview += ", ..."
+            raise ValueError(f"{feed_name} data contains duplicate ({date_key}, {symbol_key}) rows: {preview}")
+        return grouped
 
-    def _iter_bars(self):
-        current_dt = None
-        current_rows = []
-        has_current_dt = False
+    def _all_datetimes(self) -> List:
+        dts = set()
+        for feed in self._feeds.values():
+            dts.update(feed.grouped.keys())
+        return sorted(dts)
 
-        for idx, row in self._iter_data_rows():
-            row_dt = self._get_row_dt(idx, row)
-            if has_current_dt and row_dt != current_dt:
-                yield current_dt, current_rows
-                current_rows = []
-            current_dt = row_dt
-            has_current_dt = True
-            current_rows.append(row)
+    def _update_market_prices(self, feed: _Feed, dt, payload) -> None:
+        if feed.price_key is None:
+            return
+        prices = OrderedDict()
+        if feed.mode == "by_symbol":
+            for symbol, row in payload.items():
+                prices[symbol] = row[feed.price_key]
+        elif feed.mode == "by_symbol_list":
+            for symbol, rows in payload.items():
+                prices[symbol] = rows[-1][feed.price_key]
+        else:
+            return
 
-        if has_current_dt:
-            yield current_dt, current_rows
-
-    def _update_market_state_for_bar(self, dt, rows):
         self._current_dt = dt
-        for row in rows:
-            symbol, price = self._get_row_symbol_price(row)
+        for symbol, price in prices.items():
             self._last_prices[symbol] = price
             self._last_price_dates[symbol] = dt
 
-    def _update_strategy_brokers_for_bar(self, dt, rows):
-        updated_broker_ids = set()
+        for broker in self._unique_brokers():
+            for symbol, price in prices.items():
+                broker.on_new_price(symbol, price, dt)
+
+    def _unique_brokers(self):
+        seen = set()
         for strategy in self.strategies.values():
-            broker = strategy.broker
-            if not broker:
+            broker = getattr(strategy, "broker", None)
+            if broker is None:
                 continue
             broker_id = id(broker)
-            if broker_id in updated_broker_ids:
+            if broker_id in seen:
                 continue
-            for row in rows:
-                symbol, price = self._get_row_symbol_price(row)
-                broker.on_new_price(symbol, price, dt)
-            updated_broker_ids.add(broker_id)
+            seen.add(broker_id)
+            yield broker
 
-    def _rows_by_symbol(self, rows):
-        rows_by_symbol = OrderedDict()
-        for row in rows:
-            symbol, _ = self._get_row_symbol_price(row)
-            rows_by_symbol[symbol] = row
-        return rows_by_symbol
-        
-    def run(self):
-        if self.data is None:
-            raise ValueError("Exchange data is not set; call set_data() before run().")
+    def _process_brokers_before_callbacks(self, dt, slices) -> None:
+        for broker in self._unique_brokers():
+            broker.process_pending_orders(dt=dt)
+            broker.check_exit_rules(dt=dt, data=slices)
+
+    def run(self) -> None:
+        if not self._feeds:
+            raise ValueError("Exchange data is not set; call set_bars() before run().")
 
         self.reset_market_state()
-        self.logger.info('[start_parallel]', len(self.strategies))
+        self.logger.info("[start_parallel]", len(self.strategies))
         start_time = time.time()
+
         for strategy in self.strategies.values():
             strategy.on_init()
-        
+
         step = 0
+        for current_dt in self._all_datetimes():
+            self._current_dt = current_dt
+            slices = OrderedDict()
+            for feed in self._feeds.values():
+                if current_dt not in feed.grouped:
+                    continue
+                payload = feed.grouped[current_dt]
+                slices[feed.name] = payload
+                self._update_market_prices(feed, current_dt, payload)
 
-        for current_dt, rows in self._iter_bars():
-            self._update_market_state_for_bar(current_dt, rows)
+            self._process_brokers_before_callbacks(current_dt, slices)
 
-            self._update_strategy_brokers_for_bar(current_dt, rows)
+            for feed in self._feeds.values():
+                if feed.name not in slices:
+                    continue
+                payload = slices[feed.name]
+                for strategy in self.strategies.values():
+                    strategy._dispatch_exchange_callback(feed.callback, current_dt, payload)
 
-            rows_by_symbol = self._rows_by_symbol(rows)
-            self._check_strategy_broker_exits(current_dt, rows_by_symbol)
             for strategy in self.strategies.values():
-                strategy._on_exchange_bars(current_dt, rows_by_symbol, rows=rows)
+                strategy._record_broker_history()
             step += 1
 
         for strategy in self.strategies.values():
             strategy.on_finish()
-            
+
         total_time = time.time() - start_time
-        self.logger.info('[all_complete]', total_time)
+        self.logger.info("[all_complete]", total_time)
         if step > 0:
-            self.logger.info(f'{total_time/step:.2f}s/step')
+            self.logger.info(f"{total_time / step:.2f}s/step")
         else:
-            self.logger.info('0 steps')
-    
+            self.logger.info("0 steps")
+
     def get_last_price(self, symbol: str, return_dt: bool = False):
-        price = self._last_prices.get(symbol, None)
+        price = self._last_prices.get(symbol)
         if return_dt:
-            return price, self._last_price_dates.get(symbol, None)
-        else:
-            return price
+            return price, self._last_price_dates.get(symbol)
+        return price
 
     def get_last_prices(self) -> Dict[str, float]:
         return self._last_prices.copy()
 
     def get_current_dt(self):
         return self._current_dt
-
-    def _check_strategy_broker_exits(self, dt, bars):
-        updated_broker_ids = set()
-        for strategy in self.strategies.values():
-            broker = strategy.broker
-            if not broker:
-                continue
-            broker_id = id(broker)
-            if broker_id in updated_broker_ids:
-                continue
-            if hasattr(broker, 'check_exit_rules'):
-                broker.check_exit_rules(dt=dt, data=bars)
-            updated_broker_ids.add(broker_id)

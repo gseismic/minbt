@@ -9,13 +9,14 @@ import pytest
 @pytest.mark.parametrize(
     "script_path",
     [
-        "examples/demo_mini.py",
-        "examples/single_symbol_sma.py",
-        "examples/multi_symbol_rotation.py",
-        "examples/scenario_exit_rules.py",
-        "examples/scenario_single_breakout.py",
-        "examples/scenario_multi_rotation.py",
-        "examples/scenario_pairs_mean_reversion.py",
+        "examples/01_demo_mini.py",
+        "examples/02_single_symbol_sma.py",
+        "examples/03_multi_symbol_rotation.py",
+        "examples/04_scenario_exit_rules.py",
+        "examples/05_scenario_limit_order.py",
+        "examples/06_scenario_single_breakout.py",
+        "examples/07_scenario_multi_rotation.py",
+        "examples/08_scenario_pairs_mean_reversion.py",
     ],
 )
 def test_examples_run_from_repo_root(script_path):

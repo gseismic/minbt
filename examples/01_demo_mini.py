@@ -52,7 +52,7 @@ def run_strategy(quiet: bool = True):
 
     data = pd.read_csv(DATA_PATH)
     exchange = Exchange(logger=quiet_logger)
-    exchange.set_bars(data[["symbol", "close"]])
+    exchange.set_bars(data[["date", "symbol", "close"]], date_key="date")
 
     broker = Broker(initial_cash=10_000, fee_rate=0.001, logger=quiet_logger)
     strategy = MiniStrategy(strategy_id="mini", broker=broker)

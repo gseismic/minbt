@@ -23,11 +23,13 @@ def build_sample_data() -> pd.DataFrame:
 
 
 class AttachedExitStrategy(Strategy):
-    """止盈止损示例：下单时设置，持仓过程中可以修改。"""
+    """止盈止损示例：下单时设置，持仓过程中按订单 ID 修改。"""
 
     def on_init(self):
         self.entered = False
         self.exit_updated = False
+        self.trail_order = None
+        self.take_order = None
         self.position_log = []
 
     def on_bars(self, dt, bars):
@@ -35,29 +37,27 @@ class AttachedExitStrategy(Strategy):
             trail_price = bars[TRAIL_SYMBOL]["close"]
             take_price = bars[TAKE_SYMBOL]["close"]
 
-            self.broker.order_target_percent(
+            self.trail_order = self.broker.order_target_percent(
                 TRAIL_SYMBOL,
                 target_percent=0.4,
                 price=trail_price,
-                stop_loss=trail_price * 0.95,
-                take_profit=trail_price * 1.15,
+                stop_loss_price=trail_price * 0.95,
+                trailing_stop_pct=0.05,
             )
-            self.broker.order_target_percent(
+            self.take_order = self.broker.order_target_percent(
                 TAKE_SYMBOL,
                 target_percent=0.4,
                 price=take_price,
-                stop_loss=take_price * 0.95,
-                take_profit=take_price * 1.10,
+                stop_loss_price=take_price * 0.95,
+                take_profit_price=take_price * 1.10,
             )
             self.entered = True
 
         if dt == "2026-03-02" and not self.exit_updated:
-            trail_price = bars[TRAIL_SYMBOL]["close"]
-            if self.broker.get_position_size(TRAIL_SYMBOL) > 0:
+            if self.trail_order is not None and self.broker.get_position_size(TRAIL_SYMBOL) > 0:
                 self.broker.set_exit(
-                    TRAIL_SYMBOL,
-                    stop_loss=trail_price - 2.0,
-                    take_profit=trail_price + 9.0,
+                    self.trail_order.id,
+                    trailing_stop_amount=2.0,
                 )
                 self.exit_updated = True
 
