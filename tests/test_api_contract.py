@@ -1,6 +1,7 @@
 import inspect
 
 import minbt
+import minbt.broker as broker_package
 import pytest
 from minbt import Broker, Exchange, ExitConfig, Strategy
 
@@ -178,6 +179,12 @@ def test_internal_control_parameters_are_not_public():
         assert "source" not in parameters
         assert "normalize_qty" not in parameters
         assert "create_if_missing" not in parameters
+
+
+def test_internal_broker_models_are_not_recommended_exports():
+    assert "Portfolio" not in broker_package.__all__
+    assert "Cash" not in broker_package.__all__
+    assert "Position" not in broker_package.__all__
 
 
 def test_strategy_and_package_do_not_export_legacy_entry_points():
