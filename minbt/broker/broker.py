@@ -63,7 +63,9 @@ class Broker:
         self.margin_mode = margin_mode
         self.warning_margin_level = warning_margin_level
         self.min_margin_level = min_margin_level
-        self.market = copy.copy(market) if market is not None else Market(name="Default")
+        self._default_market = copy.copy(market) if market is not None else Market(name="Default")
+        self._markets: Dict[str, Market] = {}
+        self._symbol_market_names: Dict[str, str] = {}
         self.logger = logger or default_logger
         self.initial_cash = initial_cash
 
@@ -84,6 +86,16 @@ class Broker:
         self._active_exit_order_by_position: Dict[Tuple[str, str], str] = {}
         self._position_order_ids: Dict[Tuple[str, str], set] = {}
 
+    @property
+    def market(self) -> Market:
+        return self._default_market
+
+    @market.setter
+    def market(self, value: Market) -> None:
+        if not isinstance(value, Market):
+            raise TypeError("market must be a Market instance")
+        self._default_market = copy.copy(value)
+
     def _create_portfolio(self, initial_cash: float) -> Portfolio:
         return Portfolio(
             initial_cash,
@@ -103,6 +115,40 @@ class Broker:
         name = DEFAULT_PORTFOLIO if portfolio is None else portfolio
         self._require_portfolio(name)
         return name
+
+    def _known_symbols(self) -> set:
+        symbols = set(self.last_prices)
+        symbols.update(self.last_price_dates)
+        symbols.update(order.symbol for order in self.orders.values())
+        for order_id in self._pending_order_ids:
+            order = self.orders.get(order_id)
+            if order is not None:
+                symbols.add(order.symbol)
+        for portfolio in self.portfolios.values():
+            symbols.update(portfolio.positions)
+        return symbols
+
+    def _symbols_for_market(self, market_name: str) -> List[str]:
+        return [
+            symbol
+            for symbol, mapped_name in self._symbol_market_names.items()
+            if mapped_name == market_name
+        ]
+
+    def _default_market_symbols(self) -> List[str]:
+        mapped_symbols = set(self._symbol_market_names)
+        return sorted(symbol for symbol in self._known_symbols() if symbol not in mapped_symbols)
+
+    def _market_for(self, symbol: str) -> Market:
+        market_name = self._symbol_market_names.get(symbol)
+        if market_name is None:
+            return self._default_market
+        return self._markets[market_name]
+
+    def _on_new_dt(self, dt) -> None:
+        for market_name, market in self._markets.items():
+            market.on_new_dt(self, dt, symbols=self._symbols_for_market(market_name))
+        self._default_market.on_new_dt(self, dt, symbols=self._default_market_symbols())
 
     def _next_order_id(self) -> str:
         self._order_seq += 1
@@ -353,7 +399,7 @@ class Broker:
         dt,
         exit_params: Optional[Dict[str, Any]] = None,
     ) -> None:
-        self.market.on_order_filled(
+        self._market_for(order.symbol).on_order_filled(
             self,
             order.symbol,
             order.qty,
@@ -387,7 +433,7 @@ class Broker:
         leverage: Optional[float] = None,
         exit_params: Optional[Dict[str, Any]] = None,
     ) -> Order:
-        validation = self.market.validate_order(
+        validation = self._market_for(order.symbol).validate_order(
             self,
             order.symbol,
             order.qty,
@@ -440,10 +486,50 @@ class Broker:
         source._current_cash.change_cash(-cash)
         self.portfolios[name] = self._create_portfolio(cash)
 
+    def add_market(self, name: str, market: Market, symbols: List[str]) -> None:
+        """为一组 symbol 添加市场规则路由。"""
+        if not isinstance(name, str) or not name:
+            raise ValueError("market name must be a non-empty string")
+        if name in self._markets:
+            raise ValueError(f"market already exists: {name}")
+        if not isinstance(market, Market):
+            raise TypeError("market must be a Market instance")
+        if isinstance(symbols, (str, bytes)) or symbols is None:
+            raise TypeError("symbols must be a non-empty list of strings")
+        symbols = list(symbols)
+        if not symbols:
+            raise ValueError("symbols must be non-empty")
+        for symbol in symbols:
+            if not isinstance(symbol, str) or not symbol:
+                raise ValueError(f"symbol must be a non-empty string: {symbol!r}")
+            if symbol in self._symbol_market_names:
+                raise ValueError(f"symbol already mapped to market: {symbol}")
+        duplicate_symbols = {symbol for symbol in symbols if symbols.count(symbol) > 1}
+        if duplicate_symbols:
+            raise ValueError(f"duplicate symbols in market route: {sorted(duplicate_symbols)}")
+
+        known_symbols = self._known_symbols()
+        blocked_symbols = sorted(symbol for symbol in symbols if symbol in known_symbols)
+        if blocked_symbols:
+            raise ValueError(
+                "cannot add market for symbols that already have broker state: "
+                f"{blocked_symbols}"
+            )
+
+        copied_market = copy.copy(market)
+        copied_market.name = name
+        self._markets[name] = copied_market
+        for symbol in symbols:
+            self._symbol_market_names[symbol] = name
+
+    def get_market(self, symbol: str) -> Market:
+        """返回 symbol 当前市场规则的快照。"""
+        return copy.copy(self._market_for(symbol))
+
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
         _require(price > 0, f"price must be positive, price: {price}")
         if dt is not None and dt != self._last_market_dt:
-            self.market.on_new_dt(self, dt)
+            self._on_new_dt(dt)
             self._last_market_dt = dt
         self.last_prices[symbol] = price
         self.last_price_dates[symbol] = dt
@@ -510,7 +596,7 @@ class Broker:
         exec_price, resolved_dt = self._resolve_market_price(symbol, price, price_dt)
 
         if normalize_qty:
-            qty = self.market.normalize_order_qty(self, symbol, qty, price=exec_price, portfolio=portfolio)
+            qty = self._market_for(symbol).normalize_order_qty(self, symbol, qty, price=exec_price, portfolio=portfolio)
             if qty == 0:
                 return self._create_order(
                     symbol=symbol,
@@ -584,7 +670,7 @@ class Broker:
             trailing_stop_pct=trailing_stop_pct,
             trailing_stop_amount=trailing_stop_amount,
         )
-        validation = self.market.validate_order(
+        validation = self._market_for(symbol).validate_order(
             self,
             symbol,
             qty,
@@ -916,7 +1002,7 @@ class Broker:
                         reason=f"market price not found: {symbol}",
                     )
                 ]
-            validation = self.market.validate_order(
+            validation = self._market_for(symbol).validate_order(
                 self,
                 symbol,
                 -position.size,

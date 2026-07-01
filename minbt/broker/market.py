@@ -93,14 +93,17 @@ class Market:
             return None
         return value.date()
 
-    def on_new_dt(self, broker, dt) -> None:
+    def on_new_dt(self, broker, dt, symbols=None) -> None:
         if self.t_plus == 0:
             return
         current_day = self.trading_day(dt)
         if current_day is None:
             return
+        symbol_set = None if symbols is None else set(symbols)
         for portfolio in broker.portfolios.values():
-            for position in portfolio.positions.values():
+            for symbol, position in portfolio.positions.items():
+                if symbol_set is not None and symbol not in symbol_set:
+                    continue
                 position.unlock_before(current_day)
 
     def normalize_order_qty(

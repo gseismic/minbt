@@ -2,7 +2,9 @@
 
 日期：2026-07-01
 
-状态：设计稿
+状态：已实施
+
+实施记录：`docs/dev/PLAN-033-broker-market-routing-implementation.md`
 
 ## 背景
 
@@ -772,9 +774,9 @@ class ChinaAStockMarket(Market):
 - 增加实体。
 - 不如特征配置直接。
 
-## 后续实现顺序
+## 实施顺序
 
-推荐按以下顺序实施：
+已按以下顺序实施：
 
 1. 在 `Broker` 增加 `_default_market`、`_markets`、`_symbol_market_names`。
 2. 增加 `broker.add_market(...)` 和 `broker.get_market(symbol)`。

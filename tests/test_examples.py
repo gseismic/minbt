@@ -17,6 +17,7 @@ import pytest
         "examples/06_scenario_single_breakout.py",
         "examples/07_scenario_multi_rotation.py",
         "examples/08_scenario_pairs_mean_reversion.py",
+        "examples/10_scenario_cross_market.py",
     ],
 )
 def test_examples_run_from_repo_root(script_path):

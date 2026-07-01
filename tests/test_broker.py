@@ -313,6 +313,89 @@ def test_market_preset_is_copied_per_broker():
     assert broker_b.market.allow_short is False
 
 
+def test_broker_routes_market_rules_by_symbol():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+    broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
+
+    non_lot = broker.submit_market_order("510300.SH", qty=150, price=100, price_dt="2026-01-05")
+    assert non_lot.status == "rejected"
+    assert broker.get_position_size("510300.SH") == 0
+
+    a_buy = broker.submit_market_order("600519.SH", qty=100, price=100, price_dt="2026-01-05")
+    crypto_buy = broker.submit_market_order("BTCUSDT", qty=0.123, price=100, price_dt="2026-01-05")
+    crypto_close = broker.close_position("BTCUSDT", price=100, price_dt="2026-01-05")
+    a_same_day_close = broker.close_position("600519.SH", price=100, price_dt="2026-01-05")
+
+    assert a_buy.status == "filled"
+    assert broker.get_position("600519.SH").locked_size == 100
+    assert crypto_buy.status == "filled"
+    assert crypto_close.status == "filled"
+    assert broker.get_position_size("BTCUSDT") == 0
+    assert a_same_day_close.status == "rejected"
+    assert "insufficient available position" in a_same_day_close.reason
+    assert broker.get_position_size("600519.SH") == 100
+
+    broker.on_new_price("BTCUSDT", 101, "2026-01-06")
+    assert broker.get_position("600519.SH").available_size == 100
+    a_next_day_close = broker.close_position("600519.SH", price=101, price_dt="2026-01-06")
+    assert a_next_day_close.status == "filled"
+
+
+def test_broker_routes_target_and_limit_orders_by_symbol_market():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+    broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
+
+    a_target = broker.order_target_value("600519.SH", target_value=8050, price=13, price_dt="2026-01-05")
+    assert a_target.status == "filled"
+    assert broker.get_position_size("600519.SH") == 600
+
+    broker.on_new_price("ETHUSDT", 100, "2026-01-05")
+    crypto_limit = broker.submit_limit_order("ETHUSDT", qty=0.125, limit_price=95)
+    assert crypto_limit.status == "pending"
+
+    broker.on_new_price("ETHUSDT", 94, "2026-01-05")
+    broker.process_pending_orders(dt="2026-01-05")
+    assert crypto_limit.status == "filled"
+    assert broker.get_position_size("ETHUSDT") == pytest.approx(0.125)
+
+
+def test_get_market_returns_snapshot():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+    broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
+
+    a_market = broker.get_market("600519.SH")
+    default_market = broker.get_market("BTCUSDT")
+    a_market.allow_short = True
+    default_market.allow_short = False
+
+    assert a_market.name == "AStock"
+    assert default_market.name == "Crypto"
+    assert broker.get_market("600519.SH").allow_short is False
+    assert broker.get_market("BTCUSDT").allow_short is True
+
+
+def test_add_market_rejects_ambiguous_or_runtime_routes():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+
+    with pytest.raises(ValueError, match="symbols must be non-empty"):
+        broker.add_market("Empty", markets.A_STOCK, symbols=[])
+
+    with pytest.raises(ValueError, match="duplicate symbols"):
+        broker.add_market("Dup", markets.A_STOCK, symbols=["600519.SH", "600519.SH"])
+
+    broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
+
+    with pytest.raises(ValueError, match="market already exists"):
+        broker.add_market("AStock", markets.A_STOCK, symbols=["510300.SH"])
+
+    with pytest.raises(ValueError, match="symbol already mapped"):
+        broker.add_market("Other", markets.CRYPTO, symbols=["600519.SH"])
+
+    broker.on_new_price("BTCUSDT", 100, "2026-01-05")
+    with pytest.raises(ValueError, match="already have broker state"):
+        broker.add_market("LateCrypto", markets.CRYPTO, symbols=["BTCUSDT"])
+
+
 def test_a_stock_market_normalizes_target_value_to_lot_size():
     broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 

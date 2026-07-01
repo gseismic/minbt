@@ -48,6 +48,8 @@ exchange.run()
 - `examples/06_scenario_single_breakout.py`: 单标的真实场景。
 - `examples/07_scenario_multi_rotation.py`: 多标的轮动。
 - `examples/08_scenario_pairs_mean_reversion.py`: 配对均值回归。
+- `examples/09_benchmark_100k_empty.py`: 10 万行空策略基准。
+- `examples/10_scenario_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
 
 ## 数据契约
 
@@ -232,10 +234,21 @@ self.broker.order_target_percent("BTCUSDT", 0.8, price=price, portfolio="trend")
 from minbt import Broker, markets
 
 broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=markets.CRYPTO)
-a_stock = Broker(initial_cash=100_000, fee_rate=0.0003, market=markets.A_STOCK)
+broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 ```
 
-`markets.A_STOCK` 包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
+`market` 是默认市场规则。未通过 `add_market(...)` 显式映射的 symbol 使用默认规则。`markets.A_STOCK` 包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
+
+跨市场分仓：
+
+```python
+broker.add_portfolio("ashare", cash=60_000)
+broker.add_portfolio("crypto", cash=40_000)
+broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
+
+self.broker.order_target_percent("600519.SH", 0.8, price=a_price, portfolio="ashare")
+self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="crypto")
+```
 
 ## 不推荐使用的内部接口
 

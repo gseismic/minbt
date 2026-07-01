@@ -519,7 +519,8 @@ broker.add_portfolio("mean_reversion", cash=20_000)
 - 默认组合名是 `main`。
 - `add_portfolio(name, cash)` 从 `main` 可用现金划拨资金创建新组合。
 - 分仓只做资金和持仓隔离，不是独立 broker。
-- 所有 portfolio 共享同一个 broker 的 market、fee、杠杆配置。
+- 所有 portfolio 共享同一个 broker 的订单系统、fee、杠杆配置。
+- market 规则由 broker 按 symbol 路由；portfolio 不决定市场规则。
 
 交易时指定组合：
 
@@ -554,8 +555,29 @@ broker = Broker(initial_cash=100_000, fee_rate=0.001)
 ```python
 from minbt import Broker, markets
 
-crypto = Broker(initial_cash=100_000, fee_rate=0.0005, market=markets.CRYPTO)
-a_stock = Broker(initial_cash=100_000, fee_rate=0.0003, market=markets.A_STOCK)
+broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=markets.CRYPTO)
+broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
+```
+
+语义：
+
+- `market` 是默认市场规则。
+- 未显式映射的 symbol 使用默认市场规则。
+- `add_market(name, market, symbols)` 在配置期把一组 symbol 路由到指定市场规则。
+- `add_market(...)` 应在回测运行和任何交易发生前调用。
+- 一个 symbol 同一时间只能属于一个 market。
+- `get_market(symbol)` 返回该 symbol 当前市场规则的快照，供调试和测试使用。
+
+跨市场示例：
+
+```python
+broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=markets.CRYPTO)
+broker.add_portfolio("ashare", cash=60_000)
+broker.add_portfolio("crypto", cash=40_000)
+broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
+
+self.broker.order_target_percent("600519.SH", 0.8, price=a_price, portfolio="ashare")
+self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="crypto")
 ```
 
 自定义市场：
@@ -1588,7 +1610,7 @@ self.broker.add_exit(order.id, name="below_ma", condition=below_ma_exit, state={
 - 通用事件系统。
 - 自动缺失数据补齐。
 - 多数据源复杂同步。
-- per-symbol 市场规则。
+- per-symbol 手续费、默认杠杆和保证金模型。
 - 入场 stop order。
 - 完整交易所风控模拟。
 

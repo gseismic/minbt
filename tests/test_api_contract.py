@@ -129,6 +129,8 @@ def test_broker_exit_signatures_match_design():
 
 
 def test_broker_query_signatures_match_design():
+    _assert_parameter_contract(Broker.add_market, ["name", "market", "symbols"], [])
+    _assert_parameter_contract(Broker.get_market, ["symbol"], [])
     _assert_parameter_contract(Broker.get_order, ["order_id"], [])
     _assert_parameter_contract(Broker.get_orders, [], ["portfolio", "symbol"])
     _assert_parameter_contract(
