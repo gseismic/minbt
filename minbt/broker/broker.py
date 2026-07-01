@@ -1,6 +1,6 @@
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 import copy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .exit import ExitConfig, ExitContext, ExitRule, _ExitState
 from .market import Market
@@ -66,6 +66,7 @@ class Broker:
         self._default_market = copy.copy(market) if market is not None else Market(name="Default")
         self._markets: Dict[str, Market] = {}
         self._symbol_market_names: Dict[str, str] = {}
+        self._market_name_to_symbols: Dict[str, List[str]] = {}
         self.logger = logger or default_logger
         self.initial_cash = initial_cash
 
@@ -124,11 +125,7 @@ class Broker:
         return any(portfolio.positions for portfolio in self.portfolios.values())
 
     def _symbols_for_market(self, market_name: str) -> List[str]:
-        return [
-            symbol
-            for symbol, mapped_name in self._symbol_market_names.items()
-            if mapped_name == market_name
-        ]
+        return list(self._market_name_to_symbols.get(market_name, ()))
 
     def _default_market_symbols(self) -> List[str]:
         mapped_symbols = set(self._symbol_market_names)
@@ -481,7 +478,7 @@ class Broker:
         source._current_cash.change_cash(-cash)
         self.portfolios[name] = self._create_portfolio(cash)
 
-    def add_market(self, name: str, market: Market, symbols: List[str]) -> None:
+    def add_market(self, name: str, market: Market, symbols: Sequence[str]) -> None:
         """为一组 symbol 添加市场规则路由。"""
         if not isinstance(name, str) or not name:
             raise ValueError("market name must be a non-empty string")
@@ -503,21 +500,15 @@ class Broker:
                 raise ValueError(f"symbol must be a non-empty string: {symbol!r}")
             if symbol in self._symbol_market_names:
                 raise ValueError(f"symbol already mapped to market: {symbol}")
-        duplicate_symbols = {symbol for symbol in symbols if symbols.count(symbol) > 1}
+        duplicate_symbols = {s for s, count in Counter(symbols).items() if count > 1}
         if duplicate_symbols:
             raise ValueError(f"duplicate symbols in market route: {sorted(duplicate_symbols)}")
 
-        known_symbols = self._known_symbols()
-        blocked_symbols = sorted(symbol for symbol in symbols if symbol in known_symbols)
-        if blocked_symbols:
-            raise ValueError(
-                "cannot add market for symbols that already have broker state: "
-                f"{blocked_symbols}"
-            )
-
+        # Market 字段须保持不可变；新增 mutable 字段时改用 copy.deepcopy
         copied_market = copy.copy(market)
         copied_market.name = name
         self._markets[name] = copied_market
+        self._market_name_to_symbols[name] = list(symbols)
         for symbol in symbols:
             self._symbol_market_names[symbol] = name
 

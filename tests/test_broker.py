@@ -683,3 +683,75 @@ raise SystemExit(1)
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_add_market_rejects_when_only_price_state_exists():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+    broker.on_new_price("BTCUSDT", 100, "2026-01-05")
+
+    with pytest.raises(ValueError, match="before broker has orders"):
+        broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
+
+
+def test_add_market_rejects_after_position_history_exists():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+    broker.submit_market_order("BTCUSDT", qty=1, price=100, price_dt="2026-01-05")
+    broker.close_position("BTCUSDT", price=100, price_dt="2026-01-06")
+
+    with pytest.raises(ValueError, match="before broker has orders"):
+        broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
+
+
+def test_add_market_rejects_non_market_or_string_symbols():
+    broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+
+    with pytest.raises(TypeError, match="market must be a Market instance"):
+        broker.add_market("Bad", "not a market", symbols=["X"])
+
+    with pytest.raises(TypeError, match="symbols must be a non-empty list"):
+        broker.add_market("Bad2", markets.A_STOCK, symbols="600519.SH")
+
+    with pytest.raises(TypeError, match="symbols must be a non-empty list"):
+        broker.add_market("Bad3", markets.A_STOCK, symbols=None)
+
+
+def test_t1_unlock_is_isolated_across_markets():
+    t1_default = Market(name="T1Default", t_plus=1, allow_short=True)
+    broker = Broker(initial_cash=100000, fee_rate=0, market=t1_default)
+    broker.add_market(
+        "T1Other",
+        Market(name="T1Other", t_plus=1, allow_short=True),
+        symbols=["OTHER"],
+    )
+
+    broker.submit_market_order("DEFAULT", qty=100, price=10, price_dt="2026-01-05")
+    broker.submit_market_order("OTHER", qty=100, price=10, price_dt="2026-01-05")
+    default_pos = broker.get_position("DEFAULT")
+    other_pos = broker.get_position("OTHER")
+    assert default_pos.locked_size == 100
+    assert other_pos.locked_size == 100
+
+    broker.on_new_price("DEFAULT", 11, "2026-01-06")
+
+    assert default_pos.available_size == 100
+    assert other_pos.available_size == 100
+
+
+def test_symbols_for_market_is_not_mutated_by_custom_market_on_new_dt():
+    class MutatingMarket(Market):
+        def on_new_dt(self, broker, dt, symbols=None):
+            if symbols is not None:
+                symbols.clear()
+
+    broker = Broker(initial_cash=100000, fee_rate=0, market=Market(name="Crypto", t_plus=0))
+    broker.add_market(
+        "Mutating",
+        MutatingMarket(name="Mutating", t_plus=1, allow_short=True),
+        symbols=["LOCKED"],
+    )
+
+    assert broker._symbols_for_market("Mutating") == ["LOCKED"]
+
+    broker.on_new_price("LOCKED", 11, "2026-01-06")
+
+    assert broker._symbols_for_market("Mutating") == ["LOCKED"]
