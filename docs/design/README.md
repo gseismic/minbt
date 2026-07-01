@@ -2,7 +2,8 @@
 
 ## 当前有效设计
 
-- `minbt-20260630-system-design.md`：当前唯一有效系统设计稿，覆盖 Exchange、Strategy、Broker、Order、Portfolio、Position、Market、退出条件、限价单边界和迁移顺序。
+- `minbt-20260630-system-design.md`：当前系统设计主稿，覆盖 Exchange、Strategy、Broker、Order、Portfolio、Position、Market、退出条件、限价单边界和迁移顺序。
+- `broker-market-routing-20260701-design.md`：Strategy-Broker 关系和 broker 内多市场路由设计稿，明确保留 `Strategy(..., broker=broker)` 主路径，并通过 `broker.add_market(...)` 支持跨市场规则。
 
 ## 已合并删除的旧设计
 
@@ -45,9 +46,11 @@ class MyStrategy(Strategy):
 9. 函数型退出条件使用独立高级接口，不混进标准止盈止损参数。
 10. 限价单、撤单和最小 pending limit order 已实现；不模拟队列位置、部分成交和 intrabar 路径。
 11. 当前实现仍以 `set_bars/on_bars` 为主路径，同时已定义并实现 `set_books/set_trades/set_news` 的同一时间截面契约。
+12. 跨市场能力优先通过单 broker 内的 `symbol -> Market` 路由设计，不把一个策略多个 broker 作为主路径。
 
 ## 阅读顺序
 
 1. 先读 `minbt-20260630-system-design.md` 的“总目标”和“接口分层原则”。
-2. 再读“典型用户场景”，确认接口是否足够简洁。
-3. 实施代码前读“当前实现状态”和“推荐迁移顺序”。
+2. 再读 `broker-market-routing-20260701-design.md`，确认 Strategy-Broker 和多市场边界。
+3. 再读“典型用户场景”，确认接口是否足够简洁。
+4. 实施代码前读“当前实现状态”和“推荐迁移顺序”。
