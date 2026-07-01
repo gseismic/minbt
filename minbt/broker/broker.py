@@ -86,16 +86,6 @@ class Broker:
         self._active_exit_order_by_position: Dict[Tuple[str, str], str] = {}
         self._position_order_ids: Dict[Tuple[str, str], set] = {}
 
-    @property
-    def market(self) -> Market:
-        return self._default_market
-
-    @market.setter
-    def market(self, value: Market) -> None:
-        if not isinstance(value, Market):
-            raise TypeError("market must be a Market instance")
-        self._default_market = copy.copy(value)
-
     def _create_portfolio(self, initial_cash: float) -> Portfolio:
         return Portfolio(
             initial_cash,
@@ -127,6 +117,11 @@ class Broker:
         for portfolio in self.portfolios.values():
             symbols.update(portfolio.positions)
         return symbols
+
+    def _has_market_route_state(self) -> bool:
+        if self.orders or self._pending_order_ids or self.last_prices or self.last_price_dates:
+            return True
+        return any(portfolio.positions for portfolio in self.portfolios.values())
 
     def _symbols_for_market(self, market_name: str) -> List[str]:
         return [
@@ -490,6 +485,10 @@ class Broker:
         """为一组 symbol 添加市场规则路由。"""
         if not isinstance(name, str) or not name:
             raise ValueError("market name must be a non-empty string")
+        if self._has_market_route_state():
+            raise ValueError("add_market must be called before broker has orders, prices, or positions")
+        if name == self._default_market.name:
+            raise ValueError(f"market name conflicts with default market: {name}")
         if name in self._markets:
             raise ValueError(f"market already exists: {name}")
         if not isinstance(market, Market):

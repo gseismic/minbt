@@ -146,6 +146,12 @@ def test_broker_query_signatures_match_design():
     _assert_parameter_contract(Broker.get_positions, ["portfolio"], [])
 
 
+def test_broker_does_not_expose_mutable_market_attribute():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+
+    assert not hasattr(broker, "market")
+
+
 def test_public_defaults_match_design():
     bars = _parameters(Exchange.set_bars)
     assert bars["date_key"].default == "dt"

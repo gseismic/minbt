@@ -259,6 +259,8 @@ broker = Broker(
 - `market` 是默认市场规则。
 - 未被显式映射的 symbol 使用默认市场规则。
 - `market=None` 时默认使用 `Market(name="Default")`。
+- 默认 market 只能在 `Broker(..., market=...)` 构造时设置。
+- 不提供 `broker.market` 可变属性；查询默认或指定 symbol 的 market 使用 `get_market(symbol)`。
 
 ### 添加市场路由
 
@@ -282,6 +284,7 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 - 将 `symbols` 映射到该市场规则。
 - 后续这些 symbol 下单、调仓、平仓、限价单成交、退出条件触发时，都使用该市场规则。
 - `add_market(...)` 是配置期接口，应在回测运行和任何交易发生前调用。
+- 只要 broker 已有任意订单、价格或持仓状态，`add_market(...)` 都应抛错。
 - market 应在 broker 内部复制，避免用户修改预设对象影响已有 broker。
 - `name` 是 broker 内部路由名；broker 内部复制 market 后，将复制对象的 `name` 设为该路由名。
 - 如果任一 symbol 已出现在当前持仓、订单、pending order 或 `last_prices` 中，调用应抛错，避免历史状态按旧规则、未来状态按新规则。
@@ -455,6 +458,10 @@ broker.add_market("Other", markets.CRYPTO, symbols=["600519.SH"])
 
 以下情况应抛错：
 
+- broker 已有任意历史订单。
+- broker 有任意 pending order。
+- broker 已有任意最新价记录。
+- broker 任一 portfolio 已有 position 状态。
 - symbol 已有当前持仓。
 - symbol 已出现在历史订单中。
 - symbol 有 pending order。
@@ -479,6 +486,7 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["510300.SH"])  # 抛错
 原因：
 
 - 避免同名市场规则被静默覆盖。
+- 避免显式 market 与默认 market 同名但规则不同。
 - 保持初始化配置可读。
 
 `name` 是 broker 的路由名，不要求和传入的 `market.name` 一致。broker 内部会复制 market，并把复制对象的 `name` 设置为路由名。

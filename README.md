@@ -408,6 +408,8 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 
 `market` 是默认市场规则，未通过 `add_market(...)` 显式映射的 symbol 使用默认规则。上例中 `600519.SH` 和 `510300.SH` 使用 A 股规则，`BTCUSDT` 等未映射 symbol 使用 crypto 规则。
 
+`add_market(...)` 应在回测运行和任何交易发生前调用。查询某个 symbol 使用的市场规则时使用 `broker.get_market(symbol)`，返回的是快照，不能通过修改返回对象改变 broker 内部规则。
+
 `markets.A_STOCK` 是最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
 
 跨市场分仓：

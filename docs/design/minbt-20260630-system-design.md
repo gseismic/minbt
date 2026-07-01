@@ -565,8 +565,10 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 - 未显式映射的 symbol 使用默认市场规则。
 - `add_market(name, market, symbols)` 在配置期把一组 symbol 路由到指定市场规则。
 - `add_market(...)` 应在回测运行和任何交易发生前调用。
+- 只要 broker 已有任意订单、价格或持仓状态，`add_market(...)` 都应抛错。
 - 一个 symbol 同一时间只能属于一个 market。
 - `get_market(symbol)` 返回该 symbol 当前市场规则的快照，供调试和测试使用。
+- 不提供 `broker.market` 可变属性；默认 market 只能通过 `Broker(..., market=...)` 设置。
 
 跨市场示例：
 

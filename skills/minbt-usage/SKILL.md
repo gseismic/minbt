@@ -237,7 +237,7 @@ broker = Broker(initial_cash=100_000, fee_rate=0.0005, market=markets.CRYPTO)
 broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 ```
 
-`market` 是默认市场规则。未通过 `add_market(...)` 显式映射的 symbol 使用默认规则。`markets.A_STOCK` 包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
+`market` 是默认市场规则。未通过 `add_market(...)` 显式映射的 symbol 使用默认规则。`add_market(...)` 应在回测运行和任何交易发生前调用。查询 market 使用 `broker.get_market(symbol)`，不要使用或修改 `broker.market`。`markets.A_STOCK` 包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
 
 跨市场分仓：
 

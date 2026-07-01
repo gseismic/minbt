@@ -307,10 +307,12 @@ def test_market_preset_is_copied_per_broker():
     broker_a = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
     broker_b = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 
-    broker_a.market.allow_short = True
+    market_snapshot = broker_a.get_market("600519.SH")
+    market_snapshot.allow_short = True
 
     assert markets.A_STOCK.allow_short is False
-    assert broker_b.market.allow_short is False
+    assert broker_a.get_market("600519.SH").allow_short is False
+    assert broker_b.get_market("600519.SH").allow_short is False
 
 
 def test_broker_routes_market_rules_by_symbol():
@@ -377,6 +379,9 @@ def test_get_market_returns_snapshot():
 def test_add_market_rejects_ambiguous_or_runtime_routes():
     broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
 
+    with pytest.raises(ValueError, match="conflicts with default market"):
+        broker.add_market("Crypto", markets.A_STOCK, symbols=["600519.SH"])
+
     with pytest.raises(ValueError, match="symbols must be non-empty"):
         broker.add_market("Empty", markets.A_STOCK, symbols=[])
 
@@ -391,9 +396,10 @@ def test_add_market_rejects_ambiguous_or_runtime_routes():
     with pytest.raises(ValueError, match="symbol already mapped"):
         broker.add_market("Other", markets.CRYPTO, symbols=["600519.SH"])
 
-    broker.on_new_price("BTCUSDT", 100, "2026-01-05")
-    with pytest.raises(ValueError, match="already have broker state"):
-        broker.add_market("LateCrypto", markets.CRYPTO, symbols=["BTCUSDT"])
+    running_broker = Broker(initial_cash=100000, fee_rate=0, market=markets.CRYPTO)
+    running_broker.submit_market_order("BTCUSDT", qty=1, price=100, price_dt="2026-01-05")
+    with pytest.raises(ValueError, match="before broker has orders"):
+        running_broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
 
 
 def test_a_stock_market_normalizes_target_value_to_lot_size():
