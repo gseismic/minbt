@@ -279,7 +279,10 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 - 注册一个命名市场规则。
 - 将 `symbols` 映射到该市场规则。
 - 后续这些 symbol 下单、调仓、平仓、限价单成交、退出条件触发时，都使用该市场规则。
+- `add_market(...)` 是配置期接口，应在回测运行和任何交易发生前调用。
 - market 应在 broker 内部复制，避免用户修改预设对象影响已有 broker。
+- `name` 是 broker 内部路由名；broker 内部复制 market 后，将复制对象的 `name` 设为该路由名。
+- 如果任一 symbol 已出现在当前持仓、订单、pending order 或 `last_prices` 中，调用应抛错，避免历史状态按旧规则、未来状态按新规则。
 
 ### 查询 symbol 市场
 
@@ -291,7 +294,9 @@ broker.get_market(symbol: str) -> Market
 
 - 返回该 symbol 当前使用的 Market。
 - 如果 symbol 未显式映射，返回默认 Market。
-- 返回值用于查看和调试，不建议用户修改返回对象。
+- 返回值是当前 Market 配置快照，用于查看和调试。
+- 返回值不保证对象身份，不应用 `is` 判断是否为 broker 内部对象。
+- 用户修改返回对象不会影响 broker 内部规则。
 
 该接口主要用于调试和测试，不是策略主路径必需概念。
 
@@ -418,8 +423,10 @@ broker = Broker(initial_cash=100_000, fee_rate=0.001, market=markets.CRYPTO)
 未显式映射 symbol 时：
 
 ```python
-broker.get_market("BTCUSDT") is broker default market
+broker.get_market("BTCUSDT").name == "Crypto"
 ```
+
+如果默认 market 是 `Market(name="Default")`，则返回快照的 `name` 是 `"Default"`。
 
 ### symbol 唯一归属
 
@@ -440,6 +447,24 @@ broker.add_market("Other", markets.CRYPTO, symbols=["600519.SH"])
 
 如果未来确实需要重分配 symbol，再单独设计显式接口，不在当前阶段加入。
 
+### add_market 调用时机
+
+`add_market(...)` 只能在配置期调用。
+
+以下情况应抛错：
+
+- symbol 已有当前持仓。
+- symbol 已出现在历史订单中。
+- symbol 有 pending order。
+- symbol 已有 broker 最新价记录。
+
+原因：
+
+- 已有持仓可能存在 T+1 锁仓批次。
+- pending order 的提交校验和未来成交校验必须使用同一市场规则。
+- 历史订单、退出条件和当前持仓生命周期必须保持同一规则来源。
+- `last_prices` 表示 broker 已经进入过该 symbol 的运行状态，运行中改市场会造成不可调试的隐式行为变化。
+
 ### name 唯一
 
 market name 必须唯一。
@@ -453,6 +478,16 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["510300.SH"])  # 抛错
 
 - 避免同名市场规则被静默覆盖。
 - 保持初始化配置可读。
+
+`name` 是 broker 的路由名，不要求和传入的 `market.name` 一致。broker 内部会复制 market，并把复制对象的 `name` 设置为路由名。
+
+示例：
+
+```python
+custom = Market(name="CustomA", allow_short=False, t_plus=1)
+broker.add_market("AStock", custom, symbols=["600519.SH"])
+assert broker.get_market("600519.SH").name == "AStock"
+```
 
 ### symbols 不能为空
 
@@ -472,6 +507,25 @@ broker.add_market("AStock", markets.A_STOCK, symbols=[])  # 抛错
 `market` 是交易规则。
 
 二者不要混用。
+
+第一阶段的 `market routing` 只路由 `Market` 特征：
+
+- 是否允许做空。
+- T+0/T+1。
+- 最小交易数量。
+- 最小名义金额。
+- 最小交易手。
+- 价格 tick。
+- 交易时间。
+
+第一阶段不路由：
+
+- 不同 symbol 的手续费率。
+- 不同 market 的默认杠杆。
+- 不同 market 的保证金模式。
+- 不同 market 的强平模型。
+
+这些仍然由现有 broker 公共参数和下单参数决定：`fee_rate/margin_mode` 在当前用户接口下是 broker 级配置，`leverage` 可以在下单时覆盖。若后续需要按 market 配置手续费或保证金，应单独设计，不混入本次 `add_market(...)`。
 
 允许同一个 portfolio 交易多个 market：
 
@@ -547,6 +601,16 @@ def get_market(self, symbol: str) -> Market:
 ```
 
 公开查询返回浅拷贝，避免用户通过返回对象隐式修改 broker 内部规则。内部撮合和校验只使用 `_market_for(symbol)`。
+
+`add_market(...)` 内部应复制并重命名 market：
+
+```python
+def add_market(self, name: str, market: Market, symbols: list[str]) -> None:
+    copied = copy.copy(market)
+    copied.name = name
+    self._markets[name] = copied
+    ...
+```
 
 ### 需要改用 symbol market 的路径
 
@@ -634,7 +698,8 @@ broker 已知 symbol 可以来自：
 |下单校验|所有 symbol 走同一 market|按 symbol 找 market|
 |目标仓位数量标准化|所有 symbol 走同一 market|按 symbol 找 market|
 |T+1 解锁|单 market 处理所有 positions|每个 market 只处理自己的 symbols|
-|跨市场策略|需要牺牲其中一个市场规则|一个 broker 内同时支持|
+|跨市场策略|需要牺牲其中一个市场规则|一个 broker 内同时支持 Market 交易规则差异|
+|费率/杠杆/保证金|broker/portfolio/order 级|本设计不改变|
 
 ## 不进入当前设计
 
@@ -711,19 +776,22 @@ class ChinaAStockMarket(Market):
 
 推荐按以下顺序实施：
 
-1. 在 `Broker` 增加 `default_market`、`markets`、`_symbol_market_names`。
+1. 在 `Broker` 增加 `_default_market`、`_markets`、`_symbol_market_names`。
 2. 增加 `broker.add_market(...)` 和 `broker.get_market(symbol)`。
-3. 增加 `_market_for(symbol)` 内部方法。
-4. 把订单校验、数量标准化、成交后处理全部改成 `_market_for(symbol)`。
-5. 修改 T+1 解锁逻辑，确保每个 market 只处理自己的 symbols。
-6. 添加跨市场测试：
+3. 在 `add_market(...)` 中校验配置期边界：symbol 不能已出现在 positions、orders、pending orders 或 `last_prices`。
+4. 增加 `_market_for(symbol)` 内部方法。
+5. 把订单校验、数量标准化、成交后处理全部改成 `_market_for(symbol)`。
+6. 修改 T+1 解锁逻辑，确保每个 market 只处理自己的 symbols。
+7. 添加跨市场测试：
    - A 股 symbol 必须 100 股一手。
    - crypto symbol 可以小数下单。
    - A 股 T+1 不能当天卖。
    - crypto T+0 可以当天卖。
    - 同一个 broker 内两者同时成立。
-7. 添加跨市场示例。
-8. 更新 README 和主系统设计文档。
+   - 运行期对已知 symbol 调用 `add_market(...)` 应抛错。
+   - `get_market(symbol)` 返回快照，修改返回对象不影响 broker 内部规则。
+8. 添加跨市场示例。
+9. 更新 README 和主系统设计文档。
 
 ## 设计验收标准
 
@@ -753,6 +821,7 @@ self.broker.order_target_percent("BTCUSDT", 0.5, price=btc_price)
 - `BTCUSDT` 使用默认 crypto 规则。
 - 两者共享 broker 的订单系统。
 - 两者可以用 portfolio 做资金隔离。
+- 两者第一阶段不支持按 market 使用不同手续费率或保证金模式。
 - 退出条件仍绑定 order。
 - `get_total_equity()` 返回所有 portfolio 的总权益。
 
@@ -788,6 +857,6 @@ broker.add_market(name, market, symbols)
 
 - 策略写法不变。
 - 用户概念少。
-- 支持真实跨市场回测。
+- 支持常见跨市场交易规则差异。
 - 不引入多 broker 复杂度。
 - 不把 Exchange 做成真实交易所。
