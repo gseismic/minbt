@@ -654,6 +654,12 @@ T+1 规则：
 - 平仓时检查 `available_size`。
 - `close_position()` 表达全平意图；不能全平则失败，不静默部分平。
 
+数量归一化：
+
+- `normalize_order_qty(...)` 只对买入数量（`qty > 0`）按 `lot_size` 向下取整。
+- 卖出数量（`qty <= 0`）不做归一化，允许按持仓量精确平仓。
+- 空头仓位（`current_size < 0`）的买入也不归一化，视为平仓。
+
 ### 后续可能扩展
 
 后续按真实需求再增加：
@@ -1136,11 +1142,11 @@ broker.add_exit(
 class ExitContext:
     order_id: str
     symbol: str
+    portfolio: str
     dt: Any
     price: float
     position: Position
     broker: Broker
-    portfolio: str
     data: Any = None
     state: dict | None = None
 ```
@@ -1376,7 +1382,7 @@ Market 负责：
 ```python
 Market.validate_order(broker, symbol, qty, price, dt=None, portfolio="main") -> OrderValidation
 Market.normalize_order_qty(broker, symbol, qty, price=None, portfolio="main") -> float
-Market.on_new_dt(broker, dt) -> None
+Market.on_new_dt(broker, dt, symbols: list[str] | None = None) -> None
 Market.on_order_filled(broker, symbol, qty, price, dt=None, portfolio="main", old_size=0.0) -> None
 ```
 

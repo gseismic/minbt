@@ -698,7 +698,7 @@ broker 已知 symbol 可以来自：
 - last_prices。
 - historical orders。
 
-实现时至少应覆盖 positions 和 pending orders。
+当前代码已覆盖全部 4 个来源：`last_prices`、`last_price_dates`、`orders`（含 pending）和 `positions`。
 
 ## 与当前代码的差异
 
