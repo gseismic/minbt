@@ -23,7 +23,7 @@ def _to_datetime(value):
         if getattr(timestamp, "nanosecond", 0):
             timestamp = timestamp.floor("us")
         return timestamp.to_pydatetime()
-    except Exception:
+    except (ValueError, TypeError, OverflowError):
         return None
 
 

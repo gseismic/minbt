@@ -1299,6 +1299,7 @@ class Broker:
             for order in self.orders.values()
             if (portfolio is None or order.portfolio == portfolio)
             and (symbol is None or order.symbol == symbol)
+            and order.source != "cancel_order"
         ]
 
     def get_active_order(self, symbol: str, *, portfolio: Optional[str] = None) -> Optional[Order]:

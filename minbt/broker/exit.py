@@ -12,7 +12,7 @@ class ExitContext:
     position: Any
     broker: Any
     data: Any = None
-    state: Dict = None
+    state: Optional[Dict] = None
 
 
 @dataclass
@@ -20,7 +20,6 @@ class ExitRule:
     name: str
     condition: Callable[[ExitContext], bool]
     state: Dict = field(default_factory=dict)
-    attached: bool = False
 
     def get_state(self):
         return self.state

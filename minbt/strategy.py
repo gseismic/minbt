@@ -23,6 +23,7 @@ BROKER_PROTOCOL_METHODS = (
     "clear_exit",
     "get_exit",
     "add_exit",
+    "get_active_order",
 )
 
 
@@ -46,6 +47,7 @@ class BrokerProtocol(Protocol):
     def clear_exit(self, order_id: str, **kwargs): ...
     def get_exit(self, order_id: str): ...
     def add_exit(self, order_id: str, *, name: Optional[str] = None, condition, state=None): ...
+    def get_active_order(self, symbol: str, *, portfolio: Optional[str] = None) -> Optional[Order]: ...
 
 
 class Strategy:
