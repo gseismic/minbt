@@ -23,8 +23,9 @@ class EmptyStrategy(Strategy):
 def build_data():
     symbols = [f"S{i:03d}" for i in range(N_SYMBOLS)]
     rows = []
+    start_dt = pd.Timestamp("2026-01-01")
     for i in range(N_DT):
-        dt = f"2026-01-{i % 28 + 1:02d} {i // 28:04d}"
+        dt = (start_dt + pd.Timedelta(minutes=i)).isoformat()
         for j, symbol in enumerate(symbols):
             rows.append(
                 {

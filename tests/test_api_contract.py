@@ -42,6 +42,7 @@ def test_exchange_public_signatures_match_design():
         ["date_key", "symbol_key", "price_key"],
     )
     _assert_parameter_contract(Exchange.set_news, ["data"], ["date_key"])
+    _assert_parameter_contract(Exchange.add_feed, ["feed"], [])
     assert list(_parameters(Exchange.run)) == []
     assert not hasattr(Exchange, "set_data")
 

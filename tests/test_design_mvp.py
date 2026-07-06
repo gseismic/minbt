@@ -1,7 +1,13 @@
+from datetime import datetime, timezone
+
 import pandas as pd
 
 import minbt
 from minbt import Broker, Exchange, Order, Strategy, markets
+
+
+def _utc(year, month, day):
+    return datetime(year, month, day, tzinfo=timezone.utc)
 
 
 class BarsOnlyStrategy(Strategy):
@@ -29,8 +35,8 @@ def test_exchange_set_bars_uses_only_on_bars():
     exchange.run()
 
     assert strategy.calls == [
-        ("2026-01-01", ["A", "B"], 100.0, 200.0),
-        ("2026-01-02", ["A", "B"], 101.0, 201.0),
+        (_utc(2026, 1, 1), ["A", "B"], 100.0, 200.0),
+        (_utc(2026, 1, 2), ["A", "B"], 101.0, 201.0),
     ]
 
 
@@ -73,7 +79,7 @@ class StopLossStrategy(Strategy):
 
     def on_bars(self, dt, bars):
         price = bars["BTCUSDT"]["close"]
-        if dt == "2026-01-01":
+        if self.entry_order is None:
             self.entry_order = self.broker.submit_market_order(
                 "BTCUSDT",
                 qty=1,

@@ -19,8 +19,9 @@ def build_sample_data() -> pd.DataFrame:
         "SOLUSDT": 100.0,
         "BNBUSDT": 100.0,
     }
+    start_dt = pd.Timestamp("2026-03-01")
     for step in range(72):
-        dt = f"2026-03-{step + 1:02d}"
+        dt = (start_dt + pd.Timedelta(days=step)).date().isoformat()
         for symbol in SYMBOLS:
             if symbol == "BTCUSDT":
                 drift = 0.20 + 0.28 * math.sin(step / 11)

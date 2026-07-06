@@ -1,8 +1,15 @@
+from datetime import datetime, timezone
+
 import pandas as pd
 import polars as pl
 import pytest
 
 from minbt import Broker, Exchange, Strategy
+from minbt.data.feed import FeedEvent
+
+
+def _utc(year, month, day):
+    return datetime(year, month, day, tzinfo=timezone.utc)
 
 
 class EmptyDataStrategy(Strategy):
@@ -163,8 +170,8 @@ def test_exchange_updates_full_bar_before_strategy_callbacks():
     exchange.run()
 
     assert strategy.snapshots == [
-        ("2026-01-01", ["A", "B"], 100.0, 200.0, "2026-01-01"),
-        ("2026-01-02", ["A", "B"], 110.0, 190.0, "2026-01-02"),
+        (_utc(2026, 1, 1), ["A", "B"], 100.0, 200.0, _utc(2026, 1, 1)),
+        (_utc(2026, 1, 2), ["A", "B"], 110.0, 190.0, _utc(2026, 1, 2)),
     ]
     assert strategy.get_hist_equity() == [1000, 1000]
 
@@ -198,8 +205,8 @@ def test_exchange_set_bars_input_formats_produce_same_payload(data_kind):
     exchange.run()
 
     assert strategy.snapshots == [
-        ("2026-01-01", ["A", "B"], 100.0, 200.0, "2026-01-01"),
-        ("2026-01-02", ["A", "B"], 110.0, 190.0, "2026-01-02"),
+        (_utc(2026, 1, 1), ["A", "B"], 100.0, 200.0, _utc(2026, 1, 1)),
+        (_utc(2026, 1, 2), ["A", "B"], 110.0, 190.0, _utc(2026, 1, 2)),
     ]
 
 
@@ -245,7 +252,7 @@ def test_exchange_runs_list_dict_bars_in_dt_order():
     exchange.add_strategy(strategy)
     exchange.run()
 
-    assert strategy.dts == ["2026-01-01", "2026-01-02"]
+    assert strategy.dts == [_utc(2026, 1, 1), _utc(2026, 1, 2)]
 
 
 def test_exchange_updates_shared_broker_once_per_feed_slice():
@@ -268,10 +275,10 @@ def test_exchange_updates_shared_broker_once_per_feed_slice():
     exchange.run()
 
     assert broker.price_updates == [
-        ("A", 100.0, "2026-01-01"),
-        ("B", 200.0, "2026-01-01"),
-        ("A", 110.0, "2026-01-02"),
-        ("B", 190.0, "2026-01-02"),
+        ("A", 100.0, _utc(2026, 1, 1)),
+        ("B", 200.0, _utc(2026, 1, 1)),
+        ("A", 110.0, _utc(2026, 1, 2)),
+        ("B", 190.0, _utc(2026, 1, 2)),
     ]
 
 
@@ -294,8 +301,58 @@ def test_exchange_multi_feed_callbacks_share_same_dt_snapshot():
     exchange.run()
 
     assert strategy.calls == [
-        ("bars", "2026-01-01", ["A"], 103.0),
-        ("books", "2026-01-01", ["A"], 103.0),
-        ("trades", "2026-01-01", ["A"], 103.0),
-        ("news", "2026-01-01", 1, 103.0),
+        ("bars", _utc(2026, 1, 1), ["A"], 103.0),
+        ("books", _utc(2026, 1, 1), ["A"], 103.0),
+        ("trades", _utc(2026, 1, 1), ["A"], 103.0),
+        ("news", _utc(2026, 1, 1), 1, 103.0),
     ]
+
+
+def test_exchange_set_bars_and_add_feed_merge_same_datetime_snapshot():
+    class Feed:
+        name = "feed-bars"
+        event_type = "bars"
+
+        def events(self):
+            dt = _utc(2026, 1, 1)
+            yield FeedEvent(
+                event_type="bars",
+                dt=dt,
+                data={"B": {"dt": dt, "symbol": "B", "close": 200.0}},
+                prices={"B": 200.0},
+            )
+
+    exchange = Exchange()
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    strategy = MultiAssetStrategy(strategy_id="mixed", broker=broker)
+
+    exchange.set_bars([{"dt": "2026-01-01 00:00:00+00:00", "symbol": "A", "close": 100.0}])
+    exchange.add_feed(Feed())
+    exchange.add_strategy(strategy)
+    exchange.run()
+
+    assert strategy.snapshots == [
+        (_utc(2026, 1, 1), ["A", "B"], 100.0, 200.0, _utc(2026, 1, 1)),
+    ]
+
+
+def test_exchange_add_feed_bars_requires_close():
+    class BadFeed:
+        name = "bad-bars"
+        event_type = "bars"
+
+        def events(self):
+            dt = _utc(2026, 1, 1)
+            yield FeedEvent(
+                event_type="bars",
+                dt=dt,
+                data={"A": {"dt": dt, "symbol": "A"}},
+                prices={"A": 100.0},
+            )
+
+    exchange = Exchange()
+    exchange.add_feed(BadFeed())
+    exchange.add_strategy(Strategy(strategy_id="s", broker=Broker(initial_cash=1000, fee_rate=0)))
+
+    with pytest.raises(ValueError, match="close"):
+        exchange.run()

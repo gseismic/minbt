@@ -28,15 +28,38 @@ exchange.add_strategy(strategy)
 exchange.run()
 ```
 
+## 安装与测试
+
+minbt 使用 `pyproject.toml` 管理安装和测试配置，不使用 `setup.py`，也不需要单独维护 `pytest.ini`。
+
+源码目录开发安装：
+
+```bash
+pip install -e .
+```
+
+可选依赖：
+
+```bash
+pip install -e ".[pyta]"
+pip install -e ".[plot]"
+pip install -e ".[dev]"
+```
+
+- `pyta`: 安装 `pyta2`，用于更高效的历史向量存储。
+- `plot`: 安装绘图依赖。
+- `dev`: 安装 pytest，用于运行测试。
+
 ## 策略开发工作流
 
 1. 先确认用户数据结构：时间列、标的列、价格列。
-2. 优先使用 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol", price_key="close")`。
-3. 继承 `Strategy`，在 `on_init()` 初始化状态。
-4. 在 `on_bars(dt, bars)` 读取当前时间截面。
-5. 只通过 `self.broker` 下单和查询状态。
-6. 用 `Order.status` 判断下单结果，不依赖 `reason` 精确文本。
-7. 给用户提供最小运行命令和验证命令。
+2. 本地已有数据时优先使用 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol", price_key="close")`。
+3. 需要自动下载和复用行情时，使用 `Exchange.add_feed(feed)`，例如 `minbt.data.binance.BarsReplayFeed`。
+4. 继承 `Strategy`，在 `on_init()` 初始化状态。
+5. 在 `on_bars(dt, bars)` 读取当前时间截面。
+6. 只通过 `self.broker` 下单和查询状态。
+7. 用 `Order.status` 判断下单结果，不依赖 `reason` 精确文本。
+8. 给用户提供最小运行命令和验证命令。
 
 如果用户要求写示例，优先参考：
 
@@ -50,6 +73,7 @@ exchange.run()
 - `examples/08_scenario_pairs_mean_reversion.py`: 配对均值回归。
 - `examples/09_benchmark_100k_empty.py`: 10 万行空策略基准。
 - `examples/10_scenario_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
+- `examples/11_crypto_binance_feed.py`: 自动下载、缓存并回放 Binance futures K 线。
 
 ## 数据契约
 
@@ -64,6 +88,7 @@ dt, symbol, close
 - `data` 可以是 pandas DataFrame、polars DataFrame 或 `list[dict]`。
 - 单标的也是多标的的特例，仍建议保留 `symbol` 列。
 - 同一 `(dt, symbol)` 只能有一条 bar。
+- 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
 - Exchange 会先更新同一 `dt` 下全部 symbol 的最新价，再触发策略回调。
 - 不要使用行号代替时间；`date_key` 必须存在。
 
@@ -79,6 +104,36 @@ exchange.set_bars(data, date_key="date", symbol_key="ticker", price_key="close_p
 data["symbol"] = "BTCUSDT"
 exchange.set_bars(data, date_key="date", symbol_key="symbol", price_key="close")
 ```
+
+## 自动下载行情
+
+用户不想手工准备 CSV 时，可以使用 Binance futures 历史 K 线 feed：
+
+```python
+from minbt import Exchange
+from minbt.data import binance
+
+exchange = Exchange()
+exchange.add_feed(
+    binance.BarsReplayFeed(
+        symbols=["BTCUSDT", "ETHUSDT"],
+        interval="1h",
+        start="2024-01-01",
+        end="2024-01-03",
+        cache_dir="./data",
+    )
+)
+```
+
+第一次运行会自动下载并写入 `{cache_dir}/minbt-data.sqlite3`，后续相同区间复用本地缓存。策略仍然只写：
+
+```python
+def on_bars(self, dt, bars):
+    price = bars["BTCUSDT"]["close"]
+    self.broker.order_target_percent("BTCUSDT", 0.8, price=price)
+```
+
+如果用户要求完全离线运行，可以传 `cache_only=True`。缓存不存在或覆盖不完整时会报错，不会创建空缓存。
 
 ## Strategy 模板
 
@@ -280,8 +335,8 @@ self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="cry
 
 ```bash
 python examples/01_demo_mini.py
-pytest -q tests/test_examples.py
-pytest -q
+python -m pytest -q tests/test_examples.py
+python -m pytest -q
 python -m compileall -q minbt tests examples
 git diff --check
 ```

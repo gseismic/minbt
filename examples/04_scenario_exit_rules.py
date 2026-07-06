@@ -37,6 +37,7 @@ class AttachedExitStrategy(Strategy):
         self.trail_order = None
         self.take_order = None
         self.position_log = []
+        self.step = 0
 
     def on_bars(self, dt, bars):
         if not self.entered:
@@ -59,7 +60,7 @@ class AttachedExitStrategy(Strategy):
             )
             self.entered = True
 
-        if dt == "2026-03-02" and not self.exit_updated:
+        if self.step == 1 and not self.exit_updated:
             if self.trail_order is not None and self.broker.get_position_size(TRAIL_SYMBOL) > 0:
                 self.broker.set_exit(
                     self.trail_order.id,
@@ -74,6 +75,7 @@ class AttachedExitStrategy(Strategy):
                 TAKE_SYMBOL: self.broker.get_position_size(TAKE_SYMBOL),
             }
         )
+        self.step += 1
 
     def on_finish(self):
         print(f"final_equity={self.broker.get_total_equity():.2f}")

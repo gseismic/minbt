@@ -14,6 +14,7 @@ def build_sample_data() -> pd.DataFrame:
     """构造带有盘整、突破、回撤和二次趋势的单标的行情。"""
     rows = []
     close = 100.0
+    start_dt = pd.Timestamp("2026-02-01")
     for step in range(96):
         if step < 24:
             drift = 0.04 * math.sin(step / 2)
@@ -27,7 +28,7 @@ def build_sample_data() -> pd.DataFrame:
         daily_range = 0.7 + 0.25 * abs(math.sin(step / 5))
         rows.append(
             {
-                "dt": f"2026-02-{step + 1:02d}",
+                "dt": (start_dt + pd.Timedelta(days=step)).date().isoformat(),
                 "symbol": SYMBOL,
                 "open": round(close - drift, 4),
                 "high": round(close + daily_range, 4),

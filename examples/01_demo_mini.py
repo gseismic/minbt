@@ -36,7 +36,7 @@ class MiniStrategy(Strategy):
 def run_strategy():
     data = pd.read_csv(DATA_PATH)
     exchange = Exchange()
-    exchange.set_bars(data[["date", "symbol", "close"]], date_key="date")
+    exchange.set_bars(data[["open_time", "symbol", "close"]], date_key="open_time")
 
     broker = Broker(initial_cash=10_000, fee_rate=0.001)
     strategy = MiniStrategy(strategy_id="mini", broker=broker)

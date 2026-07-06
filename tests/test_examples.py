@@ -1,9 +1,13 @@
 import os
+import importlib.util
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+
+from minbt.data.feed import FeedEvent
 
 
 @pytest.mark.parametrize(
@@ -56,3 +60,46 @@ def test_100k_benchmark_example_runs_without_logs():
     assert "run_seconds=" in result.stdout
     assert "total_seconds=" in result.stdout
     assert result.stderr == ""
+
+
+def test_crypto_binance_feed_example_runs_with_fake_feed(monkeypatch, capsys):
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "examples" / "11_crypto_binance_feed.py"
+    spec = importlib.util.spec_from_file_location("example_11_crypto_binance_feed", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class FakeBarsReplayFeed:
+        name = "fake-binance-bars"
+        event_type = "bars"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def events(self):
+            for index, close in enumerate((100.0, 105.0, 110.0)):
+                dt = datetime(2024, 1, 1, index, tzinfo=timezone.utc)
+                yield FeedEvent(
+                    event_type="bars",
+                    dt=dt,
+                    data={
+                        module.SYMBOL: {
+                            "dt": dt,
+                            "symbol": module.SYMBOL,
+                            "open": close,
+                            "high": close,
+                            "low": close,
+                            "close": close,
+                            "volume": 1.0,
+                        }
+                    },
+                    prices={module.SYMBOL: close},
+                )
+
+    monkeypatch.setattr(module.binance, "BarsReplayFeed", FakeBarsReplayFeed)
+
+    module.run_strategy()
+    output = capsys.readouterr().out
+
+    assert "final_equity=" in output
+    assert "bar_count=3" in output

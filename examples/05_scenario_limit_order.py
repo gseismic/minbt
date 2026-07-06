@@ -35,7 +35,7 @@ class LimitOrderStrategy(Strategy):
 
     def on_bars(self, dt, bars):
         price = bars[SYMBOL]["close"]
-        if dt == "2026-05-01":
+        if self.limit_order is None:
             self.limit_order = self.broker.submit_limit_order(
                 SYMBOL,
                 qty=1,

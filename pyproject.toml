@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "minbt"
+version = "0.0.4"
+description = "Minimalistic Backtesting Library"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Liu Shengli", email = "liushengli203@163.com" },
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "polars",
+    "loguru",
+]
+
+[project.urls]
+Homepage = "http://github.com/gseismic/minbt"
+Repository = "http://github.com/gseismic/minbt"
+
+[project.optional-dependencies]
+pyta = [
+    "pyta2",
+]
+plot = [
+    "matplotlib",
+]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["minbt*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

@@ -16,11 +16,12 @@ def build_sample_data() -> pd.DataFrame:
     """构造两个长期相关、短期价差周期偏离的标的。"""
     rows = []
     base_price = 100.0
+    start_dt = pd.Timestamp("2026-04-01")
     for step in range(90):
         base_price += 0.18 + 0.10 * math.sin(step / 12)
         spread = 0.055 * math.sin(step / 5) + 0.018 * math.sin(step / 2)
         pair_price = base_price * (1.0 + spread)
-        dt = f"2026-04-{step + 1:02d}"
+        dt = (start_dt + pd.Timedelta(days=step)).date().isoformat()
         rows.append({"dt": dt, "symbol": BASE_SYMBOL, "close": round(base_price, 4)})
         rows.append({"dt": dt, "symbol": PAIR_SYMBOL, "close": round(pair_price, 4)})
     return pd.DataFrame(rows)
