@@ -1,6 +1,13 @@
 from pathlib import Path
 import sys
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import numpy as np
 import pandas as pd
 
 
@@ -9,6 +16,17 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from minbt import Broker, Exchange, Strategy, markets
+
+_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
+
+
+def _save_fig(name):
+    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    p = _SCREENSHOT_DIR / f"{name}.png"
+    plt.tight_layout(pad=1.5)
+    plt.savefig(str(p), dpi=150, bbox_inches="tight")
+    print(f"[plot] saved: {p}")
+    plt.close()
 
 
 SYMBOL_A = "600519.SH"
@@ -65,6 +83,36 @@ def run_strategy():
     strategy = CrossMarketAllocationStrategy(strategy_id="scenario_cross_market", broker=broker)
     exchange.add_strategy(strategy)
     exchange.run()
+
+    # ── 绘图：跨市场价格 + 权益 ──
+    data = build_sample_data()
+    equity = list(strategy.get_hist_equity())
+    dates = pd.DatetimeIndex(pd.to_datetime(data["dt"]).unique()).sort_values()
+    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    for symbol, color, ls in [(SYMBOL_A, "steelblue", "-"), (SYMBOL_C, "darkorange", "--")]:
+        sym_bars = data[data["symbol"] == symbol].copy()
+        sym_bars["dt"] = pd.to_datetime(sym_bars["dt"])
+        sym_bars = sym_bars.sort_values("dt")
+        ax1.plot(sym_bars["dt"], sym_bars["close"], color=color, linestyle=ls, linewidth=1.5, marker="o", markersize=4, label=symbol)
+    ax1.set_title("10 Cross-Market — A-Share & Crypto Prices + Equity", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("Price")
+    ax1.legend(loc="upper left", fontsize="small")
+    ax1.grid(True, alpha=0.3)
+    ax1.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+
+    ax2.plot(eq.index, eq.values, color="steelblue", linewidth=1.5, label="Total Equity")
+    ax2.axhline(y=eq.iloc[0], color="gray", linestyle="--", alpha=0.5)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values >= eq.iloc[0]), color="green", alpha=0.08)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values < eq.iloc[0]), color="red", alpha=0.08)
+    ax2.set_ylabel("Equity")
+    ax2.set_xlabel("Date")
+    ax2.legend(loc="upper left", fontsize="small")
+    ax2.grid(True, alpha=0.3)
+    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    _save_fig("10_scenario_cross_market")
+
     return strategy, broker
 
 

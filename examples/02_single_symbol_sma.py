@@ -7,9 +7,27 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from collections import deque
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import numpy as np
 import pandas as pd
 
 from minbt import Broker, Exchange, Strategy
+
+_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
+
+
+def _save_fig(name):
+    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    p = _SCREENSHOT_DIR / f"{name}.png"
+    plt.tight_layout(pad=1.5)
+    plt.savefig(str(p), dpi=150, bbox_inches="tight")
+    print(f"[plot] saved: {p}")
+    plt.close()
 
 
 DATA_PATH = Path(__file__).with_name("data.csv")
@@ -70,6 +88,49 @@ def run_strategy():
 
     exchange.add_strategy(strategy)
     exchange.run()
+
+    # ── 绘图：价格+双均线 + 权益 ──
+    sym_bars = data[data["symbol"] == SYMBOL].copy()
+    sym_bars["dt"] = pd.to_datetime(sym_bars["open_time"])
+    sym_bars = sym_bars.sort_values("dt")
+
+    ma_short = sym_bars["close"].rolling(12).mean()
+    ma_long = sym_bars["close"].rolling(36).mean()
+
+    equity = list(strategy.get_hist_equity())
+    pos_sizes = list(strategy.get_hist_position_sizes(SYMBOL))
+    dates = pd.DatetimeIndex(pd.to_datetime(data["open_time"]).unique()).sort_values()
+    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
+    pos = pd.Series(pos_sizes[: len(dates)], index=dates[: len(pos_sizes)])
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    ax1.plot(sym_bars["dt"], sym_bars["close"], color="steelblue", linewidth=1.2, label=f"{SYMBOL} close")
+    ax1.plot(sym_bars["dt"], ma_short, color="orange", linewidth=1, label="MA12")
+    ax1.plot(sym_bars["dt"], ma_long, color="red", linewidth=1, label="MA36")
+    y_min = sym_bars["close"].min()
+    y_marker = y_min - (sym_bars["close"].max() - y_min) * 0.05
+    long_mask = pos > 0
+    short_mask = pos < 0
+    if long_mask.any():
+        ax1.scatter(pos.index[long_mask], [y_marker] * long_mask.sum(), color="green", marker="^", s=25, alpha=0.6, label="Long")
+    if short_mask.any():
+        ax1.scatter(pos.index[short_mask], [y_marker] * short_mask.sum(), color="red", marker="v", s=25, alpha=0.6, label="Short")
+    ax1.set_title("02 Single Symbol SMA — Price & Equity", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("Price")
+    ax1.legend(loc="upper left", fontsize="small")
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(eq.index, eq.values, color="steelblue", linewidth=1.5, label="Equity")
+    ax2.axhline(y=eq.iloc[0], color="gray", linestyle="--", alpha=0.5, label="Initial")
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values >= eq.iloc[0]), color="green", alpha=0.08)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values < eq.iloc[0]), color="red", alpha=0.08)
+    ax2.set_ylabel("Equity")
+    ax2.set_xlabel("Date")
+    ax2.legend(loc="upper left", fontsize="small")
+    ax2.grid(True, alpha=0.3)
+    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    _save_fig("02_single_symbol_sma")
+
     return strategy, broker
 
 

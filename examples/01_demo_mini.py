@@ -5,9 +5,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import numpy as np
 import pandas as pd
 
 from minbt import Broker, Exchange, Strategy
+
+_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
+
+
+def _save_fig(name):
+    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    p = _SCREENSHOT_DIR / f"{name}.png"
+    plt.tight_layout(pad=1.5)
+    plt.savefig(str(p), dpi=150, bbox_inches="tight")
+    print(f"[plot] saved: {p}")
+    plt.close()
 
 
 DATA_PATH = Path(__file__).with_name("data.csv")
@@ -43,6 +61,35 @@ def run_strategy():
 
     exchange.add_strategy(strategy)
     exchange.run()
+
+    # ── 绘图：价格 + 权益 ──
+    sym_bars = data[data["symbol"] == SYMBOL].copy()
+    sym_bars["dt"] = pd.to_datetime(sym_bars["open_time"])
+    sym_bars = sym_bars.sort_values("dt")
+
+    equity = strategy.get_hist_equity()
+    equity = list(equity) if hasattr(equity, "__iter__") else [equity]
+    dates = pd.DatetimeIndex(pd.to_datetime(data["open_time"]).unique()).sort_values()
+    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    ax1.plot(sym_bars["dt"], sym_bars["close"], color="steelblue", linewidth=1.2, label=f"{SYMBOL} close")
+    ax1.set_title("01 Demo Mini — Price & Equity", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("Price")
+    ax1.legend(loc="upper left")
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(eq.index, eq.values, color="steelblue", linewidth=1.5, label="Equity")
+    ax2.axhline(y=eq.iloc[0], color="gray", linestyle="--", alpha=0.5, label="Initial")
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values >= eq.iloc[0]), color="green", alpha=0.08)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values < eq.iloc[0]), color="red", alpha=0.08)
+    ax2.set_ylabel("Equity")
+    ax2.set_xlabel("Date")
+    ax2.legend(loc="upper left")
+    ax2.grid(True, alpha=0.3)
+    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    _save_fig("01_demo_mini")
+
     return strategy, broker
 
 

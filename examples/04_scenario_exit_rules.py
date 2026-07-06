@@ -5,9 +5,26 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from minbt import Broker, Exchange, Strategy
+
+_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
+
+
+def _save_fig(name):
+    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    p = _SCREENSHOT_DIR / f"{name}.png"
+    plt.tight_layout(pad=1.5)
+    plt.savefig(str(p), dpi=150, bbox_inches="tight")
+    print(f"[plot] saved: {p}")
+    plt.close()
 
 
 TRAIL_SYMBOL = "TRAILCOIN"
@@ -94,6 +111,36 @@ def run_strategy():
 
     exchange.add_strategy(strategy)
     exchange.run()
+
+    # ── 绘图：双标的价格 + 持仓 ──
+    data = build_sample_data()
+    symbols = (TRAIL_SYMBOL, TAKE_SYMBOL)
+    equity = list(strategy.get_hist_equity())
+    dates = pd.DatetimeIndex(pd.to_datetime(data["dt"]).unique()).sort_values()
+    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    colors = ["steelblue", "darkorange"]
+    for symbol, color in zip(symbols, colors):
+        sym_bars = data[data["symbol"] == symbol].copy()
+        sym_bars["dt"] = pd.to_datetime(sym_bars["dt"])
+        sym_bars = sym_bars.sort_values("dt")
+        ax1.plot(sym_bars["dt"], sym_bars["close"], color=color, linewidth=1.2, marker="o", markersize=4, label=symbol)
+        pos = list(strategy.get_hist_position_sizes(symbol))
+        ps = pd.Series(pos[: len(dates)], index=dates[: len(pos)])
+        ax2.plot(ps.index, ps.values, color=color, linewidth=1.2, marker=".", markersize=4, label=symbol)
+        ax2.fill_between(ps.index, 0, ps.values, color=color, alpha=0.1)
+    ax1.set_title("04 Exit Rules — Price & Positions", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("Price")
+    ax1.legend(loc="upper left", fontsize="small")
+    ax1.grid(True, alpha=0.3)
+    ax2.set_ylabel("Position Size")
+    ax2.set_xlabel("Date")
+    ax2.legend(loc="upper left", fontsize="small")
+    ax2.grid(True, alpha=0.3)
+    ax2.axhline(y=0, color="black", linewidth=0.5)
+    _save_fig("04_scenario_exit_rules")
+
     return strategy, broker
 
 

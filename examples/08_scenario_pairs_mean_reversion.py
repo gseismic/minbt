@@ -1,10 +1,29 @@
 import math
 from collections import deque
+from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import numpy as np
 import pandas as pd
 
 from example_utils import target_position_value
 from minbt import Broker, Exchange, Strategy
+
+_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
+
+
+def _save_fig(name):
+    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    p = _SCREENSHOT_DIR / f"{name}.png"
+    plt.tight_layout(pad=1.5)
+    plt.savefig(str(p), dpi=150, bbox_inches="tight")
+    print(f"[plot] saved: {p}")
+    plt.close()
 
 
 BASE_SYMBOL = "BTCUSDT"
@@ -124,6 +143,53 @@ def run_strategy():
 
     exchange.add_strategy(strategy)
     exchange.run()
+
+    # ── 绘图：价差+z-score + 权益 ──
+    data = build_sample_data()
+    base_bars = data[data["symbol"] == BASE_SYMBOL].copy()
+    pair_bars = data[data["symbol"] == PAIR_SYMBOL].copy()
+    base_bars["dt"] = pd.to_datetime(base_bars["dt"])
+    pair_bars["dt"] = pd.to_datetime(pair_bars["dt"])
+    base_bars = base_bars.sort_values("dt").set_index("dt")
+    pair_bars = pair_bars.sort_values("dt").set_index("dt")
+
+    common_idx = base_bars.index.intersection(pair_bars.index)
+    spread = np.log(pair_bars.loc[common_idx, "close"] / base_bars.loc[common_idx, "close"])
+    spread_mean = spread.rolling(20).mean()
+    spread_std = spread.rolling(20).std()
+    z_score = (spread - spread_mean) / spread_std.replace(0, np.nan)
+
+    equity = list(strategy.get_hist_equity())
+    dates = pd.DatetimeIndex(pd.to_datetime(data["dt"]).unique()).sort_values()
+    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    ax1.plot(common_idx, spread, color="steelblue", linewidth=1, label="Log Spread")
+    ax1_twin = ax1.twinx()
+    ax1_twin.plot(common_idx, z_score, color="red", linewidth=0.8, alpha=0.7, label="Z-Score")
+    ax1_twin.axhline(y=1.25, color="green", linestyle="--", alpha=0.5, label="Entry ±1.25")
+    ax1_twin.axhline(y=-1.25, color="green", linestyle="--", alpha=0.5)
+    ax1_twin.axhline(y=0, color="gray", linestyle=":", alpha=0.5)
+    ax1_twin.axhline(y=0.25, color="orange", linestyle="--", alpha=0.4, label="Exit ±0.25")
+    ax1_twin.axhline(y=-0.25, color="orange", linestyle="--", alpha=0.4)
+    ax1.set_title("08 Pairs Mean Reversion — Spread, Z-Score & Equity", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("Log Spread")
+    ax1_twin.set_ylabel("Z-Score")
+    ax1.legend(loc="upper left", fontsize="small")
+    ax1_twin.legend(loc="upper right", fontsize="small")
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(eq.index, eq.values, color="steelblue", linewidth=1.5, label="Equity")
+    ax2.axhline(y=eq.iloc[0], color="gray", linestyle="--", alpha=0.5)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values >= eq.iloc[0]), color="green", alpha=0.08)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values < eq.iloc[0]), color="red", alpha=0.08)
+    ax2.set_ylabel("Equity")
+    ax2.set_xlabel("Date")
+    ax2.legend(loc="upper left", fontsize="small")
+    ax2.grid(True, alpha=0.3)
+    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    _save_fig("08_scenario_pairs_mean_reversion")
+
     return strategy, broker
 
 

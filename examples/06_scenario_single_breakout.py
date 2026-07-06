@@ -1,10 +1,29 @@
 import math
 from collections import deque
+from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import numpy as np
 import pandas as pd
 
 from example_utils import target_position_value
 from minbt import Broker, Exchange, Strategy
+
+_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
+
+
+def _save_fig(name):
+    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    p = _SCREENSHOT_DIR / f"{name}.png"
+    plt.tight_layout(pad=1.5)
+    plt.savefig(str(p), dpi=150, bbox_inches="tight")
+    print(f"[plot] saved: {p}")
+    plt.close()
 
 
 SYMBOL = "BTCUSDT"
@@ -119,6 +138,38 @@ def run_strategy():
 
     exchange.add_strategy(strategy)
     exchange.run()
+
+    # ── 绘图：价格+突破高亮 + 权益 ──
+    data = build_sample_data()
+    sym_bars = data[data["symbol"] == SYMBOL].copy()
+    sym_bars["dt"] = pd.to_datetime(sym_bars["dt"])
+    sym_bars = sym_bars.sort_values("dt")
+
+    equity = list(strategy.get_hist_equity())
+    dates = pd.DatetimeIndex(pd.to_datetime(data["dt"]).unique()).sort_values()
+    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
+
+    rolling_max = sym_bars["close"].rolling(18).max()
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+    ax1.plot(sym_bars["dt"], sym_bars["close"], color="steelblue", linewidth=1.2, label=f"{SYMBOL} close")
+    ax1.plot(sym_bars["dt"], rolling_max, color="orange", linestyle="--", linewidth=0.8, alpha=0.7, label="Rolling High (18)")
+    ax1.set_title("06 Single Breakout — Price & Equity", fontsize=13, fontweight="bold")
+    ax1.set_ylabel("Price")
+    ax1.legend(loc="upper left", fontsize="small")
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(eq.index, eq.values, color="steelblue", linewidth=1.5, label="Equity")
+    ax2.axhline(y=eq.iloc[0], color="gray", linestyle="--", alpha=0.5)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values >= eq.iloc[0]), color="green", alpha=0.08)
+    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values < eq.iloc[0]), color="red", alpha=0.08)
+    ax2.set_ylabel("Equity")
+    ax2.set_xlabel("Date")
+    ax2.legend(loc="upper left", fontsize="small")
+    ax2.grid(True, alpha=0.3)
+    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
+    _save_fig("06_scenario_single_breakout")
+
     return strategy, broker
 
 
