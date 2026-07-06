@@ -164,5 +164,8 @@ cython_debug/
 # Example screenshots
 examples/screenshots/
 
+# Sisyphus agent working directory
+.sisyphus/
+
 # macOS
 .DS_Store
