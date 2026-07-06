@@ -1,8 +1,17 @@
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import math
 from collections import defaultdict, deque
-from pathlib import Path
 
-import matplotlib
+try:
+    import matplotlib
+except ImportError:
+    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
 matplotlib.use("Agg")
 
@@ -13,18 +22,7 @@ import pandas as pd
 
 from example_utils import flatten_position, target_position_value
 from minbt import Broker, Exchange, Strategy
-
-_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
-
-
-def _save_fig(name):
-    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    p = _SCREENSHOT_DIR / f"{name}.png"
-    plt.tight_layout(pad=1.5)
-    plt.savefig(str(p), dpi=150, bbox_inches="tight")
-    print(f"[plot] saved: {p}")
-    plt.close()
-
+from plot_utils import save_figure
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
 
@@ -168,7 +166,7 @@ def run_strategy():
     ax2.legend(loc="upper left", fontsize="small")
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    _save_fig("07_scenario_multi_rotation")
+    save_figure("07_scenario_multi_rotation")
 
     return strategy, broker
 

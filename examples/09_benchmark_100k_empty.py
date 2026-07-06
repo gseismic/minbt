@@ -6,7 +6,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import matplotlib
+try:
+    import matplotlib
+except ImportError:
+    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
 matplotlib.use("Agg")
 
@@ -14,18 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from minbt import Exchange, Strategy
-
-_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
-
-
-def _save_fig(name):
-    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    p = _SCREENSHOT_DIR / f"{name}.png"
-    plt.tight_layout(pad=1.5)
-    plt.savefig(str(p), dpi=150, bbox_inches="tight")
-    print(f"[plot] saved: {p}")
-    plt.close()
-
+from plot_utils import save_figure
 
 N_DT = 10_000
 N_SYMBOLS = 10
@@ -91,7 +83,7 @@ def run_benchmark():
     ax.grid(True, alpha=0.3, axis="y")
     for bar, val in zip(bars, values):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(values) * 0.02, f"{val:.3f}s", ha="center", va="bottom", fontsize=10)
-    _save_fig("09_benchmark_100k_empty")
+    save_figure("09_benchmark_100k_empty")
 
 
 if __name__ == "__main__":

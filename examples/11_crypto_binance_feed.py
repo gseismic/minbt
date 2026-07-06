@@ -5,7 +5,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import matplotlib
+_EXAMPLES_DIR = Path(__file__).resolve().parent
+if str(_EXAMPLES_DIR) not in sys.path:
+    sys.path.insert(0, str(_EXAMPLES_DIR))
+
+try:
+    import matplotlib
+except ImportError:
+    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
 matplotlib.use("Agg")
 
@@ -16,18 +23,7 @@ import pandas as pd
 
 from minbt import Broker, Exchange, Strategy
 from minbt.data import binance
-
-_SCREENSHOT_DIR = Path(__file__).resolve().parent / "screenshots"
-
-
-def _save_fig(name):
-    _SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    p = _SCREENSHOT_DIR / f"{name}.png"
-    plt.tight_layout(pad=1.5)
-    plt.savefig(str(p), dpi=150, bbox_inches="tight")
-    print(f"[plot] saved: {p}")
-    plt.close()
-
+from plot_utils import save_figure
 
 SYMBOL = "BTCUSDT"
 
@@ -99,7 +95,7 @@ def run_strategy():
     ax2.legend(loc="upper left")
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    _save_fig("11_crypto_binance_feed")
+    save_figure("11_crypto_binance_feed")
 
     return strategy, broker
 
