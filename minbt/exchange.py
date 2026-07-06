@@ -477,7 +477,7 @@ class Exchange:
                 timestamp = pd.to_datetime(value, unit=self._infer_epoch_unit(value), utc=True)
             else:
                 timestamp = pd.Timestamp(value)
-        except Exception as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
             raise ValueError(f"dt cannot be converted to datetime: {value!r}") from exc
         if timestamp.tzinfo is None:
             timestamp = timestamp.tz_localize("UTC")
@@ -506,7 +506,7 @@ class Exchange:
         try:
             timestamp = pd.Timestamp(self._normalize_dt(dt))
             return (0, timestamp.value)
-        except Exception:
+        except (ValueError, TypeError, OverflowError):
             return (1, str(dt))
 
     def _update_market_prices(self, feed: _Feed, dt, payload) -> None:

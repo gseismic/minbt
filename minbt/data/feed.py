@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterable, Mapping, Protocol, runtime_checkable
+from typing import Iterable, Mapping, Optional, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -8,7 +8,7 @@ class FeedEvent:
     event_type: str
     dt: datetime
     data: object
-    prices: Mapping[str, float] = None
+    prices: Optional[Mapping[str, float]] = None
 
 
 @runtime_checkable

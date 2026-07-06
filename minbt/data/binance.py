@@ -296,20 +296,14 @@ class BarsReplayFeed:
     def _download_range(self, symbol: str, start_ms: int, end_ms: int) -> None:
         start_dt = _ms_to_datetime(start_ms)
         end_dt = _ms_to_datetime(end_ms)
-        try:
-            raw_rows = self._client.fetch_klines(
-                symbol,
-                self.interval,
-                start_dt,
-                end_dt,
-                chunk_size=DEFAULT_CHUNK_SIZE,
-                delay=DEFAULT_DELAY,
-            )
-        except ImportError as exc:
-            raise RuntimeError(
-                "crypto_api is required to download Binance futures klines. "
-                "Install crypto_api or run with an existing cache."
-            ) from exc
+        raw_rows = self._client.fetch_klines(
+            symbol,
+            self.interval,
+            start_dt,
+            end_dt,
+            chunk_size=DEFAULT_CHUNK_SIZE,
+            delay=DEFAULT_DELAY,
+        )
         rows = [
             self._normalize_kline(symbol, row)
             for row in raw_rows
