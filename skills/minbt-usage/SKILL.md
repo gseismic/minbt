@@ -74,6 +74,8 @@ pip install -e ".[dev]"
 - `examples/09_benchmark_100k_empty.py`: 10 万行空策略基准。
 - `examples/10_scenario_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
 - `examples/11_crypto_binance_feed.py`: 自动下载、缓存并回放 Binance futures K 线。
+- `examples/12_csv_feed.py`: 渐进读取月度 CSV K 线。
+- `examples/13_iosql_feed.py`: 渐进读取 iosql K 线。
 
 ## 数据契约
 
@@ -134,6 +136,29 @@ def on_bars(self, dt, bars):
 ```
 
 如果用户要求完全离线运行，可以传 `cache_only=True`。缓存不存在或覆盖不完整时会报错，不会创建空缓存。
+
+## 渐进读取 CSV / iosql
+
+数据来自 `crypto.bn_data_sync` 月度 CSV 或 iosql 库时，使用流式 Feed：
+
+```python
+from minbt.data import CsvBarsFeed, IosqlBarsFeed
+
+exchange.add_feed(CsvBarsFeed(
+    root="/path/to/kline.csv/1m",
+    symbols=["BTCUSDT"],
+    interval="1m",
+    start="2023-01-01",
+    end="2023-01-03",
+))
+
+# 或：IosqlBarsFeed("sqlite:///path/to/data.iosql", "1m", ...)
+exchange.run()
+```
+
+这些 Feed 在策略启动前检查数据完整性：请求 symbol、CSV 月份、iosql table/interval
+或时间范围没有数据时直接报错，不会静默运行空回测。流式路径节省内存，但会增加一些
+归并与迭代耗时。
 
 ## Strategy 模板
 
@@ -209,7 +234,10 @@ self.broker.submit_market_order(symbol, qty=1, price=price)
 
 ```python
 self.broker.close_position(symbol, price=price)
+self.broker.close_portfolio("trend")
 ```
+
+`close_portfolio()` 成功时会同时取消该组合的 pending 限价单；关闭预检失败时不会撤单。
 
 限价单：
 
@@ -229,6 +257,15 @@ elif order.status == "rejected":
 ```
 
 不要依赖 `reason` 的精确字符串。
+
+历史查询始终返回 Python `list`：
+
+```python
+equity = strategy.get_hist_equity()
+sizes = strategy.get_hist_position_sizes(symbol)
+```
+
+从未交易的 symbol 返回与权益历史等长的全零列表；安装 pyta2 只改变内部存储。
 
 ## 退出条件
 

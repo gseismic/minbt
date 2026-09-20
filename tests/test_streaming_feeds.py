@@ -82,9 +82,7 @@ def test_csv_bars_feed_rejects_out_of_order_rows(tmp_path):
         list(feed.events())
 
 
-def test_csv_bars_feed_warns_missing_months(tmp_path):
-    from loguru import logger as raw_logger
-
+def test_csv_bars_feed_rejects_missing_months(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(
         tmp_path / "BTCUSDT-1m-2023-01.csv",
@@ -101,17 +99,114 @@ def test_csv_bars_feed_warns_missing_months(tmp_path):
         end="2023-04-01T00:00:00Z",
     )
 
-    records = []
-    sink_id = raw_logger.add(lambda message: records.append(str(message)), format="{message}")
-    try:
-        raw_logger.enable("minbt")
+    with pytest.raises(FileNotFoundError, match="BTCUSDT@2023-02"):
         list(feed.events())
-    finally:
-        raw_logger.disable("minbt")
-        raw_logger.remove(sink_id)
 
-    # 期望月份为 01/02/03，其中 02 缺失
-    assert any("missing CSV month 2023-02" in record for record in records)
+
+def test_csv_bars_feed_uses_start_when_checking_missing_months(tmp_path):
+    march_ms = 1_677_628_800_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-03.csv",
+        [_csv_row(march_ms, 300)],
+    )
+    feed = CsvBarsFeed(
+        tmp_path,
+        symbols="BTCUSDT",
+        start="2023-01-01T00:00:00Z",
+    )
+
+    with pytest.raises(FileNotFoundError, match="BTCUSDT@2023-01"):
+        list(feed.events())
+
+
+def test_csv_bars_feed_rejects_partially_missing_requested_symbols(tmp_path):
+    start_ms = 1_672_531_200_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms, 100)],
+    )
+    feed = CsvBarsFeed(
+        tmp_path,
+        symbols=["BTCUSDT", "ETHUSDT"],
+        interval="1m",
+    )
+
+    with pytest.raises(FileNotFoundError, match="ETHUSDT"):
+        list(feed.events())
+
+
+def test_csv_bars_feed_rejects_symbol_without_rows_in_requested_range(tmp_path):
+    start_ms = 1_672_531_200_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms, 100)],
+    )
+    _write_csv(
+        tmp_path / "ETHUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms + 86_400_000, 200)],
+    )
+    feed = CsvBarsFeed(
+        tmp_path,
+        symbols=["BTCUSDT", "ETHUSDT"],
+        start="2023-01-01T00:00:00Z",
+        end="2023-01-01T00:01:00Z",
+        interval="1m",
+    )
+
+    with pytest.raises(ValueError, match="ETHUSDT"):
+        list(feed.events())
+
+
+def test_csv_bars_feed_rejects_range_without_rows(tmp_path):
+    start_ms = 1_672_531_200_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms, 100)],
+    )
+    feed = CsvBarsFeed(
+        tmp_path,
+        symbols="BTCUSDT",
+        start="2023-02-01T00:00:00Z",
+        end="2023-02-02T00:00:00Z",
+        interval="1m",
+    )
+
+    with pytest.raises(ValueError, match="no CSV rows matched"):
+        list(feed.events())
+
+
+@pytest.mark.parametrize("streaming", [None, False])
+def test_exchange_rejects_empty_feed_before_strategy_init(tmp_path, streaming):
+    start_ms = 1_672_531_200_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms, 100)],
+    )
+
+    class InitProbeStrategy(Strategy):
+        def on_init(self):
+            self.initialized = True
+
+    strategy = InitProbeStrategy(
+        strategy_id="empty-feed",
+        broker=Broker(initial_cash=1000, fee_rate=0),
+    )
+    strategy.initialized = False
+    exchange = Exchange()
+    exchange.add_feed(
+        CsvBarsFeed(
+            tmp_path,
+            symbols="BTCUSDT",
+            start="2023-02-01T00:00:00Z",
+            end="2023-02-02T00:00:00Z",
+            interval="1m",
+        )
+    )
+    exchange.add_strategy(strategy)
+
+    with pytest.raises(ValueError, match="no CSV rows matched"):
+        exchange.run(streaming=streaming)
+    assert strategy.initialized is False
 
 
 def test_csv_bars_feed_accepts_arrow_time_range(tmp_path):
@@ -201,6 +296,52 @@ def test_exchange_streaming_dispatches_before_source_is_exhausted():
     assert feed.closed is True
 
 
+def test_streaming_run_ignores_canceled_order_from_closed_portfolio(tmp_path):
+    start_ms = 1_672_531_200_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms, 100), _csv_row(start_ms + 60_000, 80)],
+    )
+
+    class ClosePendingPortfolioStrategy(Strategy):
+        def on_init(self):
+            self.step = 0
+            self.pending = None
+
+        def on_bars(self, dt, bars):
+            if self.step == 0:
+                self.broker.add_portfolio("alt", cash=300)
+                self.pending = self.broker.submit_limit_order(
+                    "BTCUSDT",
+                    qty=1,
+                    limit_price=90,
+                    portfolio="alt",
+                )
+                self.broker.close_portfolio("alt")
+            self.step += 1
+
+    strategy = ClosePendingPortfolioStrategy(
+        strategy_id="close-pending",
+        broker=Broker(initial_cash=1000, fee_rate=0),
+    )
+    exchange = Exchange()
+    exchange.add_feed(
+        CsvBarsFeed(
+            tmp_path,
+            symbols="BTCUSDT",
+            start="2023-01-01T00:00:00Z",
+            end="2023-01-01T00:02:00Z",
+        )
+    )
+    exchange.add_strategy(strategy)
+
+    exchange.run()
+
+    assert strategy.pending.status == "canceled"
+    assert strategy.broker.get_portfolios() == ["main"]
+    assert strategy.broker.get_position_size("BTCUSDT") == 0
+
+
 def test_exchange_streaming_rejects_out_of_order_feed():
     class OutOfOrderFeed(_ProbeFeed):
         name = "out-of-order"
@@ -220,12 +361,95 @@ def test_exchange_streaming_rejects_out_of_order_feed():
         exchange.run()
 
 
-def test_iosql_bars_feed_uses_ordered_streaming_query(tmp_path, monkeypatch):
-    iosql = pytest.importorskip("iosql")
-    from iosql.engines.sqlite.table import Table
+def test_streaming_feeds_with_same_dt_follow_event_type_order():
+    dt = datetime(2024, 1, 1, tzinfo=UTC)
 
-    db_path = tmp_path / "kline.iosql"
-    uri = f"sqlite://{db_path}"
+    class OneEventFeed:
+        streaming = True
+
+        def __init__(self, name, event_type, data, prices=None):
+            self.name = name
+            self.event_type = event_type
+            self.data = data
+            self.prices = prices
+
+        def events(self):
+            yield FeedEvent(
+                event_type=self.event_type,
+                dt=dt,
+                data=self.data,
+                prices=self.prices,
+            )
+
+    class CallbackOrderStrategy(Strategy):
+        def on_init(self):
+            self.calls = []
+
+        def on_bars(self, event_dt, bars):
+            self.calls.append("bars")
+
+        def on_books(self, event_dt, books):
+            self.calls.append("books")
+
+        def on_trades(self, event_dt, trades):
+            self.calls.append("trades")
+
+        def on_news(self, event_dt, news):
+            self.calls.append("news")
+
+    exchange = Exchange()
+    # 故意逆序注册，验证排序由事件类型契约而不是注册顺序决定。
+    exchange.add_feed(OneEventFeed("news", "news", [{"headline": "n"}]))
+    exchange.add_feed(
+        OneEventFeed(
+            "trades",
+            "trades",
+            {"BTCUSDT": [{"symbol": "BTCUSDT", "price": 101.0}]},
+            {"BTCUSDT": 101.0},
+        )
+    )
+    exchange.add_feed(
+        OneEventFeed("books", "books", {"BTCUSDT": {"symbol": "BTCUSDT"}})
+    )
+    exchange.add_feed(
+        OneEventFeed(
+            "bars",
+            "bars",
+            {"BTCUSDT": {"symbol": "BTCUSDT", "close": 100.0}},
+            {"BTCUSDT": 100.0},
+        )
+    )
+    strategy = CallbackOrderStrategy(
+        strategy_id="callback-order",
+        broker=Broker(initial_cash=1000, fee_rate=0),
+    )
+    exchange.add_strategy(strategy)
+
+    exchange.run()
+
+    assert strategy.calls == ["bars", "books", "trades", "news"]
+
+
+def _iosql_row(symbol, open_time, close):
+    return {
+        "symbol": symbol,
+        "open_time": open_time,
+        "open": close - 1,
+        "high": close + 1,
+        "low": close - 2,
+        "close": close,
+        "volume": 10,
+        "close_time": open_time + 59_999,
+        "volume_quote": 100,
+        "num_trades": 42,
+        "volume_base_buy": 5,
+        "volume_quote_buy": 50,
+        "ignored": "0",
+    }
+
+
+def _create_iosql_bars(uri, rows):
+    iosql = pytest.importorskip("iosql")
     with iosql.Database(uri) as db:
         table = db.table(
             "kline_1m",
@@ -250,26 +474,23 @@ def test_iosql_bars_feed_uses_ordered_streaming_query(tmp_path, monkeypatch):
             partition="duration(open_time,every=1day)",
             order_key="open_time",
         )
-        table.write(
-            [
-                {
-                    "symbol": "BTCUSDT",
-                    "open_time": 1_672_531_200_000 + index * 60_000,
-                    "open": 99 + index,
-                    "high": 101 + index,
-                    "low": 98 + index,
-                    "close": 100 + index,
-                    "volume": 10,
-                    "close_time": 1,
-                    "volume_quote": 100,
-                    "num_trades": 42,
-                    "volume_base_buy": 5,
-                    "volume_quote_buy": 50,
-                    "ignored": "0",
-                }
-                for index in range(3)
-            ]
-        )
+        if rows:
+            table.write(rows)
+
+
+def test_iosql_bars_feed_uses_ordered_streaming_query(tmp_path, monkeypatch):
+    pytest.importorskip("iosql")
+    from iosql.engines.sqlite.table import Table
+
+    db_path = tmp_path / "kline.iosql"
+    uri = f"sqlite://{db_path}"
+    _create_iosql_bars(
+        uri,
+        [
+            _iosql_row("BTCUSDT", 1_672_531_200_000 + index * 60_000, 100 + index)
+            for index in range(3)
+        ],
+    )
 
     def must_not_select(*args, **kwargs):
         raise AssertionError("IosqlBarsFeed must use iter_rows(), not select()")
@@ -286,6 +507,83 @@ def test_iosql_bars_feed_uses_ordered_streaming_query(tmp_path, monkeypatch):
 
     events = list(feed.events())
     assert [event.data["BTCUSDT"]["close"] for event in events] == [100.0, 101.0]
+
+
+def test_iosql_bars_feed_rejects_missing_table_with_clear_context(tmp_path):
+    iosql = pytest.importorskip("iosql")
+    uri = f"sqlite://{tmp_path / 'empty.iosql'}"
+    with iosql.Database(uri):
+        pass
+    feed = IosqlBarsFeed(uri, interval="1h")
+
+    with pytest.raises(ValueError, match="table 'kline_1h' not found.*interval='1h'"):
+        list(feed.events())
+    assert feed._db is None
+
+
+def test_iosql_bars_feed_rejects_missing_requested_symbol(tmp_path):
+    uri = f"sqlite://{tmp_path / 'kline.iosql'}"
+    _create_iosql_bars(
+        uri,
+        [_iosql_row("BTCUSDT", 1_672_531_200_000, 100)],
+    )
+    feed = IosqlBarsFeed(
+        uri,
+        interval="1m",
+        symbols=["BTCUSDT", "ETHUSDT"],
+    )
+
+    with pytest.raises(ValueError, match="ETHUSDT"):
+        list(feed.events())
+    assert feed._db is None
+
+
+def test_iosql_bars_feed_rejects_range_without_rows(tmp_path):
+    uri = f"sqlite://{tmp_path / 'kline.iosql'}"
+    _create_iosql_bars(
+        uri,
+        [_iosql_row("BTCUSDT", 1_672_531_200_000, 100)],
+    )
+    feed = IosqlBarsFeed(
+        uri,
+        interval="1m",
+        symbols="BTCUSDT",
+        start="2023-02-01T00:00:00Z",
+        end="2023-02-02T00:00:00Z",
+    )
+
+    with pytest.raises(ValueError, match="BTCUSDT"):
+        list(feed.events())
+
+
+def test_iosql_bars_feed_rejects_empty_table_without_symbol_filter(tmp_path):
+    uri = f"sqlite://{tmp_path / 'empty-kline.iosql'}"
+    _create_iosql_bars(uri, [])
+    feed = IosqlBarsFeed(uri, interval="1m")
+
+    with pytest.raises(ValueError, match="no iosql rows matched"):
+        list(feed.events())
+
+
+def test_iosql_bars_feed_wraps_invalid_table_contract(tmp_path):
+    iosql = pytest.importorskip("iosql")
+    uri = f"sqlite://{tmp_path / 'broken.iosql'}"
+    with iosql.Database(uri) as db:
+        table = db.table("broken", pk=["id"], columns={"id": "integer"})
+        table.write([{"id": 1}])
+    feed = IosqlBarsFeed(uri, interval="1m", table="broken")
+
+    with pytest.raises(
+        ValueError,
+        match="failed to query iosql table='broken'.*interval='1m'.*check uri",
+    ):
+        list(feed.events())
+
+
+@pytest.mark.parametrize("batch_size", [None, 1.5, True, 0, -1])
+def test_iosql_bars_feed_rejects_invalid_batch_size(batch_size):
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        IosqlBarsFeed("sqlite:///tmp/data.iosql", interval="1m", batch_size=batch_size)
 
 
 class _EquityRecorder(Strategy):

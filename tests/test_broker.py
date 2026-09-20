@@ -90,6 +90,44 @@ def test_close_empty_non_main_portfolio_returns_cash_to_main():
     assert broker.get_total_equity() == 1000
 
 
+def test_close_portfolio_cancels_pending_orders_before_removal():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.add_portfolio("alt", cash=300)
+    broker.on_new_price("AAPL", 100, "2026-01-01")
+    pending = broker.submit_limit_order(
+        "AAPL",
+        qty=1,
+        limit_price=90,
+        portfolio="alt",
+        stop_loss_price=80,
+    )
+
+    broker.close_portfolio("alt")
+
+    assert pending.status == "canceled"
+    assert pending.reason == "portfolio closed: alt"
+    assert pending.id not in broker._pending_order_ids
+    assert pending.id not in broker._pending_exit_params
+    assert "alt" not in broker.portfolios
+    broker.on_new_price("AAPL", 80, "2026-01-02")
+    broker.process_pending_orders(dt="2026-01-02")
+    assert broker.get_position_size("AAPL") == 0
+
+
+def test_close_main_portfolio_cancels_pending_orders_after_positions_close():
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    broker.on_new_price("AAPL", 100, "2026-01-01")
+    broker.submit_market_order("AAPL", qty=1, price=100)
+    pending = broker.submit_limit_order("AAPL", qty=1, limit_price=90)
+
+    orders = broker.close_portfolio("main")
+
+    assert [order.status for order in orders] == ["filled"]
+    assert pending.status == "canceled"
+    assert broker.get_position_size("AAPL") == 0
+    assert "main" in broker.portfolios
+
+
 def test_submit_market_order_supports_portfolio():
     broker = Broker(initial_cash=1000, fee_rate=0)
     broker.add_portfolio("alt", cash=300)
@@ -641,14 +679,24 @@ def test_close_portfolio_respects_market_rules():
     broker = Broker(initial_cash=100000, fee_rate=0, market=markets.A_STOCK)
 
     broker.submit_market_order("600519.SH", qty=100, price=100, price_dt="2026-01-05")
+    broker.on_new_price("000001.SZ", 10, "2026-01-05")
+    pending = broker.submit_limit_order(
+        "000001.SZ",
+        qty=100,
+        limit_price=9,
+        portfolio="main",
+    )
     same_day_orders = broker.close_portfolio("main")
     assert same_day_orders[0].status == "rejected"
+    assert pending.status == "pending"
+    assert pending.id in broker._pending_order_ids
     assert "main" in broker.portfolios
     assert broker.get_position_size("600519.SH") == 100
 
     broker.on_new_price("600519.SH", 101, "2026-01-06")
     next_day_orders = broker.close_portfolio("main")
     assert next_day_orders[0].status == "filled"
+    assert pending.status == "canceled"
     assert "main" in broker.portfolios
     assert broker.get_position_size("600519.SH") == 0
 

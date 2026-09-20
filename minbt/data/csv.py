@@ -14,7 +14,6 @@ from .bars import (
     optional_int,
     to_utc_datetime,
 )
-from ..logger import logger
 
 
 _CSV_NAME_RE = re.compile(
@@ -110,6 +109,14 @@ class CsvBarsFeed(_KlineRowFeed):
                 f"no CSV files matched root={self.root}, symbols={requested}, interval={self.interval!r}"
             )
 
+        if self.requested_symbols is not None:
+            missing_symbols = sorted(set(self.requested_symbols) - discovered_symbols)
+            if missing_symbols:
+                raise FileNotFoundError(
+                    f"no CSV files matched requested symbols {missing_symbols!r} "
+                    f"for interval={self.interval!r} under root={self.root}"
+                )
+
         for month, entries in files_by_month.items():
             entries.sort(key=lambda item: item[0])
             seen_symbols = set()
@@ -122,26 +129,82 @@ class CsvBarsFeed(_KlineRowFeed):
             self.symbols = sorted(discovered_symbols)
         else:
             self.symbols = list(self.requested_symbols)
+        first_requested_month = (
+            self.start_dt.strftime("%Y-%m") if self.start_dt is not None else None
+        )
+        last_requested_month = (
+            (self.end_dt - timedelta(milliseconds=1)).strftime("%Y-%m")
+            if self.end_dt is not None
+            else None
+        )
         self._files_by_month = {
-            month: entries for month, entries in sorted(files_by_month.items())
+            month: entries
+            for month, entries in sorted(files_by_month.items())
+            if (first_requested_month is None or month >= first_requested_month)
+            and (last_requested_month is None or month <= last_requested_month)
         }
-        self._warn_missing_months(set(files_by_month))
+        self._validate_matching_rows()
+        self._validate_month_files(set(self._files_by_month))
         self._prepared = True
 
-    def _warn_missing_months(self, discovered_months: set) -> None:
-        """按 [start, end) 推导期望月份，缺失的月份记 warning（不自动补数）。"""
-        if self.start_dt is not None and self.end_dt is not None:
-            first = self.start_dt.strftime("%Y-%m")
-            last = (self.end_dt - timedelta(milliseconds=1)).strftime("%Y-%m")
-        elif discovered_months:
-            first, last = min(discovered_months), max(discovered_months)
-        else:
+    def _validate_matching_rows(self) -> None:
+        """在回放前确认每个目标 symbol 在请求区间内至少有一行。"""
+        matched_symbols = set()
+        for entries in self._files_by_month.values():
+            for symbol, path in entries:
+                if symbol in matched_symbols:
+                    continue
+                with path.open("r", newline="", encoding="utf-8") as handle:
+                    rows = self._iter_file_rows(handle, path, symbol)
+                    try:
+                        next(rows)
+                    except StopIteration:
+                        continue
+                    finally:
+                        rows.close()
+                matched_symbols.add(symbol)
+
+        missing_symbols = sorted(set(self.symbols) - matched_symbols)
+        if missing_symbols:
+            raise ValueError(
+                f"no CSV rows matched requested range for symbols {missing_symbols!r}; "
+                f"root={self.root}, interval={self.interval!r}, "
+                f"start={self.start_dt!r}, end={self.end_dt!r}"
+            )
+
+    def _validate_month_files(self, discovered_months: set) -> None:
+        """按时间边界推导应有月份；月份文件空洞直接失败。"""
+        if not discovered_months:
             return
+        first = (
+            self.start_dt.strftime("%Y-%m")
+            if self.start_dt is not None
+            else min(discovered_months)
+        )
+        last = (
+            (self.end_dt - timedelta(milliseconds=1)).strftime("%Y-%m")
+            if self.end_dt is not None
+            else max(discovered_months)
+        )
         if first > last:
             return
-        missing = [month for month in _iter_months(first, last) if month not in discovered_months]
-        for month in missing:
-            logger.warning(f"{self.name}: missing CSV month {month}; data will be skipped for it")
+
+        files_by_pair = {
+            (symbol, month)
+            for month, entries in self._files_by_month.items()
+            for symbol, _ in entries
+        }
+        missing = [
+            f"{symbol}@{month}"
+            for month in _iter_months(first, last)
+            for symbol in self.symbols
+            if (symbol, month) not in files_by_pair
+        ]
+        if missing:
+            raise FileNotFoundError(
+                f"missing CSV month files for requested range: {missing!r}; "
+                f"root={self.root}, interval={self.interval!r}"
+            )
 
     def _row_stream(self) -> Iterator[dict]:
         if not self._prepared:

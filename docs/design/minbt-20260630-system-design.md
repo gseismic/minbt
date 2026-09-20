@@ -422,8 +422,9 @@ class Strategy:
 
 辅助接口：
 
-- `get_hist_equity()` 返回回测过程中记录的总权益序列。
-- `get_hist_position_sizes(symbol)` 返回指定标的持仓数量序列。
+- `get_hist_equity()` 返回回测过程中记录的总权益 Python `list` 快照。
+- `get_hist_position_sizes(symbol)` 返回指定标的持仓数量 Python `list`；从未交易的
+  symbol 返回与历史长度相同的全零序列。返回语义不随 pyta2 是否安装而变化。
 - `get_broker_stats(portfolio="main")` 返回指定 portfolio 的当前权益、现金和持仓。
 - `set_params(...)`、`update_params(...)` 是参数管理辅助接口。
 - `set_broker(...)`、`set_exchange(...)` 是装配/运行时接口，普通用户不应在策略逻辑中手动调用。
@@ -910,7 +911,8 @@ broker.close_portfolio(portfolio: str) -> list[Order]
 
 - 先检查该组合所有仓位是否都能关闭。
 - 任一仓位无法关闭，则不执行任何平仓订单，返回对应 `Order(status="rejected", reason=...)`。
-- 成功后平掉全部仓位，并将现金回到 `main`。
+- 成功后平掉全部仓位、取消该组合全部 pending 订单，并将非 `main` 组合现金回到 `main`。
+- 关闭预检失败时保留 pending 订单；不会出现订单仍活动但所属组合已删除的状态。
 - 组合为空时返回一个 `Order(status="skipped", side="none", qty=0, reason=...)`。
 - 返回值始终是 `list[Order]`，避免引入额外用户结果类型。
 - 关闭 `main` 不是主路径，不建议普通用户使用。
@@ -1457,6 +1459,7 @@ Position 不负责：
 - 成功关闭时返回每个平仓订单。
 - 组合为空时返回一个 `Order(status="skipped", reason=...)`。
 - 无法原子关闭全部持仓时返回一个或多个 `Order(status="rejected", reason=...)`。
+- 成功关闭时该组合的 pending 订单原对象更新为 `canceled`，不额外扩展返回结果类型。
 - 不新增专用结果类型，避免用户接口概念扩散。
 
 ### 抛异常
@@ -1475,6 +1478,10 @@ Position 不负责：
 - 多标的数据未提供 `date_key`。
 - 同一 `(dt, symbol)` 重复。
 
+数据源配置错误也必须在策略启动前抛异常，而不是转换为订单状态或静默完成空回测，
+包括 CSV / iosql Feed 请求的 symbol、table、月份或时间范围没有匹配数据。这类错误可由
+用户修正参数或数据文件后重试。
+
 ## 当前代码现状
 
 截至 2026-06-30，本文定义的 MVP 主路径已经实现：
@@ -1484,7 +1491,8 @@ Position 不负责：
 3. Broker 构造、分仓、交易和查询接口使用 `portfolio`，不暴露旧的账户初始化与内部控制参数。
 4. 市价单、目标仓位、平仓和限价单统一返回 Order，业务失败写入 status 和 reason。
 5. 标准退出、追踪止损和函数型退出按当前持仓生命周期内有效的 order ID 管理。
-6. `close_portfolio()` 在成交前完成市场与账户顺序预检，避免部分关闭。
+6. `close_portfolio()` 在成交前完成市场与账户顺序预检，避免部分关闭；成功后同步取消
+   该组合 pending 订单，再删除非 `main` 组合。
 7. Market 特征和预设支持交易时间、整手、tick、不可做空和 T+1；跨零反手也必须满足可平数量。
 8. README、编号示例和 usage skill 使用本文定义的目标接口。
 

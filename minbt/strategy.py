@@ -142,7 +142,21 @@ class Strategy:
         self._equity_history.append(equity)
 
         positions = self.broker.get_position_sizes()
-        self._position_size_history.append(positions)
+        if isinstance(self._position_size_history, list):
+            self._position_size_history.append(positions)
+        else:
+            # VectorTable 用 dtype 填充值表示缺列；持仓历史的业务语义应为 0。
+            # 新 symbol 出现时补齐既有行，之后每行也显式写入已知 symbol。
+            known_symbols = set(self._position_size_history.columns)
+            for symbol in positions:
+                if symbol not in known_symbols:
+                    self._position_size_history.ensure_column(symbol, dtype=float)
+                    self._position_size_history[symbol] = 0.0
+            row = {
+                symbol: positions.get(symbol, 0.0)
+                for symbol in self._position_size_history.columns
+            }
+            self._position_size_history.append(row)
 
     def _dispatch_exchange_callback(self, name: str, dt, data):
         getattr(self, name)(dt, data)
@@ -151,15 +165,19 @@ class Strategy:
         if self._equity_history is None:
             return []
         if isinstance(self._equity_history, list):
-            return self._equity_history
-        return self._equity_history.to_numpy()
+            return list(self._equity_history)
+        return self._equity_history.to_numpy().tolist()
 
     def get_hist_position_sizes(self, symbol: str):
         if self._position_size_history is None:
             return []
         if isinstance(self._position_size_history, list):
             return [p.get(symbol, 0) for p in self._position_size_history]
-        return self._position_size_history.get_column(symbol)
+        if symbol not in self._position_size_history.columns:
+            return [0.0] * len(self._position_size_history)
+        values = self._position_size_history.get_column(symbol).tolist()
+        missing = self._position_size_history.get_fill_mask(symbol).tolist()
+        return [0.0 if is_missing else value for value, is_missing in zip(values, missing)]
 
     def get_broker_stats(self, portfolio: str = "main"):
         return {

@@ -62,7 +62,8 @@ minbt 当前两条数据路径都会在 `run()` 前把全部数据物化到内�
 
 1. 不支持任意列布局的通用 CSV（`date_key/symbol_key` 自定义映射）；该场景继续用
    `set_bars`（读进内存）。列为后续扩展。
-2. 不做 binance HTTP 下载缓存之外的本地缓存补齐；缺月文件仅告警跳过，不自动补数。
+2. 不做 binance HTTP 下载缓存之外的本地缓存补齐；缺月文件直接报错，不自动补数，
+   避免用户把不完整数据当成有效回测。
 3. 不自动补齐缺失 bar、不生成合成行情（延续 data-feed 设计）。
 4. 不在本期实现 live feed / 自定义 event_type。
 5. 不改变 `BarsReplayFeed` 的物化实现（它已是可用状态，改造无内存收益）。
@@ -104,8 +105,8 @@ run(streaming=None):
 
 - 流式能力声明：feed 类属性 `streaming = True`（缺省 False，`getattr` 探测）。
   新增两个 feed 为 True；`BarsReplayFeed` 保持 False。
-- `set_*` 数据在流式模式下包装为内存事件源（grouped 时间线本身有序），
-  保证 `run(streaming=True)` 总是可用。
+- `set_*` 数据已经物化，不伪装为流式源；存在 `set_*` 数据时显式
+  `run(streaming=True)` 抛 `ValueError`，默认 `run()` 自动走物化路径。
 - 自动规则的意义：默认行为对用户透明，且永远不会因混用而出错——只要存在一个
   未声明流式能力的 feed，就退回经过验证的物化路径。
 
@@ -138,6 +139,7 @@ CsvBarsFeed(
     symbols=None,                  # str 或 list[str]；None=目录模式下从文件名解析全部
     start=None, end=None,          # 过滤 [start, end)，缺省不限
     *,
+    interval=None,                 # 可选文件名 interval 过滤；多 interval 目录建议显式传入
     name=None,                     # feed.name，缺省自动生成
 )
 ```
@@ -145,8 +147,9 @@ CsvBarsFeed(
 规则：
 
 1. **目录模式**（root 为目录）：扫描 `{symbol}-*-{YYYY-MM}.csv`，按文件名解析
-   symbol 与月份，月份升序逐月加载；结合 `start/end`（或已发现月份的首尾）推导期望
-   月份，缺月文件记一条 warning 并跳过（最终实现；不自动补数）。
+   symbol 与月份，月份升序逐月加载；结合 `start/end`（缺省边界使用已发现月份）推导
+   期望月份。任何请求 symbol 缺文件、缺月份，或在请求区间内没有数据行时均在
+   `prepare()` 中 fail-fast，不启动空回测。
 2. **单文件模式**（root 为文件）：symbols 缺省从文件名前缀解析（`BTCUSDT-1m-2023-01`
    的首段）；解析失败且未传 symbols 时抛 ValueError。
 3. 表头处理：首个非空行若首列不能解析为整数（ms 时间戳）则视为表头跳过；
@@ -194,6 +197,9 @@ IosqlBarsFeed(
    消费查询流，`close()` 关闭连接。生成器不会在 `run()` 之外存活。
 4. `order_by="open_time"`：iosql 保证同 dt 行相邻；组内按 symbol 排序后产出，
    与物化路径 payload 顺序一致。
+5. `prepare()` 先检查目标表存在，再用 `limit=1` 查询验证每个请求 symbol 在区间内
+   至少有一行；未指定 symbol 时验证整体查询非空。表名、interval、表契约或数据范围
+   错误转换为包含用户参数上下文的 `ValueError`。
 
 ### 默认 feed name
 
@@ -325,10 +331,13 @@ key = (event.dt, _FEED_ORDER.index(event_type), feed.name)
 | 错误 | 触发 | 类型 | 修复指引 |
 |---|---|---|---|
 | start ≥ end | 构造时 | ValueError | 调整区间 |
-| CSV 文件缺失 | prepare | FileNotFoundError | 检查 root 与 symbols |
+| CSV 请求 symbol 或月份文件缺失 | prepare | FileNotFoundError | 检查 root、symbols、interval 与数据月份 |
+| CSV 文件存在但区间内无数据 | prepare | ValueError | 检查 start/end 与文件内容 |
 | 表头/列数/数值非法 | 逐行 | ValueError（含文件、行号） | 修复数据源 |
-| iosql 依赖缺失 | 构造时 | ImportError + 指引 | 安装 iosql |
-| 表契约缺少 symbol_column | prepare | ValueError | 建表时声明 symbol_column |
+| iosql 依赖缺失 | prepare | ImportError + 指引 | 安装 iosql |
+| iosql 表不存在 | prepare | ValueError（含 interval/table/可用表） | 修正 interval 或 table |
+| iosql symbol/区间无数据 | prepare | ValueError（含缺失 symbol 与区间） | 检查查询参数与数据覆盖 |
+| iosql 表契约不兼容 | prepare | ValueError（保留原始错误链） | 修复 open_time/symbol 契约 |
 | 事件乱序（流式归并处） | run | ValueError | 检查数据源顺序性 |
 | (dt, symbol) 重复 | 逐事件 | ValueError | 去重数据源 |
 | 同 dt 价格冲突 | 逐事件 | ValueError | 排查多 feed 重叠 |
@@ -342,10 +351,13 @@ key = (event.dt, _FEED_ORDER.index(event_type), feed.name)
 | 流式 + iosql | batch_size 行 + 当前 dt 组（batch_size 可调） |
 | 策略自身历史 | 策略自行累积，与 feed 无关（既有行为） |
 
+第六轮 Review 的 10 万根 bar 实测中，流式路径峰值约 38.3 MB，物化路径约
+180.1 MB；流式路径约慢 40%。这是以少量额外归并/迭代开销换取有界内存，属于预期取舍。
+
 ## 测试计划
 
 1. **行归一化单测**：CSV 表头/无表头、畸形行报错、区间过滤、毫秒→UTC datetime。
-2. **CSV feed 集成**：临时目录构造多月多 symbol 文件；验证缺月告警、
+2. **CSV feed 集成**：临时目录构造多月多 symbol 文件；验证缺 symbol/缺月/空区间报错、
    (dt,symbol) 重复报错、跨月连续回放顺序正确。
 3. **iosql feed 集成**：临时 iosql 库写入样例 → 端到端读取；
    验证 end-1ms 区间适配、symbols 过滤、batch_size 生效。
@@ -353,7 +365,8 @@ key = (event.dt, _FEED_ORDER.index(event_type), feed.name)
    run(streaming=True) 运行同一策略 → 权益曲线与回调序列逐位一致。
 5. **多 feed 归并顺序**：bars + books + trades 同 dt，断言分发顺序符合 _FEED_ORDER。
 6. **可重复 run**：同一 exchange 两次 run 结果一致。
-7. **内存基准**：约 10 万行数据，tracemalloc 对比物化 vs 流式峰值。
+7. **内存基准（手工验收）**：约 10 万行数据，tracemalloc 对比物化 vs 流式峰值；
+   性能数字记录在 Review，不把环境敏感阈值放入单元测试。
 
 ## 实施计划建议
 
@@ -362,7 +375,8 @@ key = (event.dt, _FEED_ORDER.index(event_type), feed.name)
 2. **Phase 2（L2）**：`Exchange` 流式 run 路径 + `streaming` 声明 + 自动选择规则 +
    等价性/归并顺序/内存基准测试。
 3. **Phase 3**：`examples/12_csv_feed.py`、`examples/13_iosql_feed.py`
-   （数据路径缺省指向用户 Z 盘目录，文件缺失时自动跳过），导出 `minbt.data` 顶层。
+   （数据路径缺省指向用户 Z 盘目录，文件或数据库缺失时以 `SystemExit` 给出配置指引），
+   导出 `minbt.data` 顶层。
 
 ## 开放问题
 

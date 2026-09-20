@@ -715,9 +715,7 @@ class Broker:
         order = self.orders[order_id]
         if order.status != "pending":
             return order
-        self._pending_order_ids = [pending_id for pending_id in self._pending_order_ids if pending_id != order_id]
-        self._pending_exit_params.pop(order_id, None)
-        self._update_order(order, status="canceled", reason="canceled by user")
+        self._cancel_pending_order(order, reason="canceled by user")
         return self._create_order(
             symbol=order.symbol,
             portfolio=order.portfolio,
@@ -728,6 +726,22 @@ class Broker:
             reason=f"order canceled: {order_id}",
             updated_dt=order.updated_dt,
         )
+
+    def _cancel_pending_order(self, order: Order, *, reason: str) -> None:
+        """取消 pending 原订单，并同步清理所有待成交附属状态。"""
+        self._pending_order_ids = [
+            pending_id for pending_id in self._pending_order_ids if pending_id != order.id
+        ]
+        self._pending_exit_params.pop(order.id, None)
+        self._update_order(order, status="canceled", reason=reason)
+
+    def _cancel_pending_orders_for_portfolio(self, portfolio: str) -> None:
+        """关闭组合成功后，取消仍指向该组合的全部待成交订单。"""
+        for order_id in list(self._pending_order_ids):
+            order = self.orders.get(order_id)
+            if order is None or order.status != "pending" or order.portfolio != portfolio:
+                continue
+            self._cancel_pending_order(order, reason=f"portfolio closed: {portfolio}")
 
     def process_pending_orders(self, dt=None) -> None:
         for order_id in list(self._pending_order_ids):
@@ -1018,6 +1032,7 @@ class Broker:
             close_plan.append((symbol, price, price_dt))
 
         if not close_plan:
+            self._cancel_pending_orders_for_portfolio(portfolio)
             if portfolio != DEFAULT_PORTFOLIO:
                 closed_portfolio = self.portfolios.pop(portfolio)
                 self.portfolios[DEFAULT_PORTFOLIO]._current_cash.change_cash(closed_portfolio.total_cash)
@@ -1076,9 +1091,11 @@ class Broker:
             )
             orders.append(order)
 
-        if portfolio != DEFAULT_PORTFOLIO and all(order.status == "filled" for order in orders):
-            closed_portfolio = self.portfolios.pop(portfolio)
-            self.portfolios[DEFAULT_PORTFOLIO]._current_cash.change_cash(closed_portfolio.total_cash)
+        if all(order.status == "filled" for order in orders):
+            self._cancel_pending_orders_for_portfolio(portfolio)
+            if portfolio != DEFAULT_PORTFOLIO:
+                closed_portfolio = self.portfolios.pop(portfolio)
+                self.portfolios[DEFAULT_PORTFOLIO]._current_cash.change_cash(closed_portfolio.total_cash)
         return orders
 
     def set_exit(

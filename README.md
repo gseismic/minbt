@@ -49,7 +49,7 @@ pip install -e ".[plot]"
 pip install -e ".[dev]"
 ```
 
-`pyta2` 用于更高效的历史向量存储；未安装时会自动回退为 Python list。`plot` 额外依赖只在绘图时需要。`dev` 包含运行测试需要的 pytest。
+`pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。`plot` 额外依赖只在绘图时需要。`dev` 包含运行测试需要的 pytest。
 
 测试配置也放在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中，因此不需要单独维护 `pytest.ini`。
 
@@ -280,6 +280,13 @@ iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序�
 iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/12_csv_feed.py` 和
 `examples/13_iosql_feed.py`。
 
+两个 Feed 默认进行数据完整性预检：显式请求的 symbol 必须在指定区间内有数据；
+CSV 请求月份不能缺文件；iosql 的 interval/table 必须存在且表契约可查询。检查失败会
+在策略开始前抛出带参数上下文的异常，不会静默完成空回测。
+
+流式读取用额外的迭代与归并开销换取有界内存。10 万根 bar 的参考实测峰值约为
+38.3 MB（物化路径约 180.1 MB），耗时约慢 40%；具体数字会随机器与数据布局变化。
+
 除 bars 外，Exchange 还支持相同时间截面模型的数据入口：
 
 - `set_books(data, date_key="dt", symbol_key="symbol", price_key=None)`
@@ -334,6 +341,8 @@ self.broker.close_portfolio("trend")
 
 - `close_position()` 全平指定标的净持仓。
 - `close_portfolio()` 原子关闭指定 portfolio；任一仓位不能关闭时，不执行任何平仓。
+- `close_portfolio()` 成功后同时取消该 portfolio 的 pending 限价单；预检失败时订单保持
+  pending，避免出现活动订单指向已删除 portfolio。
 
 ### 订单结果
 
@@ -504,6 +513,9 @@ equity_curve = strategy.get_hist_equity()
 btc_sizes = strategy.get_hist_position_sizes("BTCUSDT")
 stats = strategy.get_broker_stats(portfolio="main")
 ```
+
+两个历史查询都返回 Python `list`。从未交易过的 symbol 返回与权益历史等长的全零列表；
+安装 pyta2 只改变内部存储方式，不改变查询结果类型和缺失值语义。
 
 也可以直接从 broker 查询当前状态：
 

@@ -20,6 +20,26 @@ def test_strategy_history_without_pyta(monkeypatch):
 
     assert strategy.get_hist_equity() == [1000]
     assert strategy.get_hist_position_sizes("AAPL") == [0]
+    assert isinstance(strategy.get_hist_equity(), list)
+    assert isinstance(strategy.get_hist_position_sizes("AAPL"), list)
+
+
+def test_strategy_history_with_pyta_has_stable_list_semantics():
+    pytest.importorskip("pyta2")
+    broker = Broker(initial_cash=1000, fee_rate=0)
+    strategy = Strategy(strategy_id="test", broker=broker)
+
+    strategy._record_broker_history()
+    broker.submit_market_order("AAPL", qty=1, price=100)
+    strategy._record_broker_history()
+    broker.close_position("AAPL", price=100)
+    strategy._record_broker_history()
+
+    assert strategy.get_hist_equity() == [1000, 1000, 1000]
+    assert strategy.get_hist_position_sizes("AAPL") == [0, 1, 0]
+    assert strategy.get_hist_position_sizes("NEVER_TRADED") == [0, 0, 0]
+    assert isinstance(strategy.get_hist_equity(), list)
+    assert isinstance(strategy.get_hist_position_sizes("AAPL"), list)
 
 
 def test_strategy_without_broker_skips_broker_history():

@@ -52,6 +52,24 @@ class PriceCaptureStrategy(Strategy):
         self.prices.append(bars["A"]["close"])
 
 
+class ClosePendingPortfolioStrategy(Strategy):
+    def on_init(self):
+        self.step = 0
+        self.pending = None
+
+    def on_bars(self, dt, bars):
+        if self.step == 0:
+            self.broker.add_portfolio("alt", cash=300)
+            self.pending = self.broker.submit_limit_order(
+                "A",
+                qty=1,
+                limit_price=90,
+                portfolio="alt",
+            )
+            self.broker.close_portfolio("alt")
+        self.step += 1
+
+
 class MultiFeedStrategy(Strategy):
     def on_init(self):
         self.calls = []
@@ -174,6 +192,27 @@ def test_exchange_updates_full_bar_before_strategy_callbacks():
         (_utc(2026, 1, 2), ["A", "B"], 110.0, 190.0, _utc(2026, 1, 2)),
     ]
     assert strategy.get_hist_equity() == [1000, 1000]
+
+
+def test_materialized_run_ignores_canceled_order_from_closed_portfolio():
+    exchange = Exchange()
+    strategy = ClosePendingPortfolioStrategy(
+        strategy_id="close-pending",
+        broker=Broker(initial_cash=1000, fee_rate=0),
+    )
+    exchange.set_bars(
+        [
+            {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
+            {"dt": "2026-01-02", "symbol": "A", "close": 80.0},
+        ]
+    )
+    exchange.add_strategy(strategy)
+
+    exchange.run()
+
+    assert strategy.pending.status == "canceled"
+    assert strategy.broker.get_portfolios() == ["main"]
+    assert strategy.broker.get_position_size("A") == 0
 
 
 def test_exchange_set_bars_requires_symbol_and_price():
