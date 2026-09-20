@@ -34,8 +34,10 @@ def normalize_symbols(symbols, *, allow_none=False):
 
 def to_utc_datetime(value) -> datetime:
     """将常见时间对象转换为 UTC datetime；arrow 对象按其 datetime 属性处理。"""
-    if hasattr(value, "datetime") and callable(value.datetime):
-        value = value.datetime
+    # arrow 的 .datetime 是 property（返回 datetime 实例），不能当作可调用对象判断
+    candidate = getattr(value, "datetime", None)
+    if isinstance(candidate, datetime) and not isinstance(value, datetime):
+        value = candidate
     timestamp = pd.Timestamp(value)
     if timestamp.tzinfo is None:
         timestamp = timestamp.tz_localize("UTC")

@@ -59,6 +59,15 @@ Exchange.run(streaming=None)   # True 强制流式 / False 强制物化 / None �
 - 事件乱序防护为两级：feed 层（`_KlineRowFeed` 行级 + `CsvBarsFeed` 文件内行序）
   与 Exchange 层（`_checked_stream` 归并前检查）。
 
+## Review 修正（实施后第二轮 review 发现并修复）
+
+| 问题 | 处理 |
+|---|---|
+| `to_utc_datetime` 用 `callable(value.datetime)` 判断 arrow，但 arrow 的 `.datetime` 是 property，arrow 对象直接抛 TypeError | 修复：改按 `isinstance(.datetime, datetime)` 判断；新增 arrow start/end 测试 |
+| 设计稿承诺"缺月文件记 warning 并跳过"未实现，缺月数据会静默跳过 | 实现：`CsvBarsFeed.prepare` 按 `[start, end)` 推导期望月份（缺省时按已发现月份首尾）检测空洞并 `logger.warning`；新增测试 |
+| CSV 行级 end 过滤用 `continue` 逐行扫描到文件尾 | 优化：文件内已保证升序，越过 end 直接 `break` |
+| 设计稿决策 3（`streaming=True` 包装 set_* 数据）与实现（抛 ValueError）不一致 | 更新设计稿记录最终决策（依据 PLAN-042 简化） |
+
 ## 遗留事项
 
 1. 基线失败的 `get_hist_equity()` numpy 比较问题（与本计划无关）。

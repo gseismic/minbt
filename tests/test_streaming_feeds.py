@@ -82,6 +82,56 @@ def test_csv_bars_feed_rejects_out_of_order_rows(tmp_path):
         list(feed.events())
 
 
+def test_csv_bars_feed_warns_missing_months(tmp_path):
+    from loguru import logger as raw_logger
+
+    start_ms = 1_672_531_200_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms, 100)],
+    )
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-03.csv",
+        [_csv_row(start_ms + 86400_000 * 59, 300)],
+    )
+    feed = CsvBarsFeed(
+        tmp_path,
+        symbols="BTCUSDT",
+        start="2023-01-01T00:00:00Z",
+        end="2023-04-01T00:00:00Z",
+    )
+
+    records = []
+    sink_id = raw_logger.add(lambda message: records.append(str(message)), format="{message}")
+    try:
+        raw_logger.enable("minbt")
+        list(feed.events())
+    finally:
+        raw_logger.disable("minbt")
+        raw_logger.remove(sink_id)
+
+    # 期望月份为 01/02/03，其中 02 缺失
+    assert any("missing CSV month 2023-02" in record for record in records)
+
+
+def test_csv_bars_feed_accepts_arrow_time_range(tmp_path):
+    arrow = pytest.importorskip("arrow")
+    start_ms = 1_672_531_200_000
+    _write_csv(
+        tmp_path / "BTCUSDT-1m-2023-01.csv",
+        [_csv_row(start_ms, 100), _csv_row(start_ms + 60_000, 101)],
+    )
+    feed = CsvBarsFeed(
+        tmp_path,
+        symbols="BTCUSDT",
+        start=arrow.get("2023-01-01T00:00:00+00:00"),
+        end=arrow.get("2023-01-01T00:02:00+00:00"),
+    )
+
+    events = list(feed.events())
+    assert len(events) == 2
+
+
 class _StreamingStrategy(Strategy):
     def on_init(self):
         self.calls = []

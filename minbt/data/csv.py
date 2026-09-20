@@ -1,5 +1,6 @@
 import csv as csv_module
 from contextlib import ExitStack
+from datetime import timedelta
 import heapq
 from pathlib import Path
 import re
@@ -13,12 +14,25 @@ from .bars import (
     optional_int,
     to_utc_datetime,
 )
+from ..logger import logger
 
 
 _CSV_NAME_RE = re.compile(
     r"^(?P<symbol>[^-]+)-(?P<interval>[^-]+)-(?P<month>\d{4}-\d{2})\.csv$",
     re.IGNORECASE,
 )
+
+
+def _iter_months(first: str, last: str) -> Iterator[str]:
+    """按月递增迭代 ["YYYY-MM", "YYYY-MM"] 闭区间。"""
+    year, month = int(first[:4]), int(first[5:7])
+    last_year, last_month = int(last[:4]), int(last[5:7])
+    while (year, month) <= (last_year, last_month):
+        yield f"{year:04d}-{month:02d}"
+        month += 1
+        if month > 12:
+            year += 1
+            month = 1
 
 
 class CsvBarsFeed(_KlineRowFeed):
@@ -111,7 +125,23 @@ class CsvBarsFeed(_KlineRowFeed):
         self._files_by_month = {
             month: entries for month, entries in sorted(files_by_month.items())
         }
+        self._warn_missing_months(set(files_by_month))
         self._prepared = True
+
+    def _warn_missing_months(self, discovered_months: set) -> None:
+        """按 [start, end) 推导期望月份，缺失的月份记 warning（不自动补数）。"""
+        if self.start_dt is not None and self.end_dt is not None:
+            first = self.start_dt.strftime("%Y-%m")
+            last = (self.end_dt - timedelta(milliseconds=1)).strftime("%Y-%m")
+        elif discovered_months:
+            first, last = min(discovered_months), max(discovered_months)
+        else:
+            return
+        if first > last:
+            return
+        missing = [month for month in _iter_months(first, last) if month not in discovered_months]
+        for month in missing:
+            logger.warning(f"{self.name}: missing CSV month {month}; data will be skipped for it")
 
     def _row_stream(self) -> Iterator[dict]:
         if not self._prepared:
@@ -150,7 +180,8 @@ class CsvBarsFeed(_KlineRowFeed):
             if self.start_ms is not None and dt_ms < self.start_ms:
                 continue
             if self.end_ms is not None and dt_ms >= self.end_ms:
-                continue
+                # 文件内已保证 open_time 升序，越过 end 后无需继续扫描
+                break
             try:
                 yield {
                     "dt_ms": dt_ms,

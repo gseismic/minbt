@@ -93,7 +93,9 @@ IosqlBarsFeed  ─┘
 
 ```text
 run(streaming=None):
-  streaming=True  强制流式：任意数据源都可（set_* 数据包装为逐 dt 事件源）
+  streaming=True  强制流式：要求全部 data feed 声明 streaming=True 且无 set_* 数据，
+                  否则抛 ValueError（最终实现语义；原设计为包装 set_* 数据源，实施时
+                  依据 PLAN-042 简化为显式报错，避免引入第二套物化包装层）
   streaming=False 强制物化：现有路径，零变化
   streaming=None  自动：
     所有 data feed 声明 streaming 能力 → 流式
@@ -143,7 +145,8 @@ CsvBarsFeed(
 规则：
 
 1. **目录模式**（root 为目录）：扫描 `{symbol}-*-{YYYY-MM}.csv`，按文件名解析
-   symbol 与月份，月份升序逐月加载；缺月文件记一条 warning 并跳过。
+   symbol 与月份，月份升序逐月加载；结合 `start/end`（或已发现月份的首尾）推导期望
+   月份，缺月文件记一条 warning 并跳过（最终实现；不自动补数）。
 2. **单文件模式**（root 为文件）：symbols 缺省从文件名前缀解析（`BTCUSDT-1m-2023-01`
    的首段）；解析失败且未传 symbols 时抛 ValueError。
 3. 表头处理：首个非空行若首列不能解析为整数（ms 时间戳）则视为表头跳过；
