@@ -246,6 +246,40 @@ def on_bars(self, dt, bars):
 
 完整示例见 `examples/11_crypto_binance_feed.py`。
 
+## 渐进读取 CSV / iosql K 线
+
+对于 `crypto.bn_data_sync` 生成的月度 CSV 或 iosql 库，可以使用流式 bars Feed。
+Feed 会按时间点读取和聚合数据，Exchange 不会在回测开始前物化完整行情：
+
+```python
+from minbt.data import CsvBarsFeed, IosqlBarsFeed
+
+exchange.add_feed(CsvBarsFeed(
+    root="/media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv/1m",
+    symbols=["BTCUSDT"],
+    interval="1m",
+    start="2023-01-01",
+    end="2023-01-03",
+))
+
+# 或使用 iosql：
+exchange.add_feed(IosqlBarsFeed(
+    uri="sqlite:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
+    interval="1m",
+    symbols=["BTCUSDT"],
+    start="2023-01-01",
+    end="2023-01-03",
+    batch_size=10_000,
+))
+
+exchange.run()  # 只有全部 Feed 支持 streaming 时自动使用流式路径
+```
+
+iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序流式查询，
+需要安装 iosql v0.3.x 或更新版本。`start/end` 在 minbt 中是半开区间 `[start, end)`；
+iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/12_csv_feed.py` 和
+`examples/13_iosql_feed.py`。
+
 除 bars 外，Exchange 还支持相同时间截面模型的数据入口：
 
 - `set_books(data, date_key="dt", symbol_key="symbol", price_key=None)`
@@ -496,6 +530,8 @@ python examples/08_scenario_pairs_mean_reversion.py
 python examples/09_benchmark_100k_empty.py
 python examples/10_scenario_cross_market.py
 python examples/11_crypto_binance_feed.py
+python examples/12_csv_feed.py
+python examples/13_iosql_feed.py
 ```
 
 示例文件：
@@ -511,6 +547,8 @@ python examples/11_crypto_binance_feed.py
 - [examples/09_benchmark_100k_empty.py](./examples/09_benchmark_100k_empty.py)：10 万行空策略基准。
 - [examples/10_scenario_cross_market.py](./examples/10_scenario_cross_market.py)：一个 Broker 内同时交易 A 股和 crypto。
 - [examples/11_crypto_binance_feed.py](./examples/11_crypto_binance_feed.py)：自动下载、缓存并回放 Binance futures K 线。
+- [examples/12_csv_feed.py](./examples/12_csv_feed.py)：渐进读取 crypto.bn_data_sync 月度 CSV K 线。
+- [examples/13_iosql_feed.py](./examples/13_iosql_feed.py)：使用 iosql 有序流式查询渐进读取 K 线。
 - [examples/example_utils.py](./examples/example_utils.py)：高级示例共用的目标名义金额调仓辅助函数。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 

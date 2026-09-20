@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
+import heapq
 from numbers import Number
 import time
 from typing import Dict, List, Optional, Union
@@ -237,6 +238,126 @@ class Exchange:
         finally:
             if callable(close):
                 close()
+
+    def _can_stream_data_feeds(self) -> bool:
+        return bool(self._data_feeds) and not self._feeds and all(
+            bool(getattr(feed, "streaming", False)) for feed in self._data_feeds.values()
+        )
+
+    def _checked_stream(self, registration_index, data_feed, events):
+        """给流式 Feed 增加单流顺序检查，并附加归并排序键。"""
+        previous_dt = None
+        event_rank = self._FEED_ORDER.index(data_feed.event_type)
+        for event in events:
+            event_dt = getattr(event, "dt", None)
+            if not isinstance(event_dt, datetime):
+                raise ValueError("FeedEvent.dt must be datetime.datetime")
+            event_dt = self._normalize_dt(event_dt)
+            if previous_dt is not None and event_dt < previous_dt:
+                raise ValueError(
+                    f"feed {data_feed.name!r} events are not ordered by dt: "
+                    f"{event_dt!r} came after {previous_dt!r}"
+                )
+            previous_dt = event_dt
+            yield (
+                (event_dt, event_rank, registration_index),
+                data_feed,
+                event,
+            )
+
+    def _dispatch_streaming_batch(self, current_dt, pending_events) -> None:
+        feeds = OrderedDict()
+        for _, data_feed, event in pending_events:
+            self._add_feed_event(feeds, data_feed, event)
+        feeds = self._sort_feed_mapping(feeds)
+
+        slices = OrderedDict()
+        for feed in feeds.values():
+            if current_dt not in feed.grouped:
+                continue
+            payload = feed.grouped[current_dt]
+            slices[feed.name] = payload
+            self._update_market_prices(feed, current_dt, payload)
+
+        self._process_brokers_before_callbacks(current_dt, slices)
+
+        for feed in feeds.values():
+            if feed.name not in slices:
+                continue
+            payload = slices[feed.name]
+            for strategy in self.strategies.values():
+                strategy._dispatch_exchange_callback(feed.callback, current_dt, payload)
+
+        for strategy in self.strategies.values():
+            strategy._record_broker_history()
+
+    def _run_streaming(self) -> None:
+        prepared_feeds = []
+        iterators = []
+        checked_streams = []
+        try:
+            for registration_index, data_feed in enumerate(self._data_feeds.values()):
+                prepared_feeds.append(data_feed)
+                prepare = getattr(data_feed, "prepare", None)
+                if callable(prepare):
+                    prepare()
+                iterator = iter(data_feed.events())
+                iterators.append(iterator)
+                checked_streams.append(
+                    self._checked_stream(registration_index, data_feed, iterator)
+                )
+
+            self.logger.info(f"Start running {len(self.strategies)} strategies...")
+            start_time = time.time()
+            for strategy in self.strategies.values():
+                strategy.on_init()
+
+            step = 0
+            pending_events = []
+            current_dt = None
+            merged = heapq.merge(
+                *checked_streams,
+                key=lambda item: item[0],
+            )
+            for key, data_feed, event in merged:
+                event_dt = key[0]
+                if current_dt is None:
+                    current_dt = event_dt
+                elif event_dt != current_dt:
+                    self._current_dt = current_dt
+                    self._dispatch_streaming_batch(current_dt, pending_events)
+                    step += 1
+                    pending_events = []
+                    current_dt = event_dt
+                pending_events.append((key, data_feed, event))
+
+            if current_dt is not None:
+                self._current_dt = current_dt
+                self._dispatch_streaming_batch(current_dt, pending_events)
+                step += 1
+
+            for strategy in self.strategies.values():
+                strategy.on_finish()
+
+            total_time = time.time() - start_time
+            self.logger.info(f"All strategies completed, total time: {total_time:.2f}s")
+            if step > 0:
+                self.logger.info(f"{total_time / step:.2f}s/step")
+            else:
+                self.logger.info("0 steps")
+        finally:
+            for stream in reversed(checked_streams):
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
+            for iterator in reversed(iterators):
+                close = getattr(iterator, "close", None)
+                if callable(close):
+                    close()
+            for data_feed in reversed(prepared_feeds):
+                close = getattr(data_feed, "close", None)
+                if callable(close):
+                    close()
 
     def _add_feed_event(self, feeds: OrderedDict, data_feed, event) -> None:
         event_type = getattr(event, "event_type", None)
@@ -551,11 +672,7 @@ class Exchange:
             broker.process_pending_orders(dt=dt)
             broker.check_exit_rules(dt=dt, data=slices)
 
-    def run(self) -> None:
-        if not self._feeds and not self._data_feeds:
-            raise ValueError("Exchange data is not set; call set_bars() or add_feed() before run().")
-
-        self.reset_market_state()
+    def _run_materialized(self) -> None:
         feeds = self._run_feeds()
         self.logger.info(f"Start running {len(self.strategies)} strategies...")
         start_time = time.time()
@@ -596,6 +713,25 @@ class Exchange:
             self.logger.info(f"{total_time / step:.2f}s/step")
         else:
             self.logger.info("0 steps")
+
+    def run(self, streaming=None) -> None:
+        if not self._feeds and not self._data_feeds:
+            raise ValueError("Exchange data is not set; call set_bars() or add_feed() before run().")
+        if streaming is not None and not isinstance(streaming, bool):
+            raise TypeError("streaming must be True, False, or None")
+
+        can_stream = self._can_stream_data_feeds()
+        if streaming is True and not can_stream:
+            raise ValueError(
+                "streaming=True requires only data feeds with streaming=True and no set_* data"
+            )
+        use_streaming = can_stream if streaming is None else streaming
+
+        self.reset_market_state()
+        if use_streaming:
+            self._run_streaming()
+        else:
+            self._run_materialized()
 
     def get_last_price(self, symbol: str, return_dt: bool = False):
         price = self._last_prices.get(symbol)
