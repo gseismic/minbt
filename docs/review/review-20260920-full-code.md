@@ -43,15 +43,17 @@
 - **位置**：`minbt/broker/market.py:40-44`
 - **问题**：容差 `abs(ratio - round(ratio)) < 1e-9` 加在"比值"上。当 `price / tick_size` 比值达 1e9 量级时，float64 除法误差（约 1e-6）超过容差，合法的 tick 倍数价格会被判为非法。
 - **复现**（已运行时验证）：`_is_multiple(60000.0, 0.00001)` 返回 `False`——BTC 类高价标的配 1e-5 档 tick 时，`Market.validate_order` 会以 "price must be multiple of tick_size" 拒单。
-- **修复建议**：改为对绝对余量判据，例如：
+- **修复建议**：容差必须按 `step` 的比例给出，不能按 `value` 比例（后者在大价格下容差会宽于半个 tick，导致非法价格放行）。已用 10 组用例（含比值 1e12 极端情况、半个 tick 偏离拒绝）验证：
 
   ```python
   def _is_multiple(value: float, step: Optional[float]) -> bool:
       if step is None or step == 0:
           return True
       nearest = round(value / step) * step
-      return abs(value - nearest) <= 1e-9 * max(1.0, abs(value))
+      return abs(value - nearest) <= step * 1e-4
   ```
+
+  其中 `1e-4` 为噪声系数：float 噪声在比值 1e12 时约为 `step * 1e-4` 量级，而任何真实错误定价至少偏离半个 tick（`0.5 * step`），两者相差 3 个数量级以上，取值安全。也可改用 `Decimal` / 整数化方案彻底消除浮点问题。
 
 ### P2-2 `get_positions()` 返回内部字典，外部可篡改组合状态
 
@@ -76,11 +78,11 @@
 | # | 位置 | 问题与建议 |
 | --- | --- | --- |
 | P3-1 | `minbt/exchange.py:512` | `_update_market_prices(self, feed, dt, payload)` 的 `payload` 参数从未使用，建议删除。 |
-| P3-2 | `minbt/broker/struct.py:57-62` | `Cash.change_cash` 报错消息缺分隔符：`"...negative: {new_free_cash}" f"amount: ..."` 拼接成 `...negative: -5.0amount: -5, ...`，补逗号或空格。 |
+| P3-2 | `minbt/broker/struct.py:60-61` | `Cash.change_cash` 报错消息缺分隔符：`f"Cannot change cash to negative: {new_free_cash}"` 与 `f"amount: ..."` 相邻拼接，报错会显示成 `...negative: -5.0amount: -5, ...`，补逗号或空格。 |
 | P3-3 | `minbt/broker/portfolio.py:200` | fake 预检分支的 `exec_type` 赋值后未使用，可改为 `_, fake_released_margin, ...`。 |
 | P3-4 | `minbt/data/binance.py:217-220` 等多处 | `with self._connect() as conn` 只管理事务提交/回滚，不关闭连接，当前依赖 CPython 引用计数兜底。建议 `with contextlib.closing(self._connect()) as conn` 或 try/finally close。 |
 | P3-5 | `minbt/data/binance.py:296-320` | `_download_range` 即使 API 返回不完整（如退市符号、接口截断），也会把 `[start_ms, coverage_end_ms)` 整段记为已覆盖，后续不再补下载，存在静默数据缺口风险。依赖对 Binance 返回连续性的信任，可接受，但建议加注释说明该假设。 |
-| P3-6 | `minbt/exchange.py:488-496` | `_infer_epoch_unit` 启发式：1970-03 至 2001 年间的毫秒时间戳（<1e11）会被误判为秒。若约定输入以 datetime/ISO 字符串为主可接受，建议 docstring 标注数值时间戳的判定边界。 |
+| P3-6 | `minbt/exchange.py:488-496` | `_infer_epoch_unit` 启发式：早于 **1973-03-03**（即数值 < 1e11，1e11 ms ≈ 1973-03-03）的毫秒/微秒/纳秒时间戳会被误判为低一级单位（ms→s 等，结果早约 1000 倍）。1973-03-03 之后的毫秒时间戳（如 2001 年 ≈ 1e12）能被正确判定。若约定输入以 datetime/ISO 字符串为主可接受，建议 docstring 标注数值时间戳的判定边界。 |
 | P3-7 | `minbt/broker/__init__.py` | `__all__` 漏列已导入的 `Position`、`Cash`、`Portfolio`；`from minbt.broker import *` 时不可见。 |
 
 ### 其他备忘（不计级）
@@ -95,7 +97,7 @@
 - `close_portfolio` 的原子平仓计划：先 `can_submit_orders` 全量预检，再逐笔执行，失败即整体拒绝。
 - T+1 锁仓按"新增多头数量"精确锁定（`on_order_filled` 中 `opened_size = new_long - old_long`），反转开多的处理正确。
 - Binance 数据层：coverage 区间缓存 + `closed_only` 剔除未收盘 K 线 + 断点续传设计合理。
-- `Exchange.run()` 每次深拷贝 feed 数据，保证可重复运行不污染原始数据。
+- `Exchange.run()` 每次运行前整体拷贝 feed 数据（逐行 `dict(row)` 浅拷贝，行值为标量时等价于深拷贝），保证可重复运行不污染原始数据。
 
 ## 验证记录
 
@@ -103,6 +105,16 @@
 - P2-1 复现脚本：`_is_multiple(60000.0, 0.00001) == False`。
 - P2-2 复现脚本：对 `get_positions()` 返回值插入/删除 key 后，broker 内部状态同步被改。
 - P2-3 复现脚本：两笔加仓订单的 exit config 变化（详见 P2-3 描述）。
+
+## 校验记录（2026-09-20 报告自查）
+
+对上表全部发现逐项复核（行号核对 + 复现脚本重跑 + 论断数值验证），修正以下三处：
+
+1. **P2-1 修复公式更正**：初版建议 `abs(value - nearest) <= 1e-9 * max(1.0, abs(value))` 有缺陷——按 `value` 比例给容差，在 price=60000、tick=1e-5 时容差（6e-5）宽于半个 tick（5e-6），会把非法价格放行。已更正为按 `step` 比例给容差（`step * 1e-4`），并用 10 组用例（含比值 1e12、半个 tick 偏离）验证通过。P2-1 问题本身的结论不变。
+2. **P3-6 日期范围更正**：误判窗口为早于 1973-03-03（数值 < 1e11）；初版写的"1970-03 至 2001 年间"有误——2001 年的毫秒时间戳（≈1e12）实际会被正确判定。
+3. **行号/措辞修正**：P3-2 定位 57-62 → 60-61；"亮点"中"深拷贝 feed 数据"更正为"逐行 `dict(row)` 浅拷贝（行值为标量时等价）"。
+
+复核确认无误的项：P1-1（pytest 实跑复现）、P2-2、P2-3（运行时复现）、P3-1（`inspect.getsource` 确认 `payload` 仅出现在签名）、P3-3、P3-4（运行时确认 `with conn` 块外连接仍打开）、P3-5、P3-7、三条备忘（含 `_to_time("10")` 实测抛 `ValueError: not enough values to unpack`）。
 
 ## 建议后续
 
