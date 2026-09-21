@@ -1,11 +1,17 @@
-from .feed import FeedEvent, DataFeedProtocol
+from .feed import DataFeedProtocol, SimpleFeed
+from .model import Bar, News
 from . import binance
+from .bar_feed import CsvBarFeed, IosqlBarFeed
 from .csv import CsvBarsFeed
 from .iosql import IosqlBarsFeed
 
 __all__ = [
-    "FeedEvent",
+    "Bar",
+    "News",
     "DataFeedProtocol",
+    "SimpleFeed",
+    "CsvBarFeed",
+    "IosqlBarFeed",
     "CsvBarsFeed",
     "IosqlBarsFeed",
     "binance",

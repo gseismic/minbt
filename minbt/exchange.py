@@ -1,39 +1,95 @@
+"""历史行情回放 Exchange。
+
+Exchange 只负责读取、排序、分批和分发市场数据；估值价格由 Broker 选择。
+"""
+
 from collections import OrderedDict
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import heapq
-from numbers import Number
+import sys
 import time
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 import polars as pl
 
+from .data.feed import MemoryFeed
+from .data.model import Bar, MarketEvent, News, datetime_key, normalize_datetime
+from .data.replay import BatchItem, TimeBatch
 from .logger import logger as default_logger
 from .strategy import Strategy
 
 
+_KLINE = "kline"
+_ORDERBOOK = "orderbook"
+_TRADE = "trade"
+_CUSTOM = "custom"
+_NEWS = "news"
+
+
 @dataclass
-class _Feed:
+class _Source:
+    feed: Any
     name: str
-    callback: str
-    mode: str
-    price_key: Optional[str]
-    grouped: OrderedDict
-    prices: Optional[Dict] = None
+    feed_priority: int
+    registration_index: int
+
+
+class _Cursor:
+    """Exchange 内部 Cursor 包装，统一来源属性和生命周期。"""
+
+    def __init__(self, source: _Source):
+        self.source = source
+        feed = source.feed
+        self.name = source.name
+        self.feed_priority = source.feed_priority
+        self.registration_index = source.registration_index
+        self.supports_preload = Exchange._feed_capability(feed, "supports_preload")
+        self.supports_incremental = Exchange._feed_capability(feed, "supports_incremental")
+        self.ordered = Exchange._feed_capability(feed, "ordered")
+        self.replayable = Exchange._feed_capability(feed, "replayable")
+
+    def prepare(self) -> None:
+        prepare = getattr(self.source.feed, "prepare", None)
+        if callable(prepare):
+            prepare()
+
+    def events(self) -> Iterable[MarketEvent]:
+        return self.source.feed.events()
+
+    def close(self) -> None:
+        close = getattr(self.source.feed, "close", None)
+        if callable(close):
+            close()
 
 
 class Exchange:
-    """事件驱动的最简回测 Exchange。"""
+    """最小历史回放 Exchange。"""
 
-    _FEED_ORDER = ("bars", "books", "trades", "news")
+    _FAMILY_ORDER = {_KLINE: 0, _ORDERBOOK: 1, _TRADE: 2, _CUSTOM: 3, _NEWS: 4}
+    _CALLBACKS = {
+        _KLINE: "on_bars",
+        _ORDERBOOK: "on_books",
+        _TRADE: "on_trades",
+        _NEWS: "on_news",
+    }
+    _FEED_DEFAULTS = {
+        "supports_preload": True,
+        "supports_incremental": False,
+        "ordered": False,
+        "replayable": True,
+    }
 
     def __init__(self, logger=None):
         self.strategies = OrderedDict()
         self.logger = logger or default_logger
-        self._feeds: Dict[str, _Feed] = OrderedDict()
-        self._data_feeds = OrderedDict()
-        self.reset_market_state()
+        self._sources: Dict[str, _Source] = OrderedDict()
+        self._current_dt: Optional[datetime] = None
+        self._run_count = 0
+
+    # --------------------------- public data entry points ---------------------------
 
     def set_bars(
         self,
@@ -41,17 +97,16 @@ class Exchange:
         *,
         date_key: str = "dt",
         symbol_key: str = "symbol",
-        price_key: str = "close",
+        feed_priority: int = 0,
     ) -> None:
-        self._set_feed(
+        self._set_bar_rows(
             "bars",
-            "on_bars",
+            _KLINE,
             data,
             date_key=date_key,
             symbol_key=symbol_key,
-            price_key=price_key,
-            mode="by_symbol",
-            require_unique=True,
+            feed_priority=feed_priority,
+            unique_symbol_at_dt=True,
         )
 
     def set_books(
@@ -60,17 +115,16 @@ class Exchange:
         *,
         date_key: str = "dt",
         symbol_key: str = "symbol",
-        price_key: Optional[str] = None,
+        feed_priority: int = 0,
     ) -> None:
-        self._set_feed(
+        self._set_bar_rows(
             "books",
-            "on_books",
+            _ORDERBOOK,
             data,
             date_key=date_key,
             symbol_key=symbol_key,
-            price_key=price_key,
-            mode="by_symbol",
-            require_unique=True,
+            feed_priority=feed_priority,
+            unique_symbol_at_dt=True,
         )
 
     def set_trades(
@@ -79,17 +133,16 @@ class Exchange:
         *,
         date_key: str = "dt",
         symbol_key: str = "symbol",
-        price_key: str = "price",
+        feed_priority: int = 0,
     ) -> None:
-        self._set_feed(
+        self._set_bar_rows(
             "trades",
-            "on_trades",
+            _TRADE,
             data,
             date_key=date_key,
             symbol_key=symbol_key,
-            price_key=price_key,
-            mode="by_symbol_list",
-            require_unique=False,
+            feed_priority=feed_priority,
+            unique_symbol_at_dt=False,
         )
 
     def set_news(
@@ -97,650 +150,530 @@ class Exchange:
         data: Union[pd.DataFrame, pl.DataFrame, List[Dict]],
         *,
         date_key: str = "dt",
+        symbol_key: str = "symbol",
+        feed_priority: int = 0,
     ) -> None:
-        self._set_feed(
-            "news",
-            "on_news",
-            data,
-            date_key=date_key,
-            symbol_key=None,
-            price_key=None,
-            mode="list",
-            require_unique=False,
+        rows = self._to_rows(data)
+        events = []
+        for row_index, row in enumerate(rows):
+            if date_key not in row:
+                raise ValueError(f"news data missing required column: {date_key!r}")
+            dt = normalize_datetime(row[date_key])
+            symbol = row.get(symbol_key)
+            payload = {
+                key: value
+                for key, value in row.items()
+                if key not in {date_key, "dt", symbol_key, "symbol"}
+            }
+            events.append((datetime_key(dt), row_index, News(dt=dt, data=payload, symbol=symbol)))
+        events.sort(key=lambda item: (item[0], item[1]))
+        self._replace_source(
+            MemoryFeed(
+                "news",
+                (event for _, _, event in events),
+                feed_priority=self._validate_priority(feed_priority),
+            )
         )
 
-    def add_feed(self, feed) -> None:
+    def add_feed(self, feed, *, feed_priority: Optional[int] = None) -> None:
         name = getattr(feed, "name", None)
-        event_type = getattr(feed, "event_type", None)
-        if not isinstance(name, str) or not name:
-            raise TypeError("feed must have a non-empty string `name` attribute")
-        if not isinstance(event_type, str) or not event_type:
-            raise TypeError("feed must have a non-empty string `event_type` attribute")
-        if event_type not in self._FEED_ORDER:
-            raise ValueError(f"feed event_type must be one of {self._FEED_ORDER}, got {event_type!r}")
+        if not isinstance(name, str) or not name.strip():
+            raise TypeError("feed.name must be a non-empty string")
         if not callable(getattr(feed, "events", None)):
-            raise TypeError("feed must have an `events()` method")
+            raise TypeError("feed must provide events()")
         if getattr(feed, "is_live", False):
-            raise NotImplementedError("live feed is not supported in the current replay-only Exchange")
-        if name in self._data_feeds:
+            raise ValueError("Exchange only accepts finite historical feeds; use a realtime entry later")
+        priority = getattr(feed, "feed_priority", 0) if feed_priority is None else feed_priority
+        priority = self._validate_priority(priority)
+        capabilities = {
+            attr: self._feed_capability(feed, attr)
+            for attr in self._FEED_DEFAULTS
+        }
+        for attr, value in capabilities.items():
+            if not isinstance(getattr(feed, attr, value), bool):
+                raise TypeError(f"feed.{attr} must be bool")
+        if not (capabilities["supports_preload"] or capabilities["supports_incremental"]):
+            raise ValueError(f"feed {name!r} supports neither preload nor incremental replay")
+        if name in self._sources:
             raise ValueError(f"feed name already exists: {name!r}")
-        self._data_feeds[name] = feed
+        self._sources[name] = _Source(
+            feed=feed,
+            name=name,
+            feed_priority=priority,
+            registration_index=len(self._sources),
+        )
 
     def add_strategy(self, strategy: Strategy) -> None:
         if not hasattr(strategy, "strategy_id"):
-            raise TypeError("strategy must have `strategy_id` attribute")
-        for method in ("on_init", "on_bars", "on_books", "on_trades", "on_news", "on_finish"):
-            if not hasattr(strategy, method):
-                raise TypeError(f"strategy must have `{method}` method")
+            raise TypeError("strategy must have strategy_id")
+        required = ("on_init", "on_bar", "on_bars", "on_books", "on_trades", "on_news", "on_finish")
+        for method in required:
+            if not callable(getattr(strategy, method, None)):
+                raise TypeError(f"strategy must provide {method}()")
+        if strategy.strategy_id in self.strategies:
+            raise ValueError(f"strategy id already exists: {strategy.strategy_id!r}")
         strategy.set_exchange(self)
         self.strategies[strategy.strategy_id] = strategy
 
     def remove_strategy(self, strategy_id: str) -> None:
-        self.strategies.pop(strategy_id)
+        del self.strategies[strategy_id]
 
-    def reset_market_state(self) -> None:
-        self._last_prices = {}
-        self._last_price_dates = {}
+    def get_current_dt(self) -> Optional[datetime]:
+        return self._current_dt
+
+    # --------------------------- run modes ---------------------------
+
+    def run(self, *, load_mode: str = "auto") -> None:
+        if not self._sources:
+            raise ValueError("Exchange data is not set; call set_bars() or add_feed() first")
+        if load_mode not in {"auto", "preload", "incremental"}:
+            raise ValueError("load_mode must be 'auto', 'preload', or 'incremental'")
+        if self._run_count and any(
+            not self._feed_capability(source.feed, "replayable") for source in self._sources.values()
+        ):
+            names = [
+                source.name
+                for source in self._sources.values()
+                if not self._feed_capability(source.feed, "replayable")
+            ]
+            raise RuntimeError(f"non-replayable feeds cannot be run again: {names!r}")
+
+        mode = self._choose_load_mode(load_mode)
+        cursors = [_Cursor(source) for source in self._sources.values()]
         self._current_dt = None
-
-    def _set_feed(
-        self,
-        name: str,
-        callback: str,
-        data,
-        *,
-        date_key: str,
-        symbol_key: Optional[str],
-        price_key: Optional[str],
-        mode: str,
-        require_unique: bool,
-    ) -> None:
-        rows = self._to_rows(data)
-        required_columns = [date_key]
-        if symbol_key is not None:
-            required_columns.append(symbol_key)
-        if price_key is not None:
-            required_columns.append(price_key)
-        self._validate_required_columns(rows, required_columns, name, data=data)
-        grouped = self._group_rows(
-            rows,
-            date_key=date_key,
-            symbol_key=symbol_key,
-            mode=mode,
-            require_unique=require_unique,
-            feed_name=name,
-        )
-        self._feeds[name] = _Feed(
-            name=name,
-            callback=callback,
-            mode=mode,
-            price_key=price_key,
-            grouped=grouped,
-        )
-        self._sort_feeds()
-
-    def _sort_feeds(self) -> None:
-        ordered = OrderedDict()
-        for name in self._FEED_ORDER:
-            if name in self._feeds:
-                ordered[name] = self._feeds[name]
-        self._feeds = ordered
-
-    def _copy_feeds(self) -> OrderedDict:
-        copied = OrderedDict()
-        for name, feed in self._feeds.items():
-            grouped = OrderedDict()
-            for dt, payload in feed.grouped.items():
-                grouped[dt] = self._copy_payload(feed.mode, payload)
-            prices = None
-            if feed.prices is not None:
-                prices = OrderedDict((dt, OrderedDict(values)) for dt, values in feed.prices.items())
-            copied[name] = _Feed(
-                name=feed.name,
-                callback=feed.callback,
-                mode=feed.mode,
-                price_key=feed.price_key,
-                grouped=grouped,
-                prices=prices,
-            )
-        return copied
-
-    def _copy_payload(self, mode: str, payload):
-        if mode == "by_symbol":
-            return OrderedDict((symbol, dict(row)) for symbol, row in payload.items())
-        if mode == "by_symbol_list":
-            return OrderedDict((symbol, [dict(row) for row in rows]) for symbol, rows in payload.items())
-        if mode == "list":
-            return [dict(row) for row in payload]
-        return payload
-
-    def _run_feeds(self) -> OrderedDict:
-        feeds = self._copy_feeds()
-        for feed in self._data_feeds.values():
-            self._materialize_data_feed(feeds, feed)
-        return self._sort_feed_mapping(feeds)
-
-    def _sort_feed_mapping(self, feeds: OrderedDict) -> OrderedDict:
-        ordered = OrderedDict()
-        for name in self._FEED_ORDER:
-            if name in feeds:
-                ordered[name] = feeds[name]
-        return ordered
-
-    def _materialize_data_feed(self, feeds: OrderedDict, data_feed) -> None:
-        prepare = getattr(data_feed, "prepare", None)
-        close = getattr(data_feed, "close", None)
-        if callable(prepare):
-            prepare()
+        self._run_count += 1
+        start_time = time.time()
+        step = 0
         try:
-            for event in data_feed.events():
-                self._add_feed_event(feeds, data_feed, event)
-        finally:
-            if callable(close):
-                close()
-
-    def _can_stream_data_feeds(self) -> bool:
-        return bool(self._data_feeds) and not self._feeds and all(
-            bool(getattr(feed, "streaming", False)) for feed in self._data_feeds.values()
-        )
-
-    def _checked_stream(self, registration_index, data_feed, events):
-        """给流式 Feed 增加单流顺序检查，并附加归并排序键。"""
-        previous_dt = None
-        event_rank = self._FEED_ORDER.index(data_feed.event_type)
-        for event in events:
-            event_dt = getattr(event, "dt", None)
-            if not isinstance(event_dt, datetime):
-                raise ValueError("FeedEvent.dt must be datetime.datetime")
-            event_dt = self._normalize_dt(event_dt)
-            if previous_dt is not None and event_dt < previous_dt:
-                raise ValueError(
-                    f"feed {data_feed.name!r} events are not ordered by dt: "
-                    f"{event_dt!r} came after {previous_dt!r}"
-                )
-            previous_dt = event_dt
-            yield (
-                (event_dt, event_rank, registration_index),
-                data_feed,
-                event,
+            for cursor in cursors:
+                cursor.prepare()
+            self.logger.info(
+                f"Start running {len(self.strategies)} strategies "
+                f"(load_mode={mode}, feeds={len(cursors)})..."
             )
-
-    def _dispatch_streaming_batch(self, current_dt, pending_events) -> None:
-        feeds = OrderedDict()
-        for _, data_feed, event in pending_events:
-            self._add_feed_event(feeds, data_feed, event)
-        feeds = self._sort_feed_mapping(feeds)
-
-        slices = OrderedDict()
-        for feed in feeds.values():
-            if current_dt not in feed.grouped:
-                continue
-            payload = feed.grouped[current_dt]
-            slices[feed.name] = payload
-            self._update_market_prices(feed, current_dt, payload)
-
-        self._process_brokers_before_callbacks(current_dt, slices)
-
-        for feed in feeds.values():
-            if feed.name not in slices:
-                continue
-            payload = slices[feed.name]
-            for strategy in self.strategies.values():
-                strategy._dispatch_exchange_callback(feed.callback, current_dt, payload)
-
-        for strategy in self.strategies.values():
-            strategy._record_broker_history()
-
-    def _run_streaming(self) -> None:
-        prepared_feeds = []
-        iterators = []
-        checked_streams = []
-        try:
-            for registration_index, data_feed in enumerate(self._data_feeds.values()):
-                prepared_feeds.append(data_feed)
-                prepare = getattr(data_feed, "prepare", None)
-                if callable(prepare):
-                    prepare()
-                iterator = iter(data_feed.events())
-                iterators.append(iterator)
-                checked_streams.append(
-                    self._checked_stream(registration_index, data_feed, iterator)
-                )
-
-            self.logger.info(f"Start running {len(self.strategies)} strategies...")
-            start_time = time.time()
             for strategy in self.strategies.values():
                 strategy.on_init()
-
-            step = 0
-            pending_events = []
-            current_dt = None
-            merged = heapq.merge(
-                *checked_streams,
-                key=lambda item: item[0],
-            )
-            for key, data_feed, event in merged:
-                event_dt = key[0]
-                if current_dt is None:
-                    current_dt = event_dt
-                elif event_dt != current_dt:
-                    self._current_dt = current_dt
-                    self._dispatch_streaming_batch(current_dt, pending_events)
-                    step += 1
-                    pending_events = []
-                    current_dt = event_dt
-                pending_events.append((key, data_feed, event))
-
-            if current_dt is not None:
-                self._current_dt = current_dt
-                self._dispatch_streaming_batch(current_dt, pending_events)
+            batches = self._iter_preload_batches(cursors) if mode == "preload" else self._iter_incremental_batches(cursors)
+            for batch in batches:
+                self._current_dt = batch.dt
+                for broker in self._unique_brokers():
+                    broker.process_market_batch(batch)
+                self._dispatch_batch(batch)
+                for strategy in self.strategies.values():
+                    strategy._record_broker_history()
                 step += 1
 
             for strategy in self.strategies.values():
                 strategy.on_finish()
-
-            total_time = time.time() - start_time
-            self.logger.info(f"All strategies completed, total time: {total_time:.2f}s")
-            if step > 0:
-                self.logger.info(f"{total_time / step:.2f}s/step")
-            else:
-                self.logger.info("0 steps")
+            elapsed = time.time() - start_time
+            self.logger.info(f"All strategies completed, total time: {elapsed:.2f}s")
+            self.logger.info(f"{elapsed / step:.2f}s/step" if step else "0 steps")
         finally:
-            for stream in reversed(checked_streams):
-                close = getattr(stream, "close", None)
-                if callable(close):
-                    close()
-            for iterator in reversed(iterators):
-                close = getattr(iterator, "close", None)
-                if callable(close):
-                    close()
-            for data_feed in reversed(prepared_feeds):
-                close = getattr(data_feed, "close", None)
-                if callable(close):
-                    close()
+            self._close_resources(cursors, label="feed")
 
-    def _add_feed_event(self, feeds: OrderedDict, data_feed, event) -> None:
-        event_type = getattr(event, "event_type", None)
-        if event_type != data_feed.event_type:
-            raise ValueError(
-                f"feed {data_feed.name!r} produced event_type {event_type!r}, "
-                f"expected {data_feed.event_type!r}"
-            )
-        if event_type not in self._FEED_ORDER:
-            raise ValueError(f"unsupported feed event_type: {event_type!r}")
-        if not isinstance(event.dt, datetime):
-            raise ValueError("FeedEvent.dt must be datetime.datetime")
-        dt = self._normalize_dt(event.dt)
+    def _choose_load_mode(self, requested: str) -> str:
+        sources = list(self._sources.values())
+        if requested == "auto":
+            if all(
+                self._feed_capability(source.feed, "supports_incremental")
+                and self._feed_capability(source.feed, "ordered")
+                for source in sources
+            ):
+                return "incremental"
+            if all(self._feed_capability(source.feed, "supports_preload") for source in sources):
+                return "preload"
+            raise ValueError(self._mode_error("auto"))
+        if requested == "incremental" and not all(
+            self._feed_capability(source.feed, "supports_incremental")
+            and self._feed_capability(source.feed, "ordered")
+            for source in sources
+        ):
+            raise ValueError(self._mode_error(requested))
+        if requested == "preload" and not all(
+            self._feed_capability(source.feed, "supports_preload") for source in sources
+        ):
+            raise ValueError(self._mode_error(requested))
+        return requested
 
-        mode = self._feed_mode(event_type)
-        target = feeds.get(event_type)
-        if target is None:
-            target = _Feed(
-                name=event_type,
-                callback=f"on_{event_type}",
-                mode=mode,
-                price_key=self._feed_price_key(event_type),
-                grouped=OrderedDict(),
-                prices=OrderedDict(),
-            )
-            feeds[event_type] = target
-        if target.mode != mode:
-            raise ValueError(f"feed mode mismatch for event_type {event_type!r}")
+    @classmethod
+    def _feed_capability(cls, feed, name: str) -> bool:
+        """读取 Feed 能力；简单 Feed 缺省采用安全声明。"""
 
-        self._merge_payload(target, dt, event.data, feed_name=data_feed.name)
-        self._merge_event_prices(target, dt, event.prices, feed_name=data_feed.name)
+        return getattr(feed, name, cls._FEED_DEFAULTS[name])
 
-    def _feed_mode(self, event_type: str) -> str:
-        if event_type in ("bars", "books"):
-            return "by_symbol"
-        if event_type == "trades":
-            return "by_symbol_list"
-        if event_type == "news":
-            return "list"
-        raise ValueError(f"unsupported feed event_type: {event_type!r}")
+    def _mode_error(self, requested: str) -> str:
+        capabilities = {
+            source.name: {
+                "preload": self._feed_capability(source.feed, "supports_preload"),
+                "incremental": self._feed_capability(source.feed, "supports_incremental"),
+                "ordered": self._feed_capability(source.feed, "ordered"),
+            }
+            for source in self._sources.values()
+        }
+        return f"load_mode={requested!r} is unavailable; feed capabilities: {capabilities!r}"
 
-    def _feed_price_key(self, event_type: str) -> Optional[str]:
-        if event_type == "bars":
-            return "close"
-        if event_type == "trades":
-            return "price"
-        return None
+    # --------------------------- cursor merge ---------------------------
 
-    def _merge_payload(self, target: _Feed, dt, payload, *, feed_name: str) -> None:
-        if target.mode == "by_symbol":
-            if not isinstance(payload, dict):
-                raise TypeError(f"{feed_name} {target.name} event data must be dict by symbol")
-            current = target.grouped.setdefault(dt, OrderedDict())
-            for symbol, row in payload.items():
-                if symbol in current:
-                    raise ValueError(f"{target.name} data contains duplicate ({dt!r}, {symbol!r}) rows")
-                if not isinstance(row, dict):
-                    raise TypeError(f"{feed_name} {target.name} row must be a dictionary")
-                copied = dict(row)
-                self._validate_standard_row(target.name, copied, symbol=symbol)
-                copied["dt"] = self._normalize_dt(copied.get("dt", dt))
-                copied.setdefault("symbol", symbol)
-                current[symbol] = copied
-            return
-
-        if target.mode == "by_symbol_list":
-            if not isinstance(payload, dict):
-                raise TypeError(f"{feed_name} {target.name} event data must be dict by symbol")
-            current = target.grouped.setdefault(dt, OrderedDict())
-            for symbol, rows in payload.items():
-                if not isinstance(rows, list):
-                    raise TypeError(f"{feed_name} {target.name} symbol payload must be a list")
-                copied_rows = []
-                for row in rows:
-                    copied = dict(row)
-                    self._validate_standard_row(target.name, copied, symbol=symbol)
-                    copied["dt"] = self._normalize_dt(copied.get("dt", dt))
-                    copied.setdefault("symbol", symbol)
-                    copied_rows.append(copied)
-                current.setdefault(symbol, []).extend(copied_rows)
-            return
-
-        if target.mode == "list":
-            if not isinstance(payload, list):
-                raise TypeError(f"{feed_name} {target.name} event data must be a list")
-            copied_rows = []
-            for row in payload:
-                copied = dict(row)
-                self._validate_standard_row(target.name, copied)
-                copied["dt"] = self._normalize_dt(copied.get("dt", dt))
-                copied_rows.append(copied)
-            target.grouped.setdefault(dt, []).extend(copied_rows)
-            return
-
-        raise ValueError(f"unknown feed mode: {target.mode}")
-
-    def _validate_standard_row(self, feed_name: str, row: dict, *, symbol=None) -> None:
-        required = {
-            "bars": ("close",),
-            "books": (),
-            "trades": ("price",),
-            "news": (),
-        }.get(feed_name, ())
-        missing = [field for field in required if field not in row]
-        if symbol is not None and row.get("symbol", symbol) != symbol:
-            raise ValueError(f"{feed_name} row symbol does not match payload key: {symbol!r}")
-        if missing:
-            raise ValueError(f"{feed_name} event row missing required fields: {missing}")
-
-    def _merge_event_prices(self, target: _Feed, dt, prices, *, feed_name: str) -> None:
-        derived_prices = self._payload_prices(target, dt)
-        if prices is None:
-            prices = derived_prices
-        else:
-            prices = OrderedDict((symbol, float(price)) for symbol, price in prices.items())
-            for symbol, price in derived_prices.items():
-                if symbol in prices and prices[symbol] != price:
-                    raise ValueError(
-                        f"{feed_name} price conflict for {symbol!r} at {dt!r}: "
-                        f"{prices[symbol]!r} != {price!r}"
-                    )
-                prices.setdefault(symbol, price)
-
-        if not prices:
-            return
-        if target.prices is None:
-            target.prices = OrderedDict()
-        current = target.prices.setdefault(dt, OrderedDict())
-        for symbol, price in prices.items():
-            if symbol in current and current[symbol] != price:
-                raise ValueError(
-                    f"{target.name} price conflict for {symbol!r} at {dt!r}: "
-                    f"{current[symbol]!r} != {price!r}"
-                )
-            current[symbol] = price
-
-    def _payload_prices(self, feed: _Feed, dt) -> OrderedDict:
-        prices = OrderedDict()
-        if feed.price_key is None or dt not in feed.grouped:
-            return prices
-        payload = feed.grouped[dt]
-        if feed.mode == "by_symbol":
-            for symbol, row in payload.items():
-                if feed.price_key in row:
-                    prices[symbol] = float(row[feed.price_key])
-        elif feed.mode == "by_symbol_list":
-            for symbol, rows in payload.items():
-                if rows and feed.price_key in rows[-1]:
-                    prices[symbol] = float(rows[-1][feed.price_key])
-        return prices
-
-    def _to_rows(self, data) -> List[Dict]:
-        if isinstance(data, list):
-            if any(not isinstance(row, dict) for row in data):
-                raise TypeError("list data must contain dictionaries")
-            return [dict(row) for row in data]
-        if isinstance(data, pl.DataFrame) or hasattr(data, "iter_rows"):
-            return [dict(row) for row in data.iter_rows(named=True)]
-        if isinstance(data, pd.DataFrame):
-            return [dict(row) for row in data.to_dict("records")]
-        if hasattr(data, "to_dict") and hasattr(data, "columns"):
+    def _iter_preload_batches(self, cursors: List[_Cursor]):
+        entries = []
+        for cursor in cursors:
+            source_entries = []
+            iterator = iter(cursor.events())
             try:
-                rows = data.to_dict("records")
-            except TypeError:
-                rows = None
-            if rows is not None:
-                if any(not isinstance(row, dict) for row in rows):
-                    raise TypeError("data.to_dict('records') must return dictionaries")
-                return [dict(row) for row in rows]
-        if hasattr(data, "iterrows"):
-            return [row.to_dict() for _, row in data.iterrows()]
-        raise TypeError(
-            f"data type not supported: {type(data)}. "
-            "Expected pd.DataFrame, pl.DataFrame, or list[dict]."
+                for sequence, event in enumerate(self._checked_events(cursor, iterator)):
+                    source_entries.append((cursor, sequence, event))
+            finally:
+                self._close_resources([cursor, iterator], label=f"preload source {cursor.name}")
+            if not cursor.ordered:
+                source_entries.sort(key=lambda item: (datetime_key(item[2].dt), item[1]))
+            entries.extend(source_entries)
+        entries.sort(key=lambda item: (datetime_key(item[2].dt), item[0].registration_index, item[1]))
+        yield from self._batches_from_entries(entries)
+
+    def _iter_incremental_batches(self, cursors: List[_Cursor]):
+        iterators = []
+        heap = []
+        previous_by_cursor = {}
+        try:
+            for cursor_index, cursor in enumerate(cursors):
+                iterator = iter(cursor.events())
+                iterators.append(iterator)
+                event = self._next_checked_incremental(
+                    cursor,
+                    iterator,
+                    cursor_index,
+                    previous_by_cursor,
+                )
+                if event is not None:
+                    heapq.heappush(
+                        heap,
+                        (
+                            datetime_key(event.dt),
+                            cursor.registration_index,
+                            0,
+                            cursor_index,
+                            event,
+                        ),
+                    )
+            while heap:
+                current_key = heap[0][0]
+                entries = []
+                while heap and heap[0][0] == current_key:
+                    _, _, sequence, cursor_index, event = heapq.heappop(heap)
+                    cursor = cursors[cursor_index]
+                    entries.append((cursor, sequence, event))
+                    next_sequence = sequence + 1
+                    next_event = self._next_checked_incremental(
+                        cursor,
+                        iterators[cursor_index],
+                        cursor_index,
+                        previous_by_cursor,
+                    )
+                    if next_event is not None:
+                        heapq.heappush(
+                            heap,
+                            (
+                                datetime_key(next_event.dt),
+                                cursor.registration_index,
+                                next_sequence,
+                                cursor_index,
+                                next_event,
+                            ),
+                        )
+                yield self._make_batch(entries)
+        finally:
+            self._close_resources(iterators, label="event iterator")
+
+    def _close_resources(self, resources, *, label: str) -> None:
+        """关闭资源；有业务异常时不让关闭异常覆盖原始异常。"""
+
+        active_exception = sys.exc_info()[1]
+        close_errors = []
+        for resource in reversed(resources):
+            close = getattr(resource, "close", None)
+            if not callable(close):
+                continue
+            try:
+                close()
+            except Exception as exc:
+                if active_exception is None:
+                    close_errors.append(exc)
+                else:
+                    self.logger.exception("failed to close %s", label)
+        if close_errors:
+            raise close_errors[0]
+
+    def _next_checked_incremental(self, cursor, iterator, cursor_index, previous_by_cursor):
+        try:
+            event = next(iterator)
+        except StopIteration:
+            return None
+        self._validate_event(cursor, event)
+        current_key = datetime_key(event.dt)
+        previous = previous_by_cursor.get(cursor_index)
+        if previous is not None and current_key < previous["key"]:
+            raise ValueError(
+                f"cursor {cursor.name!r} is not ordered by dt: "
+                f"{event.dt!r} came after {previous['dt']!r}"
+            )
+        previous_by_cursor[cursor_index] = {"key": current_key, "dt": event.dt}
+        return event
+
+    def _checked_events(self, cursor: _Cursor, events=None):
+        previous_key = None
+        previous_dt = None
+        for event in cursor.events() if events is None else events:
+            self._validate_event(cursor, event)
+            current_key = datetime_key(event.dt)
+            if cursor.ordered and previous_key is not None and current_key < previous_key:
+                raise ValueError(
+                    f"cursor {cursor.name!r} is not ordered by dt: "
+                    f"{event.dt!r} came after {previous_dt!r}"
+                )
+            previous_key = current_key
+            previous_dt = event.dt
+            yield event
+
+    def _validate_event(self, cursor: _Cursor, event: Any) -> None:
+        if not isinstance(event, (Bar, News)):
+            raise TypeError(
+                f"feed {cursor.name!r} must yield Bar or News, got {type(event).__name__}"
+            )
+        if not isinstance(event.dt, datetime):
+            raise TypeError(f"feed {cursor.name!r} event dt must be datetime")
+
+    def _batches_from_entries(self, entries):
+        current = []
+        current_key = None
+        for entry in entries:
+            key = datetime_key(entry[2].dt)
+            if current_key is None:
+                current_key = key
+            elif key != current_key:
+                yield self._make_batch(current)
+                current = []
+                current_key = key
+            current.append(entry)
+        if current:
+            yield self._make_batch(current)
+
+    def _make_batch(self, entries) -> TimeBatch:
+        items = [
+            BatchItem(
+                feed_name=cursor.name,
+                feed_priority=cursor.feed_priority,
+                registration_index=cursor.registration_index,
+                sequence=sequence,
+                event=event,
+            )
+            for cursor, sequence, event in entries
+        ]
+        items.sort(key=self._item_sort_key)
+        self._warn_same_priority_overlap(items)
+        self._validate_batch_duplicates(items)
+        return TimeBatch(dt=items[0].dt, items=tuple(items))
+
+    def _item_sort_key(self, item: BatchItem):
+        return (
+            self._family_rank(item.event),
+            -item.feed_priority,
+            item.registration_index,
+            item.sequence,
         )
 
-    def _data_columns(self, data, rows: List[Dict]) -> set:
-        if hasattr(data, "columns"):
-            return set(data.columns)
-        columns = set()
-        for row in rows:
-            columns.update(row.keys())
-        return columns
+    def _family_rank(self, event: MarketEvent) -> int:
+        if isinstance(event, News):
+            return self._FAMILY_ORDER[_NEWS]
+        return self._FAMILY_ORDER.get(event.kind, self._FAMILY_ORDER[_CUSTOM])
 
-    def _validate_required_columns(self, rows: List[Dict], required_columns: List[str], feed_name: str, *, data) -> None:
-        columns = self._data_columns(data, rows)
-        missing_columns = sorted(set(required_columns) - columns)
-        if missing_columns:
-            raise ValueError(f"{feed_name} data missing required columns: {missing_columns}")
+    def _validate_batch_duplicates(self, items: List[BatchItem]) -> None:
+        seen = set()
+        for item in items:
+            event = item.event
+            if not isinstance(event, Bar) or event.kind not in {_KLINE, _ORDERBOOK}:
+                continue
+            key = (item.feed_name, event.kind, event.symbol)
+            if key in seen:
+                raise ValueError(
+                    f"feed {item.feed_name!r} contains duplicate "
+                    f"({item.dt!r}, {event.symbol!r}, {event.kind!r}) bars"
+                )
+            seen.add(key)
 
-    def _group_rows(
+    def _warn_same_priority_overlap(self, items: List[BatchItem]) -> None:
+        seen = {}
+        warned = set()
+        for item in items:
+            event = item.event
+            if isinstance(event, News):
+                continue
+            family = event.kind
+            key = (family, event.symbol)
+            previous = seen.get(key, [])
+            for old in previous:
+                if old.feed_name == item.feed_name or old.feed_priority != item.feed_priority:
+                    continue
+                pair = tuple(sorted((old.feed_name, item.feed_name))) + key
+                if pair not in warned:
+                    self.logger.warning(
+                        "same-priority feed overlap at dt=%s, family=%s, symbol=%s: %s and %s; "
+                        "registration order is used",
+                        item.dt,
+                        family,
+                        event.symbol,
+                        old.feed_name,
+                        item.feed_name,
+                    )
+                    warned.add(pair)
+            previous.append(item)
+            seen[key] = previous
+
+    # --------------------------- callback projection ---------------------------
+
+    def _dispatch_batch(self, batch: TimeBatch) -> None:
+        groups = OrderedDict()
+        for item in batch.items:
+            callback = self._callback_for(item.event)
+            if callback is None:
+                continue
+            key = (callback, item.feed_name, item.feed_priority, item.registration_index)
+            groups.setdefault(key, []).append(item)
+
+        for key, items in groups.items():
+            callback = key[0]
+            if callback == "on_bar":
+                for item in items:
+                    for strategy in self.strategies.values():
+                        strategy._dispatch_exchange_callback(callback, batch.dt, item.event)
+                continue
+            payload = self._callback_payload(callback, items)
+            for strategy in self.strategies.values():
+                strategy._dispatch_exchange_callback(callback, batch.dt, payload)
+
+    def _callback_for(self, event: MarketEvent) -> Optional[str]:
+        if isinstance(event, News):
+            return "on_news"
+        return self._CALLBACKS.get(event.kind, "on_bar")
+
+    def _callback_payload(self, callback: str, items: List[BatchItem]):
+        if callback in {"on_bars", "on_books"}:
+            payload = OrderedDict()
+            for item in items:
+                event = item.event
+                if event.symbol in payload:
+                    raise ValueError(
+                        f"duplicate {callback} symbol {event.symbol!r} in feed {item.feed_name!r}"
+                    )
+                payload[event.symbol] = event.data
+            return payload
+        if callback == "on_trades":
+            payload = OrderedDict()
+            for item in items:
+                event = item.event
+                payload.setdefault(event.symbol, []).append(event.data)
+            return payload
+        if callback == "on_news":
+            return tuple(item.event for item in items)
+        raise ValueError(f"unsupported strategy callback: {callback!r}")
+
+    # --------------------------- row normalization ---------------------------
+
+    def _set_bar_rows(
         self,
-        rows: List[Dict],
+        source_name: str,
+        kind: str,
+        data,
         *,
         date_key: str,
-        symbol_key: Optional[str],
-        mode: str,
-        require_unique: bool,
-        feed_name: str,
-    ) -> OrderedDict:
-        sorted_rows = sorted(
-            rows,
-            key=lambda row: (row[date_key], row[symbol_key] if symbol_key is not None else 0),
-        )
-        grouped = OrderedDict()
+        symbol_key: str,
+        feed_priority: int,
+        unique_symbol_at_dt: bool,
+    ) -> None:
+        rows = self._to_rows(data)
+        events = []
         seen = set()
-        duplicate_keys = []
-
-        for row in sorted_rows:
-            dt = self._normalize_dt(row[date_key])
-            row = dict(row)
-            row[date_key] = dt
-            if mode == "by_symbol":
-                symbol = row[symbol_key]
-                key = (dt, symbol)
-                if require_unique and key in seen:
-                    duplicate_keys.append(key)
-                seen.add(key)
-                grouped.setdefault(dt, OrderedDict())[symbol] = row
-            elif mode == "by_symbol_list":
-                symbol = row[symbol_key]
-                grouped.setdefault(dt, OrderedDict()).setdefault(symbol, []).append(row)
-            elif mode == "list":
-                grouped.setdefault(dt, []).append(row)
-            else:
-                raise ValueError(f"unknown feed mode: {mode}")
-
-        if duplicate_keys:
-            preview = ", ".join(f"({dt!r}, {symbol!r})" for dt, symbol in duplicate_keys[:5])
-            if len(duplicate_keys) > 5:
-                preview += ", ..."
-            raise ValueError(f"{feed_name} data contains duplicate ({date_key}, {symbol_key}) rows: {preview}")
-        return grouped
-
-    def _normalize_dt(self, value):
-        try:
-            if isinstance(value, Number) and not isinstance(value, bool):
-                timestamp = pd.to_datetime(value, unit=self._infer_epoch_unit(value), utc=True)
-            else:
-                timestamp = pd.Timestamp(value)
-        except (ValueError, TypeError, OverflowError) as exc:
-            raise ValueError(f"dt cannot be converted to datetime: {value!r}") from exc
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.tz_localize("UTC")
-        else:
-            timestamp = timestamp.tz_convert("UTC")
-        return timestamp.to_pydatetime()
-
-    def _infer_epoch_unit(self, value) -> str:
-        abs_value = abs(float(value))
-        if abs_value >= 1e17:
-            return "ns"
-        if abs_value >= 1e14:
-            return "us"
-        if abs_value >= 1e11:
-            return "ms"
-        return "s"
-
-    def _all_datetimes(self, feeds: Optional[OrderedDict] = None) -> List:
-        feeds = feeds if feeds is not None else self._feeds
-        dts = set()
-        for feed in feeds.values():
-            dts.update(feed.grouped.keys())
-        return sorted(dts, key=self._dt_sort_key)
-
-    def _dt_sort_key(self, dt):
-        try:
-            timestamp = pd.Timestamp(self._normalize_dt(dt))
-            return (0, timestamp.value)
-        except (ValueError, TypeError, OverflowError):
-            return (1, str(dt))
-
-    def _update_market_prices(self, feed: _Feed, dt, payload) -> None:
-        if feed.price_key is None:
-            prices = OrderedDict()
-        else:
-            prices = self._payload_prices(feed, dt)
-        if feed.prices is not None and dt in feed.prices:
-            for symbol, price in feed.prices[dt].items():
-                if symbol in prices and prices[symbol] != price:
+        priority = self._validate_priority(feed_priority)
+        for row_index, row in enumerate(rows):
+            for key in (date_key, symbol_key):
+                if key not in row:
+                    raise ValueError(f"{source_name} data missing required column: {key!r}")
+            dt = normalize_datetime(row[date_key])
+            if row[symbol_key] is None:
+                raise ValueError(f"{source_name} symbol must not be None")
+            symbol = str(row[symbol_key]).strip().upper()
+            if not symbol:
+                raise ValueError(f"{source_name} symbol must not be empty")
+            if unique_symbol_at_dt:
+                duplicate_key = (datetime_key(dt), symbol)
+                if duplicate_key in seen:
                     raise ValueError(
-                        f"{feed.name} price conflict for {symbol!r} at {dt!r}: "
-                        f"{prices[symbol]!r} != {price!r}"
+                        f"{source_name} data contains duplicate ({dt!r}, {symbol!r}) rows"
                     )
-                prices[symbol] = price
-        if not prices:
-            return
+                seen.add(duplicate_key)
+            payload = {
+                key: value
+                for key, value in row.items()
+                if key not in {date_key, "dt", symbol_key, "symbol"}
+            }
+            events.append((datetime_key(dt), row_index, Bar(dt=dt, symbol=symbol, kind=kind, data=payload)))
+        events.sort(key=lambda item: (item[0], item[1]))
+        self._replace_source(
+            MemoryFeed(
+                source_name,
+                (event for _, _, event in events),
+                feed_priority=priority,
+            )
+        )
 
-        self._current_dt = dt
-        for symbol, price in prices.items():
-            self._last_prices[symbol] = price
-            self._last_price_dates[symbol] = dt
+    def _replace_source(self, feed) -> None:
+        name = feed.name
+        self._sources[name] = _Source(
+            feed=feed,
+            name=name,
+            feed_priority=feed.feed_priority,
+            registration_index=(
+                self._sources[name].registration_index if name in self._sources else len(self._sources)
+            ),
+        )
 
-        for broker in self._unique_brokers():
-            for symbol, price in prices.items():
-                broker.on_new_price(symbol, price, dt)
+    @staticmethod
+    def _validate_priority(value: int) -> int:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError("feed_priority must be an integer")
+        return value
+
+    @staticmethod
+    def _to_rows(data) -> List[dict]:
+        if isinstance(data, pd.DataFrame):
+            rows = data.to_dict(orient="records")
+        elif isinstance(data, pl.DataFrame):
+            rows = data.to_dicts()
+        elif hasattr(data, "to_dict"):
+            try:
+                rows = data.to_dict(orient="records")
+            except TypeError:
+                rows = data.to_dict()
+        else:
+            rows = data
+        if rows is None:
+            return []
+        if isinstance(rows, Mapping):
+            raise TypeError("data must be a row sequence, not a single mapping")
+        try:
+            return [dict(row) for row in rows]
+        except (TypeError, ValueError) as exc:
+            raise TypeError("data must be an iterable of row mappings") from exc
+
+    # --------------------------- broker helpers ---------------------------
 
     def _unique_brokers(self):
         seen = set()
         for strategy in self.strategies.values():
             broker = getattr(strategy, "broker", None)
-            if broker is None:
+            if broker is None or id(broker) in seen:
                 continue
-            broker_id = id(broker)
-            if broker_id in seen:
-                continue
-            seen.add(broker_id)
+            seen.add(id(broker))
             yield broker
 
-    def _process_brokers_before_callbacks(self, dt, slices) -> None:
-        for broker in self._unique_brokers():
-            broker.process_pending_orders(dt=dt)
-            broker.check_exit_rules(dt=dt, data=slices)
 
-    def _run_materialized(self) -> None:
-        feeds = self._run_feeds()
-        self.logger.info(f"Start running {len(self.strategies)} strategies...")
-        start_time = time.time()
-
-        for strategy in self.strategies.values():
-            strategy.on_init()
-
-        step = 0
-        for current_dt in self._all_datetimes(feeds):
-            self._current_dt = current_dt
-            slices = OrderedDict()
-            for feed in feeds.values():
-                if current_dt not in feed.grouped:
-                    continue
-                payload = feed.grouped[current_dt]
-                slices[feed.name] = payload
-                self._update_market_prices(feed, current_dt, payload)
-
-            self._process_brokers_before_callbacks(current_dt, slices)
-
-            for feed in feeds.values():
-                if feed.name not in slices:
-                    continue
-                payload = slices[feed.name]
-                for strategy in self.strategies.values():
-                    strategy._dispatch_exchange_callback(feed.callback, current_dt, payload)
-
-            for strategy in self.strategies.values():
-                strategy._record_broker_history()
-            step += 1
-
-        for strategy in self.strategies.values():
-            strategy.on_finish()
-
-        total_time = time.time() - start_time
-        self.logger.info(f"All strategies completed, total time: {total_time:.2f}s")
-        if step > 0:
-            self.logger.info(f"{total_time / step:.2f}s/step")
-        else:
-            self.logger.info("0 steps")
-
-    def run(self, streaming=None) -> None:
-        if not self._feeds and not self._data_feeds:
-            raise ValueError("Exchange data is not set; call set_bars() or add_feed() before run().")
-        if streaming is not None and not isinstance(streaming, bool):
-            raise TypeError("streaming must be True, False, or None")
-
-        can_stream = self._can_stream_data_feeds()
-        if streaming is True and not can_stream:
-            raise ValueError(
-                "streaming=True requires only data feeds with streaming=True and no set_* data"
-            )
-        use_streaming = can_stream if streaming is None else streaming
-
-        self.reset_market_state()
-        if use_streaming:
-            self._run_streaming()
-        else:
-            self._run_materialized()
-
-    def get_last_price(self, symbol: str, return_dt: bool = False):
-        price = self._last_prices.get(symbol)
-        if return_dt:
-            return price, self._last_price_dates.get(symbol)
-        return price
-
-    def get_last_prices(self) -> Dict[str, float]:
-        return self._last_prices.copy()
-
-    def get_current_dt(self):
-        return self._current_dt
+__all__ = ["Exchange"]

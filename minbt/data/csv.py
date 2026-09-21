@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import Iterator
 
-from .bars import (
+from .kline import (
     _KlineRowFeed,
     datetime_to_ms,
     normalize_symbols,
@@ -46,6 +46,7 @@ class CsvBarsFeed(_KlineRowFeed):
         *,
         interval=None,
         name=None,
+        feed_priority=0,
     ):
         self.root = Path(root).expanduser()
         self.requested_symbols = normalize_symbols(symbols, allow_none=True)
@@ -60,6 +61,7 @@ class CsvBarsFeed(_KlineRowFeed):
         self._prepared = False
         self.symbols = list(self.requested_symbols or [])
         self.name = name or self._default_name()
+        self.feed_priority = int(feed_priority)
 
     def _default_name(self) -> str:
         symbols = ",".join(self.symbols) if self.symbols else "all"

@@ -43,7 +43,6 @@ def test_exchange_set_bars_uses_only_on_bars():
 def test_old_user_interfaces_are_not_exported():
     assert not hasattr(Exchange, "set_data")
     assert not hasattr(Strategy, "on_data")
-    assert not hasattr(Strategy, "on_bar")
     assert not hasattr(Broker, "add_sub_portfolio")
     assert not hasattr(minbt, "SimpleMarket")
     assert not hasattr(minbt, "CryptoMarket")

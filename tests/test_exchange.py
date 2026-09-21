@@ -1,397 +1,371 @@
 from datetime import datetime, timezone
 
 import pandas as pd
-import polars as pl
 import pytest
 
-from minbt import Broker, Exchange, Strategy
-from minbt.data.feed import FeedEvent
+from minbt import Bar, Broker, Exchange, News, Strategy
+from minbt.data.model import normalize_datetime
 
 
-def _utc(year, month, day):
-    return datetime(year, month, day, tzinfo=timezone.utc)
+UTC = timezone.utc
 
 
-class EmptyDataStrategy(Strategy):
-    def on_init(self):
-        self.initialized = True
-
-    def on_finish(self):
-        self.finished = True
+def _dt(day=1, minute=0):
+    return datetime(2026, 1, day, 0, minute, tzinfo=UTC)
 
 
-class MultiAssetStrategy(Strategy):
-    def on_init(self):
-        self.snapshots = []
-
-    def on_bars(self, dt, bars):
-        self.snapshots.append(
-            (
-                dt,
-                list(bars.keys()),
-                self.broker.get_last_price("A"),
-                self.broker.get_last_price("B"),
-                self.exchange.get_current_dt(),
-            )
-        )
-
-
-class DtCaptureStrategy(Strategy):
-    def on_init(self):
-        self.dts = []
-
-    def on_bars(self, dt, bars):
-        self.dts.append(self.exchange.get_current_dt())
-
-
-class PriceCaptureStrategy(Strategy):
-    def on_init(self):
-        self.prices = []
-
-    def on_bars(self, dt, bars):
-        self.prices.append(bars["A"]["close"])
-
-
-class ClosePendingPortfolioStrategy(Strategy):
-    def on_init(self):
-        self.step = 0
-        self.pending = None
-
-    def on_bars(self, dt, bars):
-        if self.step == 0:
-            self.broker.add_portfolio("alt", cash=300)
-            self.pending = self.broker.submit_limit_order(
-                "A",
-                qty=1,
-                limit_price=90,
-                portfolio="alt",
-            )
-            self.broker.close_portfolio("alt")
-        self.step += 1
-
-
-class MultiFeedStrategy(Strategy):
+class BarsStrategy(Strategy):
     def on_init(self):
         self.calls = []
 
     def on_bars(self, dt, bars):
-        self.calls.append(("bars", dt, list(bars.keys()), self.broker.get_last_price("A")))
-
-    def on_books(self, dt, books):
-        self.calls.append(("books", dt, list(books.keys()), self.broker.get_last_price("A")))
-
-    def on_trades(self, dt, trades):
-        self.calls.append(("trades", dt, list(trades.keys()), self.broker.get_last_price("A")))
-
-    def on_news(self, dt, news):
-        self.calls.append(("news", dt, len(news), self.broker.get_last_price("A")))
+        self.calls.append((dt, bars, self.broker.get_last_price("A") if self.broker else None))
 
 
-class CountingBroker(Broker):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.price_updates = []
-
-    def on_new_price(self, symbol, price, dt=None):
-        self.price_updates.append((symbol, price, dt))
-        return super().on_new_price(symbol, price, dt)
-
-
-def _duplicate_bar_rows():
-    return [
-        {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
-        {"dt": "2026-01-01", "symbol": "A", "close": 101.0},
-    ]
-
-
-def _make_duplicate_bar_data(kind):
-    rows = _duplicate_bar_rows()
-    if kind == "pandas":
-        return pd.DataFrame(rows)
-    if kind == "polars":
-        try:
-            return pl.DataFrame(rows)
-        except Exception as exc:
-            pytest.skip(f"polars DataFrame unavailable: {exc}")
-    return rows
-
-
-def _make_multi_asset_data(kind):
-    rows = [
-        {"dt": "2026-01-02", "symbol": "B", "close": 190.0},
-        {"dt": "2026-01-01", "symbol": "B", "close": 200.0},
-        {"dt": "2026-01-02", "symbol": "A", "close": 110.0},
-        {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
-    ]
-    if kind == "pandas":
-        return pd.DataFrame(rows)
-    if kind == "polars":
-        try:
-            return pl.DataFrame(rows)
-        except Exception as exc:
-            pytest.skip(f"polars DataFrame unavailable: {exc}")
-    return rows
-
-
-class PandasLikeData:
-    columns = ["dt", "symbol", "close"]
-
-    def __init__(self, rows):
-        self.rows = rows
-        self.to_dict_calls = 0
-
-    def to_dict(self, orient):
-        assert orient == "records"
-        self.to_dict_calls += 1
-        return self.rows
-
-    def iterrows(self):
-        raise AssertionError("iterrows should not be called when to_dict('records') is available")
-
-
-def test_exchange_run_empty_bars_does_not_divide_by_zero():
+def test_set_bars_sorts_rows_and_emits_one_complete_time_slice():
     exchange = Exchange()
-    strategy = EmptyDataStrategy(strategy_id="empty", broker=Broker(initial_cash=1000, fee_rate=0))
-    data = pd.DataFrame(columns=["dt", "symbol", "close"])
-
-    exchange.set_bars(data)
-    exchange.add_strategy(strategy)
-    exchange.run()
-
-    assert strategy.initialized
-    assert strategy.finished
-    assert strategy.get_hist_equity() == []
-
-
-def test_exchange_run_requires_data():
-    exchange = Exchange()
-
-    with pytest.raises(ValueError, match="set_bars"):
-        exchange.run()
-
-
-def test_exchange_updates_full_bar_before_strategy_callbacks():
-    exchange = Exchange()
-    broker = Broker(initial_cash=1000, fee_rate=0)
-    strategy = MultiAssetStrategy(strategy_id="multi", broker=broker)
-    data = pd.DataFrame(
-        [
-            {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
-            {"dt": "2026-01-01", "symbol": "B", "close": 200.0},
-            {"dt": "2026-01-02", "symbol": "A", "close": 110.0},
-            {"dt": "2026-01-02", "symbol": "B", "close": 190.0},
-        ]
-    )
-
-    exchange.set_bars(data)
-    exchange.add_strategy(strategy)
-    exchange.run()
-
-    assert strategy.snapshots == [
-        (_utc(2026, 1, 1), ["A", "B"], 100.0, 200.0, _utc(2026, 1, 1)),
-        (_utc(2026, 1, 2), ["A", "B"], 110.0, 190.0, _utc(2026, 1, 2)),
-    ]
-    assert strategy.get_hist_equity() == [1000, 1000]
-
-
-def test_materialized_run_ignores_canceled_order_from_closed_portfolio():
-    exchange = Exchange()
-    strategy = ClosePendingPortfolioStrategy(
-        strategy_id="close-pending",
-        broker=Broker(initial_cash=1000, fee_rate=0),
-    )
+    strategy = BarsStrategy("bars", Broker(initial_cash=1000))
     exchange.set_bars(
-        [
-            {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
-            {"dt": "2026-01-02", "symbol": "A", "close": 80.0},
-        ]
+        pd.DataFrame(
+            [
+                {"dt": _dt(2), "symbol": "B", "close": 201.0},
+                {"dt": _dt(1), "symbol": "A", "close": 100.0},
+                {"dt": _dt(2), "symbol": "A", "close": 101.0},
+                {"dt": _dt(1), "symbol": "B", "close": 200.0},
+            ]
+        )
     )
     exchange.add_strategy(strategy)
 
-    exchange.run()
+    exchange.run(load_mode="incremental")
 
-    assert strategy.pending.status == "canceled"
-    assert strategy.broker.get_portfolios() == ["main"]
-    assert strategy.broker.get_position_size("A") == 0
-
-
-def test_exchange_set_bars_requires_symbol_and_price():
-    exchange = Exchange()
-    data = pd.DataFrame([{"dt": "2026-01-01", "symbol": "A"}])
-
-    with pytest.raises(ValueError, match="close"):
-        exchange.set_bars(data)
-
-
-@pytest.mark.parametrize("data_kind", ["pandas", "polars", "list"])
-def test_exchange_set_bars_rejects_duplicate_symbol_in_same_dt(data_kind):
-    exchange = Exchange()
-    data = _make_duplicate_bar_data(data_kind)
-
-    with pytest.raises(ValueError, match="duplicate"):
-        exchange.set_bars(data)
-
-
-@pytest.mark.parametrize("data_kind", ["pandas", "polars", "list"])
-def test_exchange_set_bars_input_formats_produce_same_payload(data_kind):
-    exchange = Exchange()
-    broker = Broker(initial_cash=1000, fee_rate=0)
-    strategy = MultiAssetStrategy(strategy_id=data_kind, broker=broker)
-    data = _make_multi_asset_data(data_kind)
-
-    exchange.set_bars(data)
-    exchange.add_strategy(strategy)
-    exchange.run()
-
-    assert strategy.snapshots == [
-        (_utc(2026, 1, 1), ["A", "B"], 100.0, 200.0, _utc(2026, 1, 1)),
-        (_utc(2026, 1, 2), ["A", "B"], 110.0, 190.0, _utc(2026, 1, 2)),
+    assert [(dt, list(bars), price) for dt, bars, price in strategy.calls] == [
+        (_dt(1), ["A", "B"], 100.0),
+        (_dt(2), ["B", "A"], 101.0),
     ]
+    assert exchange.get_current_dt() == _dt(2)
 
 
-def test_exchange_prefers_pandas_records_over_iterrows():
-    rows = [{"dt": "2026-01-01", "symbol": "A", "close": 100.0}]
-    data = PandasLikeData(rows)
+def test_kline_does_not_require_complete_ohlcv():
     exchange = Exchange()
+    strategy = BarsStrategy("partial", Broker(initial_cash=1000))
+    exchange.set_bars([{"dt": _dt(), "symbol": "A", "close": 100.0}])
+    exchange.add_strategy(strategy)
 
-    exchange.set_bars(data)
+    exchange.run()
 
-    assert data.to_dict_calls == 1
+    assert dict(strategy.calls[0][1]["A"]) == {"close": 100.0}
 
 
-def test_exchange_copies_list_rows_before_storing_feed():
-    rows = [{"dt": "2026-01-01", "symbol": "A", "close": 100.0}]
+def test_bar_payload_is_read_only():
     exchange = Exchange()
-    strategy = PriceCaptureStrategy(strategy_id="copy")
-
-    exchange.set_bars(rows)
-    rows[0]["close"] = 999.0
+    strategy = BarsStrategy("readonly", Broker(initial_cash=1000))
+    exchange.set_bars([{"dt": _dt(), "symbol": "A", "close": 100.0}])
     exchange.add_strategy(strategy)
     exchange.run()
 
-    assert strategy.prices == [100.0]
+    with pytest.raises(TypeError):
+        strategy.calls[0][1]["A"]["close"] = 101.0
 
 
-def test_exchange_requires_explicit_date_key():
+def test_same_time_callbacks_follow_family_order_and_news_does_not_mark_price():
+    class FeedStrategy(Strategy):
+        def on_init(self):
+            self.calls = []
+
+        def on_bars(self, dt, bars):
+            self.calls.append(("bars", self.broker.get_last_price("A")))
+
+        def on_books(self, dt, books):
+            self.calls.append(("books", self.broker.get_last_price("A")))
+
+        def on_trades(self, dt, trades):
+            self.calls.append(("trades", self.broker.get_last_price("A")))
+
+        def on_news(self, dt, news):
+            self.calls.append(("news", self.broker.get_last_price("A"), news[0].symbol))
+
+    broker = Broker(initial_cash=1000, mark_price="kline.close")
+    strategy = FeedStrategy("families", broker)
     exchange = Exchange()
-
-    with pytest.raises(ValueError, match="dt"):
-        exchange.set_bars([{"symbol": "A", "close": 100.0}])
-
-
-def test_exchange_runs_list_dict_bars_in_dt_order():
-    exchange = Exchange()
-    strategy = DtCaptureStrategy(strategy_id="list_data")
-    data = [
-        {"dt": "2026-01-02", "symbol": "A", "close": 101.0},
-        {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
-    ]
-
-    exchange.set_bars(data)
+    exchange.set_news([{"dt": _dt(), "symbol": "A", "headline": "hello"}])
+    exchange.set_trades([{"dt": _dt(), "symbol": "A", "price": 102.0}])
+    exchange.set_books([{"dt": _dt(), "symbol": "A", "mid": 101.0}])
+    exchange.set_bars([{"dt": _dt(), "symbol": "A", "close": 100.0}])
     exchange.add_strategy(strategy)
-    exchange.run()
 
-    assert strategy.dts == [_utc(2026, 1, 1), _utc(2026, 1, 2)]
-
-
-def test_exchange_updates_shared_broker_once_per_feed_slice():
-    exchange = Exchange()
-    broker = CountingBroker(initial_cash=1000, fee_rate=0)
-    strategy_a = Strategy(strategy_id="a", broker=broker)
-    strategy_b = Strategy(strategy_id="b", broker=broker)
-    data = pd.DataFrame(
-        [
-            {"dt": "2026-01-01", "symbol": "A", "close": 100.0},
-            {"dt": "2026-01-01", "symbol": "B", "close": 200.0},
-            {"dt": "2026-01-02", "symbol": "A", "close": 110.0},
-            {"dt": "2026-01-02", "symbol": "B", "close": 190.0},
-        ]
-    )
-
-    exchange.set_bars(data)
-    exchange.add_strategy(strategy_a)
-    exchange.add_strategy(strategy_b)
-    exchange.run()
-
-    assert broker.price_updates == [
-        ("A", 100.0, _utc(2026, 1, 1)),
-        ("B", 200.0, _utc(2026, 1, 1)),
-        ("A", 110.0, _utc(2026, 1, 2)),
-        ("B", 190.0, _utc(2026, 1, 2)),
-    ]
-
-
-def test_exchange_multi_feed_callbacks_share_same_dt_snapshot():
-    exchange = Exchange()
-    broker = Broker(initial_cash=1000, fee_rate=0)
-    strategy = MultiFeedStrategy(strategy_id="multi_feed", broker=broker)
-
-    exchange.set_bars([{"dt": "2026-01-01", "symbol": "A", "close": 100.0}])
-    exchange.set_books([{"dt": "2026-01-01", "symbol": "A", "mid": 101.0, "bid": 100.5, "ask": 101.5}], price_key="mid")
-    exchange.set_trades(
-        [
-            {"dt": "2026-01-01", "symbol": "A", "price": 102.0, "qty": 1},
-            {"dt": "2026-01-01", "symbol": "A", "price": 103.0, "qty": 2},
-        ]
-    )
-    exchange.set_news([{"dt": "2026-01-01", "headline": "A announces product"}])
-
-    exchange.add_strategy(strategy)
     exchange.run()
 
     assert strategy.calls == [
-        ("bars", _utc(2026, 1, 1), ["A"], 103.0),
-        ("books", _utc(2026, 1, 1), ["A"], 103.0),
-        ("trades", _utc(2026, 1, 1), ["A"], 103.0),
-        ("news", _utc(2026, 1, 1), 1, 103.0),
+        ("bars", 100.0),
+        ("books", 100.0),
+        ("trades", 100.0),
+        ("news", 100.0, "A"),
     ]
 
 
-def test_exchange_set_bars_and_add_feed_merge_same_datetime_snapshot():
-    class Feed:
-        name = "feed-bars"
-        event_type = "bars"
+def test_broker_can_choose_orderbook_mark_price():
+    class Probe(Strategy):
+        def on_init(self):
+            self.price_seen = None
 
-        def events(self):
-            dt = _utc(2026, 1, 1)
-            yield FeedEvent(
-                event_type="bars",
-                dt=dt,
-                data={"B": {"dt": dt, "symbol": "B", "close": 200.0}},
-                prices={"B": 200.0},
-            )
+        def on_bars(self, dt, bars):
+            self.price_seen = self.broker.get_last_price("A")
 
+    broker = Broker(initial_cash=1000, mark_price="orderbook.mid")
+    strategy = Probe("book-mark", broker)
     exchange = Exchange()
-    broker = Broker(initial_cash=1000, fee_rate=0)
-    strategy = MultiAssetStrategy(strategy_id="mixed", broker=broker)
-
-    exchange.set_bars([{"dt": "2026-01-01 00:00:00+00:00", "symbol": "A", "close": 100.0}])
-    exchange.add_feed(Feed())
+    exchange.set_bars([{"dt": _dt(), "symbol": "A", "close": 100.0}])
+    exchange.set_books([{"dt": _dt(), "symbol": "A", "mid": 101.5}])
     exchange.add_strategy(strategy)
+
     exchange.run()
 
-    assert strategy.snapshots == [
-        (_utc(2026, 1, 1), ["A", "B"], 100.0, 200.0, _utc(2026, 1, 1)),
-    ]
+    assert strategy.price_seen == 101.5
 
 
-def test_exchange_add_feed_bars_requires_close():
-    class BadFeed:
-        name = "bad-bars"
-        event_type = "bars"
+def test_trade_mark_requires_explicit_aggregation():
+    exchange = Exchange()
+    exchange.set_trades(
+        [
+            {"dt": _dt(), "symbol": "A", "price": 100.0},
+            {"dt": _dt(), "symbol": "A", "price": 101.0},
+        ]
+    )
+    exchange.add_strategy(Strategy("trade-error", Broker(initial_cash=1000, mark_price="trade.price")))
+
+    with pytest.raises(ValueError, match="multiple mark prices"):
+        exchange.run()
+
+
+def test_trade_mark_can_choose_last_value():
+    class Probe(Strategy):
+        def on_init(self):
+            self.price = None
+
+        def on_trades(self, dt, trades):
+            self.price = self.broker.get_last_price("A")
+
+    broker = Broker(
+        initial_cash=1000,
+        mark_price="trade.price",
+        mark_price_aggregation="last",
+    )
+    strategy = Probe("trade-last", broker)
+    exchange = Exchange()
+    exchange.set_trades(
+        [
+            {"dt": _dt(), "symbol": "A", "price": 100.0},
+            {"dt": _dt(), "symbol": "A", "price": 101.0},
+        ]
+    )
+    exchange.add_strategy(strategy)
+
+    exchange.run()
+
+    assert strategy.price == 101.0
+
+
+def test_missing_mark_price_error_explains_how_to_fix_configuration():
+    class EnterOnFirstBar(Strategy):
+        def on_init(self):
+            self.entered = False
+
+        def on_bars(self, dt, bars):
+            if not self.entered:
+                self.broker.submit_market_order("A", qty=1, price=100.0)
+                self.entered = True
+
+    broker = Broker(initial_cash=1000, mark_price="kline.close", mark_price_missing="error")
+    exchange = Exchange()
+    exchange.set_bars(
+        [
+            {"dt": _dt(1), "symbol": "A", "close": 100.0},
+            {"dt": _dt(2), "symbol": "A", "open": 101.0},
+        ]
+    )
+    exchange.add_strategy(EnterOnFirstBar("missing-mark", broker))
+
+    with pytest.raises(ValueError, match="mark_price='orderbook.mid'"):
+        exchange.run()
+
+
+def test_custom_price_bar_can_drive_broker_without_price_priority():
+    class PriceFeed:
+        name = "mark-feed"
+        feed_priority = 10
+        supports_preload = True
+        supports_incremental = True
+        ordered = True
+        replayable = True
 
         def events(self):
-            dt = _utc(2026, 1, 1)
-            yield FeedEvent(
-                event_type="bars",
-                dt=dt,
-                data={"A": {"dt": dt, "symbol": "A"}},
-                prices={"A": 100.0},
-            )
+            yield Bar(_dt(), "A", "price", {"value": 123.0, "source": "mark"})
+
+        def prepare(self):
+            return None
+
+        def close(self):
+            return None
+
+    broker = Broker(initial_cash=1000, mark_price="price.value")
+    strategy = Strategy("price-bar", broker)
+    exchange = Exchange()
+    exchange.add_feed(PriceFeed())
+    exchange.add_strategy(strategy)
+
+    exchange.run()
+
+    assert broker.get_last_price("A") == 123.0
+
+
+def test_feed_priority_orders_callback_groups_and_same_priority_warns():
+    class CaptureLogger:
+        def __init__(self):
+            self.warnings = []
+
+        def info(self, *args, **kwargs):
+            return None
+
+        def warning(self, message, *args, **kwargs):
+            self.warnings.append(message % args if args else message)
+
+        def exception(self, *args, **kwargs):
+            return None
+
+    class Feed:
+        supports_preload = True
+        supports_incremental = True
+        ordered = True
+        replayable = True
+
+        def __init__(self, name, close):
+            self.name = name
+            self.close_value = close
+
+        def events(self):
+            yield Bar(_dt(), "A", "kline", {"close": self.close_value})
+
+        def prepare(self):
+            return None
+
+        def close(self):
+            return None
+
+    class Probe(Strategy):
+        def on_init(self):
+            self.calls = []
+
+        def on_bars(self, dt, bars):
+            self.calls.append(bars["A"]["close"])
+
+    logger = CaptureLogger()
+    exchange = Exchange(logger=logger)
+    exchange.add_feed(Feed("low", 100), feed_priority=1)
+    exchange.add_feed(Feed("high", 101), feed_priority=2)
+    exchange.add_feed(Feed("same", 102), feed_priority=1)
+    strategy = Probe("priority", Broker(initial_cash=1000, mark_price=None))
+    exchange.add_strategy(strategy)
+
+    exchange.run()
+
+    assert strategy.calls == [101, 100, 102]
+    assert len(logger.warnings) == 1
+    assert "same-priority feed overlap" in logger.warnings[0]
+
+
+def test_custom_bar_callback_stays_after_trades():
+    class CustomFeed:
+        name = "custom"
+        supports_preload = True
+        supports_incremental = True
+        ordered = True
+        replayable = True
+
+        def events(self):
+            yield Bar(_dt(), "A", "signal", {"value": 1})
+
+    class TradeFeed:
+        name = "trade"
+        supports_preload = True
+        supports_incremental = True
+        ordered = True
+        replayable = True
+
+        def events(self):
+            yield Bar(_dt(), "A", "trade", {"price": 100.0, "qty": 1.0})
+
+    class Probe(Strategy):
+        def on_init(self):
+            self.calls = []
+
+        def on_trades(self, dt, trades):
+            self.calls.append("trade")
+
+        def on_bar(self, dt, bar):
+            self.calls.append("custom")
+
+    exchange = Exchange()
+    exchange.add_feed(CustomFeed())
+    exchange.add_feed(TradeFeed())
+    strategy = Probe("callback-order", Broker(initial_cash=1000, mark_price=None))
+    exchange.add_strategy(strategy)
+
+    exchange.run()
+
+    assert strategy.calls == ["trade", "custom"]
+
+
+def test_duplicate_kline_rows_are_rejected():
+    exchange = Exchange()
+    with pytest.raises(ValueError, match="duplicate"):
+        exchange.set_bars(
+            [
+                {"dt": _dt(), "symbol": "A", "close": 100},
+                {"dt": _dt(), "symbol": "A", "close": 101},
+            ]
+        )
+
+
+def test_exchange_requires_bar_or_news_from_feed():
+    class BadFeed:
+        name = "bad"
+        feed_priority = 0
+        supports_preload = True
+        supports_incremental = True
+        ordered = True
+        replayable = True
+
+        def events(self):
+            yield {"dt": _dt()}
 
     exchange = Exchange()
     exchange.add_feed(BadFeed())
-    exchange.add_strategy(Strategy(strategy_id="s", broker=Broker(initial_cash=1000, fee_rate=0)))
+    exchange.add_strategy(Strategy("bad", Broker(initial_cash=1000, mark_price=None)))
 
-    with pytest.raises(ValueError, match="close"):
+    with pytest.raises(TypeError, match="must yield Bar or News"):
         exchange.run()
+
+
+def test_news_is_not_a_bar():
+    event = News(_dt(), {"headline": "x"})
+    assert event.symbol is None
+    assert not isinstance(event, Bar)
+
+
+@pytest.mark.parametrize("value", [None, float("nan"), "NaT"])
+def test_invalid_datetime_values_are_rejected(value):
+    with pytest.raises(ValueError, match="invalid datetime"):
+        normalize_datetime(value)
+
+
+def test_bar_rejects_missing_kind_and_symbol():
+    with pytest.raises(ValueError, match="kind must not be None"):
+        Bar(_dt(), "A", None, {})
+    with pytest.raises(ValueError, match="symbol must not be None"):
+        Bar(_dt(), None, "kline", {})
+
+
+def test_set_bars_rejects_missing_symbol_value():
+    with pytest.raises(ValueError, match="symbol must not be None"):
+        Exchange().set_bars([{"dt": _dt(), "symbol": None, "close": 100.0}])

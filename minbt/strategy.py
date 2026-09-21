@@ -1,6 +1,7 @@
 from typing import Dict, Optional, Protocol, runtime_checkable
 
 from .broker import Broker, Order
+from .data.model import Bar
 from .logger import logger as default_logger
 
 
@@ -101,6 +102,10 @@ class Strategy:
         pass
 
     def on_bars(self, dt, bars):
+        pass
+
+    def on_bar(self, dt, bar: Bar):
+        """接收没有专用回调的自定义 Bar。"""
         pass
 
     def on_books(self, dt, books):

@@ -29,21 +29,21 @@ def test_exchange_public_signatures_match_design():
     _assert_parameter_contract(
         Exchange.set_bars,
         ["data"],
-        ["date_key", "symbol_key", "price_key"],
+        ["date_key", "symbol_key", "feed_priority"],
     )
     _assert_parameter_contract(
         Exchange.set_books,
         ["data"],
-        ["date_key", "symbol_key", "price_key"],
+        ["date_key", "symbol_key", "feed_priority"],
     )
     _assert_parameter_contract(
         Exchange.set_trades,
         ["data"],
-        ["date_key", "symbol_key", "price_key"],
+        ["date_key", "symbol_key", "feed_priority"],
     )
-    _assert_parameter_contract(Exchange.set_news, ["data"], ["date_key"])
-    _assert_parameter_contract(Exchange.add_feed, ["feed"], [])
-    assert list(_parameters(Exchange.run)) == ["streaming"]
+    _assert_parameter_contract(Exchange.set_news, ["data"], ["date_key", "symbol_key", "feed_priority"])
+    _assert_parameter_contract(Exchange.add_feed, ["feed"], ["feed_priority"])
+    assert list(_parameters(Exchange.run)) == ["load_mode"]
     assert not hasattr(Exchange, "set_data")
 
 
@@ -57,6 +57,9 @@ def test_broker_constructor_signature_matches_design():
             "warning_margin_level",
             "min_margin_level",
             "market",
+            "mark_price",
+            "mark_price_aggregation",
+            "mark_price_missing",
             "logger",
         ],
     )
@@ -66,7 +69,11 @@ def test_broker_constructor_signature_matches_design():
     assert parameters["warning_margin_level"].default == 0.2
     assert parameters["min_margin_level"].default == 0.1
     assert parameters["market"].default is None
+    assert parameters["mark_price"].default == "kline.close"
+    assert parameters["mark_price_aggregation"].default == "error"
+    assert parameters["mark_price_missing"].default == "keep"
     assert parameters["logger"].default is None
+    assert "mark_price_source" not in parameters
 
 
 def test_broker_order_signatures_match_design():
@@ -157,7 +164,7 @@ def test_public_defaults_match_design():
     bars = _parameters(Exchange.set_bars)
     assert bars["date_key"].default == "dt"
     assert bars["symbol_key"].default == "symbol"
-    assert bars["price_key"].default == "close"
+    assert bars["feed_priority"].default == 0
 
     market_order = _parameters(Broker.submit_market_order)
     assert market_order["price"].default is None
@@ -197,7 +204,7 @@ def test_internal_broker_models_are_not_recommended_exports():
 
 
 def test_strategy_and_package_do_not_export_legacy_entry_points():
-    for name in ("on_data", "on_bar", "market_buy", "market_sell", "market_order"):
+    for name in ("on_data", "market_buy", "market_sell", "market_order"):
         assert not hasattr(Strategy, name)
     for name in ("MarketModel", "SimpleMarket", "CryptoMarket", "ChinaAStockMarket"):
         assert not hasattr(minbt, name)

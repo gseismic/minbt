@@ -1,4 +1,3 @@
-from collections import OrderedDict
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -10,7 +9,7 @@ from urllib.request import urlopen
 
 import pandas as pd
 
-from .feed import FeedEvent
+from .model import Bar
 
 
 SOURCE = "binance"
@@ -106,7 +105,11 @@ class BinanceKlineClient:
 
 
 class BarsReplayFeed:
-    event_type = "bars"
+    supports_preload = True
+    # prepare() 当前会把缓存查询结果读入 _rows；它不是渐进读取来源。
+    supports_incremental = False
+    ordered = True
+    replayable = True
 
     def __init__(
         self,
@@ -121,6 +124,7 @@ class BarsReplayFeed:
         refresh=False,
         cache_only=False,
         closed_only=True,
+        feed_priority=0,
     ):
         self.symbols = self._normalize_symbols(symbols)
         self.interval = self._validate_interval(interval)
@@ -137,6 +141,7 @@ class BarsReplayFeed:
         self.refresh = bool(refresh)
         self.cache_only = bool(cache_only)
         self.closed_only = bool(closed_only)
+        self.feed_priority = int(feed_priority)
         self._client = BinanceKlineClient()
         self._prepared = False
         self._rows = None
@@ -165,10 +170,9 @@ class BarsReplayFeed:
         self._rows = self._load_rows(start_ms, end_ms)
         self._prepared = True
 
-    def events(self) -> Iterable[FeedEvent]:
+    def events(self) -> Iterable[Bar]:
         if not self._prepared:
             self.prepare()
-        grouped = OrderedDict()
         for row in self._rows:
             dt = _ms_to_datetime(row["dt_ms"])
             symbol = row["symbol"]
@@ -184,11 +188,9 @@ class BarsReplayFeed:
             for key in ("close_time", "volume_quote", "num_trades", "volume_base_buy", "volume_quote_buy"):
                 if row.get(key) is not None:
                     payload[key] = row[key]
-            grouped.setdefault(dt, OrderedDict())[symbol] = payload
-
-        for dt, bars in grouped.items():
-            prices = OrderedDict((symbol, bar["close"]) for symbol, bar in bars.items())
-            yield FeedEvent(event_type="bars", dt=dt, data=bars, prices=prices)
+            payload.pop("dt", None)
+            payload.pop("symbol", None)
+            yield Bar(dt=dt, symbol=symbol, kind="kline", data=payload)
 
     def close(self) -> None:
         return None

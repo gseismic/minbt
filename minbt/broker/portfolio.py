@@ -1,4 +1,4 @@
-from typing import Dict, Literal, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple
 import copy
 import numpy as np
 from ..logger import logger as default_logger
@@ -127,11 +127,70 @@ class Portfolio:
             else:
                 self.logger.warning(f'[{self.margin_mode}] Reach liquidation, close all positions')
                 self._pure_close_all_positions()
-                _require(self.get_all_positions_total_equity() == 0, f'All positions are not closed', RuntimeError)
+                _require(self.get_all_positions_total_equity() == 0, 'All positions are not closed', RuntimeError)
         elif margin_level <= self.warning_margin_level:
             self.logger.warning(f'[{self.margin_mode}] margin level is too low, margin_level: {margin_level}')
 
         return bankrupt, liquidated, margin_level
+
+    def update_market_batch(
+        self,
+        prices: Dict[str, float],
+        dt: Optional[DateType] = None,
+    ) -> Tuple[bool, bool, float]:
+        """批量更新同一时间点的所有市场价格。
+
+        先更新所有仓位，再计算组合保证金，避免全仓模式下结果依赖 symbol 的
+        迭代顺序。单价入口 `on_new_price` 仍服务订单内部的显式价格处理。
+        """
+
+        if self._bankrupt:
+            return True, False, 0.0
+        normalized = {}
+        for symbol, price in prices.items():
+            _require(price > 0, f'price must be positive, got {price}')
+            normalized[symbol] = float(price)
+            self.last_prices[symbol] = float(price)
+            self.last_prices_dt[symbol] = dt
+
+        for symbol, position in self._positions.items():
+            price = normalized.get(symbol)
+            if price is not None and not position.is_empty():
+                position.update_price_and_pnl(price, dt)
+
+        if self.margin_mode == 'isolated':
+            for symbol, position in list(self._positions.items()):
+                if position.is_empty():
+                    continue
+                margin_level = position.margin_level
+                if margin_level < 0:
+                    self.logger.error(f'[{self.margin_mode}] {symbol} bankrupt, margin_level: {margin_level}')
+                    position.mark_bankrupt()
+                    return True, True, margin_level
+                if margin_level <= self.min_margin_level:
+                    self.logger.warning(
+                        f'[{self.margin_mode}] {symbol} reach liquidation, margin_level: {margin_level}'
+                    )
+                    self._pure_close_position(symbol, normalized.get(symbol))
+                    return False, True, margin_level
+                if margin_level <= self.warning_margin_level:
+                    self.logger.warning(
+                        f'[{self.margin_mode}] margin level is too low, margin_level: {margin_level}'
+                    )
+            return False, False, self.get_portfolio_margin_level()
+
+        margin_level = self.get_portfolio_margin_level()
+        if margin_level < 0:
+            self.logger.error(f'[{self.margin_mode}] portfolio bankrupt, margin_level: {margin_level}')
+            self.mark_bankrupt()
+            return True, True, margin_level
+        if margin_level <= self.min_margin_level:
+            self.logger.warning(f'[{self.margin_mode}] Reach liquidation, close all positions')
+            self._pure_close_all_positions(normalized)
+            return False, True, margin_level
+        if margin_level <= self.warning_margin_level:
+            self.logger.warning(f'[{self.margin_mode}] margin level is too low, margin_level: {margin_level}')
+        return False, False, margin_level
     
     def _update_pnl_get_margin_level(self, 
                                      symbol: str, 
@@ -172,7 +231,7 @@ class Portfolio:
             3. 提交订单，更新仓位和现金
         """
         if self._bankrupt:
-            self.logger.error(f'Portfolio bankrupt, cannot submit order')
+            self.logger.error('Portfolio bankrupt, cannot submit order')
             return False
         
         if leverage is None:
@@ -266,10 +325,10 @@ class Portfolio:
                 self.close_position(symbol)
             else:
                 self.close_position(symbol, last_prices.get(symbol))
-        _require(np.allclose(self.get_all_positions_total_equity(), 0), f'All positions are not closed', RuntimeError)
+        _require(np.allclose(self.get_all_positions_total_equity(), 0), 'All positions are not closed', RuntimeError)
         _require(
             np.allclose(self.get_portfolio_equity(), self.total_cash),
-            f'Portfolio equity is not equal to total cash',
+            'Portfolio equity is not equal to total cash',
             RuntimeError,
         )
 

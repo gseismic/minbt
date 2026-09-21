@@ -98,11 +98,11 @@ def test_strategy_exposes_only_new_data_callbacks():
     strategy = Strategy(strategy_id="test")
 
     assert hasattr(strategy, "on_bars")
+    assert hasattr(strategy, "on_bar")
     assert hasattr(strategy, "on_books")
     assert hasattr(strategy, "on_trades")
     assert hasattr(strategy, "on_news")
     assert not hasattr(strategy, "on_data")
-    assert not hasattr(strategy, "on_bar")
     assert not hasattr(strategy, "market_buy")
     assert not hasattr(strategy, "market_sell")
     assert not hasattr(strategy, "market_order")

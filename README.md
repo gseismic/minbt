@@ -7,13 +7,14 @@ minbt 是一个最简回测框架。目标不是模拟完整交易所，而是�
 3. 在策略里调用 `self.broker` 交易。
 4. 查看现金、持仓、订单和权益结果。
 
-当前主路径是多标的 K 线或类似 bar 数据：已有数据用 `Exchange.set_bars(data)`，需要自动下载和缓存时用 `Exchange.add_feed(feed)`，策略统一写 `Strategy.on_bars(dt, bars)` 并通过 `Broker` 下单。
+当前主路径是多标的 K 线或类似 Bar 数据：已有数据用 `Exchange.set_bars(data)`，需要自动下载和缓存时用 `Exchange.add_feed(feed)`，策略通常写 `Strategy.on_bars(dt, bars)` 并通过 `Broker` 下单。
 
 ## 特性
 
 - 支持 pandas、polars 和 `list[dict]` 数据输入。
 - 支持 Binance futures K 线自动下载、SQLite 缓存和复用。
 - 支持多标的同一时间截面回调：`on_bars(dt, bars)`。
+- 支持自定义 Bar 回调：`on_bar(dt, bar)`。
 - 支持市价单、限价单、撤单和订单状态。
 - 支持目标持仓、目标名义金额、目标权重调仓。
 - 支持多空双向、动态杠杆、全仓和逐仓保证金。
@@ -190,10 +191,10 @@ def on_bars(self, dt, bars):
 
 ## 数据约定
 
-推荐使用：
+`set_bars()` 只负责把行数据转换为 `Bar(kind="kline")`，不负责决定哪一个字段用于盈亏：
 
 ```python
-exchange.set_bars(data, date_key="dt", symbol_key="symbol", price_key="close")
+exchange.set_bars(data, date_key="dt", symbol_key="symbol")
 ```
 
 `data` 支持：
@@ -202,19 +203,46 @@ exchange.set_bars(data, date_key="dt", symbol_key="symbol", price_key="close")
 - `polars.DataFrame`
 - `list[dict]`
 
-bars 必需字段：
+所有 Bar 入口必需字段：
 
 - `dt`: 回测时间，字段名可用 `date_key` 改。
 - `symbol`: 标的代码，字段名可用 `symbol_key` 改。
-- `close`: 当前 bar 用于更新最新价的价格，字段名可用 `price_key` 改。
+
+Kline 不强制完整 OHLCV。`close` 只是常见字段；如果用户只需要 `value`、`signal` 或其他字段，
+也可以直接放入 Bar 的 `data`。
 
 关键规则：
 
-- 同一 `(dt, symbol)` 只能有一条 bar。
+- Kline 和完整 OrderBook 在同一来源同一 `(dt, symbol)` 只能有一条 Bar；Trade 和自定义 Bar 可以有多条。
 - Exchange 会按时间排序并在每个 `dt` 聚合完整截面。
 - 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
-- 同一 `dt` 下，所有标的价格先整体更新，再处理限价单和退出条件，最后调用策略回调。
+- 同一 `dt` 下，Exchange 先收齐全部市场事件；Broker 按 `mark_price` 选择估值价格，
+  批量更新所有标的，再处理限价单和退出条件，最后调用策略回调。
 - 不提供 `date_key=None` 或行号时间；时间字段必须显式存在。
+
+## 通用 Bar 和其他市场数据
+
+Kline、OrderBook、Trade、Price 都是 Bar 的不同 `kind`，不要求共享一套字段：
+
+```python
+from minbt import Bar
+
+Bar(dt, "BTCUSDT", "price", {"value": 100.2, "source": "exchange_mark"})
+Bar(dt, "BTCUSDT", "orderbook", {"bids": [(100.0, 1.0)], "asks": [(100.1, 1.0)]})
+Bar(dt, "BTCUSDT", "trade", {"price": 100.05, "qty": 0.2, "side": "buy"})
+```
+
+`News` 是独立的时间事件，不默认参与盈亏。CSV、iosql 是具体 Feed 的读取来源，不需要用户创建
+Storage、Schema 或 Adapter。
+
+通用 Bar 存储使用最小字段信封：
+
+```text
+dt,symbol,kind,data
+```
+
+CSV 中 `data` 是 JSON 文本；iosql 中 `dt` 是 UTC 毫秒时间戳、`data` 是 JSON 文本。读取通用
+Bar 时使用 `CsvBarFeed` 或 `IosqlBarFeed`，它们不会解释 `kind` 的字段。
 
 ## 自动下载加密货币 K 线
 
@@ -246,10 +274,10 @@ def on_bars(self, dt, bars):
 
 完整示例见 `examples/11_crypto_binance_feed.py`。
 
-## 渐进读取 CSV / iosql K 线
+## CSV / iosql K 线回放
 
-对于 `crypto.bn_data_sync` 生成的月度 CSV 或 iosql 库，可以使用流式 bars Feed。
-Feed 会按时间点读取和聚合数据，Exchange 不会在回测开始前物化完整行情：
+对于 `crypto.bn_data_sync` 生成的月度 CSV 或 iosql 库，可以使用 Kline 专用历史 Feed。
+有序 Feed 支持渐进回放，Exchange 只保留当前时间批次和各来源的少量读取缓冲：
 
 ```python
 from minbt.data import CsvBarsFeed, IosqlBarsFeed
@@ -272,10 +300,12 @@ exchange.add_feed(IosqlBarsFeed(
     batch_size=10_000,
 ))
 
-exchange.run()  # 只有全部 Feed 支持 streaming 时自动使用流式路径
+exchange.run()  # auto：有序来源优先使用渐进回放
+exchange.run(load_mode="preload")
+exchange.run(load_mode="incremental")
 ```
 
-iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序流式查询，
+iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序查询，
 需要安装 iosql v0.3.x 或更新版本。`start/end` 在 minbt 中是半开区间 `[start, end)`；
 iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/12_csv_feed.py` 和
 `examples/13_iosql_feed.py`。
@@ -284,20 +314,47 @@ iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/12_csv_fe
 CSV 请求月份不能缺文件；iosql 的 interval/table 必须存在且表契约可查询。检查失败会
 在策略开始前抛出带参数上下文的异常，不会静默完成空回测。
 
-流式读取用额外的迭代与归并开销换取有界内存。10 万根 bar 的参考实测峰值约为
-38.3 MB（物化路径约 180.1 MB），耗时约慢 40%；具体数字会随机器与数据布局变化。
+渐进回放用额外的迭代与归并开销换取更低的历史行情内存；全量预加载适合小数据和速度优先的
+场景。具体速度和内存取决于来源、时间批次大小和数据字段。
+
+如果存储的是 OrderBook、Trade、Price 或自定义 Bar，使用通用信封：
+
+```python
+from minbt.data import CsvBarFeed
+
+exchange.add_feed(CsvBarFeed("/path/to/bars.csv"))
+```
+
+通用 CSV/iosql Feed 只要求 `dt`、`symbol`、`kind`、`data`，不会把数据强制解释成 OHLCV。
 
 除 bars 外，Exchange 还支持相同时间截面模型的数据入口：
 
-- `set_books(data, date_key="dt", symbol_key="symbol", price_key=None)`
-- `set_trades(data, date_key="dt", symbol_key="symbol", price_key="price")`
-- `set_news(data, date_key="dt")`
+- `set_books(data, date_key="dt", symbol_key="symbol")`
+- `set_trades(data, date_key="dt", symbol_key="symbol")`
+- `set_news(data, date_key="dt", symbol_key="symbol")`
 
 回调顺序固定为：
 
 ```text
-on_bars -> on_books -> on_trades -> on_news
+on_bars -> on_books -> on_trades -> on_bar -> on_news
 ```
+
+Feed 注册时可以指定 `feed_priority`。它只决定同一时间点的分发顺序，不决定 Broker 的估值
+价格；同优先级来源在同一时间、同一数据族、同一 symbol 真正重叠时会 Warning。
+
+例如使用交易所 mark price 计算盈亏：
+
+```python
+broker = Broker(
+    initial_cash=10_000,
+    mark_price="price.value",
+)
+```
+
+普通 Kline 回测不需要配置 `mark_price`，`Broker()` 默认使用 `kline.close`。常见的其他来源可以
+使用 `mark_price="orderbook.mid"` 或 `mark_price="trade.price"`。同一批次出现多个候选价格时
+默认报错；需要明确选择时再配置 `mark_price_aggregation="first"`、`"last"` 或自定义函数。
+如果账户已有持仓或挂单，却从未得到可用估值价格，Broker 会报错并提示补充字段或修改 `mark_price`。
 
 ## Broker 交易接口
 
@@ -514,6 +571,17 @@ btc_sizes = strategy.get_hist_position_sizes("BTCUSDT")
 stats = strategy.get_broker_stats(portfolio="main")
 ```
 
+如果要查看净盈亏曲线，请在回测开始前保存初始权益，再用权益减去初始权益：
+
+```python
+initial_equity = broker.get_total_equity()
+exchange.run()
+pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
+```
+
+曲线中的正值表示盈利，负值表示亏损；持仓未平时是按最新价计算的未实现盈亏，最终平仓后还包含手续费影响。
+可直接运行 `examples/00_pnl_sanity_check.py` 查看多头、空头和手续费的手算校验。
+
 两个历史查询都返回 Python `list`。从未交易过的 symbol 返回与权益历史等长的全零列表；
 安装 pyta2 只改变内部存储方式，不改变查询结果类型和缺失值语义。
 
@@ -531,6 +599,7 @@ broker.get_orders()
 推荐按顺序阅读：
 
 ```bash
+python examples/00_pnl_sanity_check.py
 python examples/01_demo_mini.py
 python examples/02_single_symbol_sma.py
 python examples/03_multi_symbol_rotation.py
@@ -544,10 +613,13 @@ python examples/10_scenario_cross_market.py
 python examples/11_crypto_binance_feed.py
 python examples/12_csv_feed.py
 python examples/13_iosql_feed.py
+python examples/14_exchange_replay_modes.py
+python examples/15_generic_bar_storage.py
 ```
 
 示例文件：
 
+- [examples/00_pnl_sanity_check.py](./examples/00_pnl_sanity_check.py)：可手算的多空、手续费和净盈亏曲线校验。
 - [examples/01_demo_mini.py](./examples/01_demo_mini.py)：最小单标的示例。
 - [examples/02_single_symbol_sma.py](./examples/02_single_symbol_sma.py)：单标的双均线趋势跟随。
 - [examples/03_multi_symbol_rotation.py](./examples/03_multi_symbol_rotation.py)：多标的横截面动量轮动。
@@ -560,7 +632,9 @@ python examples/13_iosql_feed.py
 - [examples/10_scenario_cross_market.py](./examples/10_scenario_cross_market.py)：一个 Broker 内同时交易 A 股和 crypto。
 - [examples/11_crypto_binance_feed.py](./examples/11_crypto_binance_feed.py)：自动下载、缓存并回放 Binance futures K 线。
 - [examples/12_csv_feed.py](./examples/12_csv_feed.py)：渐进读取 crypto.bn_data_sync 月度 CSV K 线。
-- [examples/13_iosql_feed.py](./examples/13_iosql_feed.py)：使用 iosql 有序流式查询渐进读取 K 线。
+- [examples/13_iosql_feed.py](./examples/13_iosql_feed.py)：使用 iosql 有序查询渐进回放 K 线。
+- [examples/14_exchange_replay_modes.py](./examples/14_exchange_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
+- [examples/15_generic_bar_storage.py](./examples/15_generic_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
 - [examples/example_utils.py](./examples/example_utils.py)：高级示例共用的目标名义金额调仓辅助函数。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
@@ -586,6 +660,12 @@ Use $minbt-usage to write a minbt strategy for my CSV data.
 
 ```bash
 python -m pytest -q
+```
+
+只验证盈亏示例和 Broker 往返盈亏：
+
+```bash
+python -m pytest -q tests/test_pnl.py tests/test_examples.py
 ```
 
 运行编译检查：

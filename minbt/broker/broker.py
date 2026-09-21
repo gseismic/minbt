@@ -1,12 +1,15 @@
 from collections import Counter, OrderedDict
 import copy
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import math
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from .exit import ExitConfig, ExitContext, ExitRule, _ExitState
 from .market import Market
 from .order import Order, OrderSource
 from .portfolio import Portfolio
 from .struct import DateType, Position, _require
+from ..data.model import Bar
+from ..data.replay import TimeBatch
 from ..logger import logger as default_logger
 
 
@@ -24,13 +27,16 @@ class Broker:
     def __init__(
         self,
         initial_cash: float,
-        fee_rate: float,
+        fee_rate: float = 0.0,
         *,
         leverage: float = 1.0,
         margin_mode: str = "cross",
         warning_margin_level: float = 0.2,
         min_margin_level: float = 0.1,
         market: Optional[Market] = None,
+        mark_price: Union[str, Tuple[str, str], Tuple[str, str, str], Callable, None] = "kline.close",
+        mark_price_aggregation: Union[str, Callable] = "error",
+        mark_price_missing: str = "keep",
         logger=None,
     ):
         _require(initial_cash > 0, f"initial_cash must be greater than 0, initial_cash: {initial_cash}")
@@ -69,6 +75,11 @@ class Broker:
         self._market_name_to_symbols: Dict[str, List[str]] = {}
         self.logger = logger or default_logger
         self.initial_cash = initial_cash
+        self.mark_price = self._validate_mark_price(mark_price)
+        self.mark_price_aggregation = self._validate_mark_price_aggregation(mark_price_aggregation)
+        if mark_price_missing not in ("keep", "error"):
+            raise ValueError("mark_price_missing must be 'keep' or 'error'")
+        self.mark_price_missing = mark_price_missing
 
         self.portfolios: Dict[str, Portfolio] = {
             DEFAULT_PORTFOLIO: self._create_portfolio(initial_cash)
@@ -86,6 +97,35 @@ class Broker:
         self._exit_states: Dict[str, _ExitState] = {}
         self._active_exit_order_by_position: Dict[Tuple[str, str], str] = {}
         self._position_order_ids: Dict[Tuple[str, str], set] = {}
+
+    @staticmethod
+    def _validate_mark_price(source):
+        if source is None or callable(source):
+            return source
+        if isinstance(source, str):
+            value = source.strip()
+            kind, separator, field = value.partition(".")
+            if not separator or not kind.strip() or not field.strip() or "." in field:
+                raise TypeError("mark_price must look like 'kind.field', for example 'kline.close'")
+            return kind.strip().lower(), field.strip()
+        if not isinstance(source, tuple) or len(source) not in (2, 3):
+            raise TypeError(
+                "mark_price must be a 'kind.field' string, None, a callable, "
+                "(kind, field), or (feed_name, kind, field)"
+            )
+        if any(not isinstance(value, str) or not value.strip() for value in source):
+            raise TypeError("mark_price tuple values must be non-empty strings")
+        if len(source) == 2:
+            return source[0].strip().lower(), source[1].strip()
+        return source[0].strip(), source[1].strip().lower(), source[2].strip()
+
+    @staticmethod
+    def _validate_mark_price_aggregation(value):
+        if callable(value):
+            return value
+        if value not in ("error", "first", "last"):
+            raise ValueError("mark_price_aggregation must be 'error', 'first', 'last', or callable")
+        return value
 
     def _create_portfolio(self, initial_cash: float) -> Portfolio:
         return Portfolio(
@@ -515,6 +555,148 @@ class Broker:
     def get_market(self, symbol: str) -> Market:
         """返回 symbol 当前市场规则的快照。"""
         return copy.copy(self._market_for(symbol))
+
+    def process_market_batch(self, batch: TimeBatch):
+        """处理一个完整时间批次。
+
+        Exchange 只把原始市场事件交给 Broker。Broker 先按自己的估值配置选价，
+        再一次性更新所有组合，最后处理挂单和退出条件。
+        """
+
+        prices = self.update_market_batch(batch)
+        self.process_pending_orders(dt=batch.dt)
+        self.check_exit_rules(dt=batch.dt, data=batch)
+        return prices
+
+    def update_market_batch(self, batch: TimeBatch) -> Dict[str, float]:
+        """从 TimeBatch 选出估值价格，并批量推进所有 Portfolio。"""
+
+        prices = self._select_mark_prices(batch)
+        if batch.dt != self._last_market_dt:
+            self._on_new_dt(batch.dt)
+            self._last_market_dt = batch.dt
+
+        for symbol, price in prices.items():
+            self.last_prices[symbol] = price
+            self.last_price_dates[symbol] = batch.dt
+        for portfolio in self.portfolios.values():
+            portfolio.update_market_batch(prices, batch.dt)
+        return prices
+
+    def _select_mark_prices(self, batch: TimeBatch) -> Dict[str, float]:
+        source = self.mark_price
+        if source is None:
+            return {}
+
+        if callable(source):
+            symbols = {
+                item.event.symbol
+                for item in batch.bars()
+            }
+            symbols.update(self._known_symbols())
+            selected = {}
+            for symbol in sorted(symbols):
+                value = source(batch, symbol)
+                if value is None:
+                    continue
+                selected[symbol] = self._validate_mark_value(symbol, value)
+            self._check_missing_mark_prices(batch, selected)
+            return selected
+
+        candidates = {}
+        for item in batch.bars():
+            event = item.event
+            if not self._matches_mark_source(item, event, source):
+                continue
+            field = source[-1]
+            if not isinstance(event.data, dict) and not hasattr(event.data, "get"):
+                continue
+            value = event.data.get(field)
+            if value is None:
+                continue
+            candidates.setdefault(event.symbol, []).append(
+                (item, self._validate_mark_value(event.symbol, value))
+            )
+
+        selected = {}
+        for symbol, values in candidates.items():
+            selected[symbol] = self._aggregate_mark_values(symbol, values)
+        self._check_missing_mark_prices(batch, selected)
+        return selected
+
+    @staticmethod
+    def _matches_mark_source(item, event: Bar, source: Tuple[str, ...]) -> bool:
+        if len(source) == 2:
+            return event.kind == source[0]
+        return item.feed_name == source[0] and event.kind == source[1]
+
+    def _aggregate_mark_values(self, symbol: str, values) -> float:
+        prices = [price for _, price in values]
+        aggregation = self.mark_price_aggregation
+        if callable(aggregation):
+            result = aggregation(tuple(prices))
+            return self._validate_mark_value(symbol, result)
+        if len(prices) > 1 and aggregation == "error":
+            raise ValueError(
+                f"multiple mark prices for {symbol!r} in one TimeBatch; "
+                "set mark_price_aggregation to 'first', 'last', or a callable"
+            )
+        return prices[0] if aggregation in ("error", "first") else prices[-1]
+
+    @staticmethod
+    def _validate_mark_value(symbol: str, value) -> float:
+        try:
+            result = float(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"mark price for {symbol!r} is not numeric: {value!r}") from exc
+        if not math.isfinite(result) or result <= 0:
+            raise ValueError(f"mark price for {symbol!r} must be finite and positive: {value!r}")
+        return result
+
+    def _check_missing_mark_prices(self, batch: TimeBatch, selected: Dict[str, float]) -> None:
+        if self.mark_price_missing == "error":
+            missing = sorted(
+                symbol
+                for symbol in self._symbols_requiring_market_price()
+                if symbol not in selected
+            )
+        else:
+            missing = sorted(
+                symbol
+                for symbol in self._symbols_requiring_market_price()
+                if symbol not in selected and symbol not in self.last_prices
+            )
+        if missing:
+            source = self._mark_price_description()
+            raise ValueError(
+                f"mark price {source} did not provide prices at {batch.dt!r} for symbols {missing!r}; "
+                f"add the required field or configure mark_price, for example "
+                f"mark_price='orderbook.mid'"
+            )
+
+    def _symbols_requiring_market_price(self):
+        symbols = set()
+        for portfolio in self.portfolios.values():
+            symbols.update(
+                symbol
+                for symbol, position in portfolio.positions.items()
+                if not position.is_empty()
+            )
+        for order_id in self._pending_order_ids:
+            order = self.orders.get(order_id)
+            if order is not None:
+                symbols.add(order.symbol)
+        return symbols
+
+    def _mark_price_description(self) -> str:
+        source = self.mark_price
+        if callable(source):
+            return "callable mark_price"
+        if source is None:
+            return "disabled mark_price"
+        if len(source) == 2:
+            return repr(f"{source[0]}.{source[1]}")
+        return repr(f"{source[0]}:{source[1]}.{source[2]}")
 
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
         _require(price > 0, f"price must be positive, price: {price}")

@@ -1,6 +1,6 @@
 ---
 name: minbt-usage
-description: Use when helping a user build, adapt, review, or debug a minbt trading strategy or backtest. Trigger for tasks involving user strategy code, local OHLCV/bar data, Exchange.set_bars, Strategy.on_bars, Broker orders, target positions, exits, limit orders, portfolios, markets, examples, or README usage guidance.
+description: This skill should be used when the user asks to "write a minbt strategy", "run a minbt backtest", "adapt OHLCV or bar data for minbt", or "debug minbt orders or PnL", or mentions Exchange.set_bars, Exchange.add_feed, Strategy.on_bars/on_bar, Broker orders, target positions, exits, limit orders, portfolios, markets, CSV/iosql/Binance feeds, or minbt examples. Do not use it for implementing minbt internals.
 ---
 
 # minbt Usage
@@ -52,8 +52,8 @@ pip install -e ".[dev]"
 
 ## 策略开发工作流
 
-1. 先确认用户数据结构：时间列、标的列、价格列。
-2. 本地已有数据时优先使用 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol", price_key="close")`。
+1. 先确认用户数据结构：时间列、标的列和市场字段。
+2. 本地已有数据时优先使用 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol")`。
 3. 需要自动下载和复用行情时，使用 `Exchange.add_feed(feed)`，例如 `minbt.data.binance.BarsReplayFeed`。
 4. 继承 `Strategy`，在 `on_init()` 初始化状态。
 5. 在 `on_bars(dt, bars)` 读取当前时间截面。
@@ -61,8 +61,34 @@ pip install -e ".[dev]"
 7. 用 `Order.status` 判断下单结果，不依赖 `reason` 精确文本。
 8. 给用户提供最小运行命令和验证命令。
 
+## 回调与数据入口
+
+默认使用 `set_bars()` 接入已在内存中的 bars 数据。需要其他事件类型时，使用对应的公开入口：
+
+```python
+exchange.set_books(data, date_key="dt", symbol_key="symbol")
+exchange.set_trades(data, date_key="dt", symbol_key="symbol")
+exchange.set_news(data, date_key="dt", symbol_key="symbol")
+```
+
+在策略中实现对应回调：`on_bars(dt, bars)`、`on_books(dt, books)`、`on_trades(dt, trades)`、
+`on_bar(dt, bar)`、`on_news(dt, news)`。同一 `dt` 下先收齐完整时间批次，再由 Broker 按
+`mark_price` 选择估值价格并批量更新账户，随后处理待处理订单和退出条件，最后按
+`bars → books → trades → bar → news` 顺序调用策略回调。
+
+普通用户只需要 `exchange.run()`。需要控制内存/速度时，再使用 `load_mode`：
+
+```python
+exchange.run()                         # auto
+exchange.run(load_mode="preload")      # 全量预加载，速度优先
+exchange.run(load_mode="incremental")  # 渐进回放，内存优先
+```
+
+`stream` 只保留给未来实时模式，不用于历史回放。
+
 如果用户要求写示例，优先参考：
 
+- `examples/00_pnl_sanity_check.py`: 可手算的多空、手续费和净盈亏曲线校验。
 - `examples/01_demo_mini.py`: 最小单标的。
 - `examples/02_single_symbol_sma.py`: 单标的均线。
 - `examples/03_multi_symbol_rotation.py`: 多标的横截面轮动。
@@ -76,10 +102,12 @@ pip install -e ".[dev]"
 - `examples/11_crypto_binance_feed.py`: 自动下载、缓存并回放 Binance futures K 线。
 - `examples/12_csv_feed.py`: 渐进读取月度 CSV K 线。
 - `examples/13_iosql_feed.py`: 渐进读取 iosql K 线。
+- `examples/14_exchange_replay_modes.py`: 通用 Bar、Feed 优先级和 Broker 估值来源。
+- `examples/15_generic_bar_storage.py`: 通用 Bar CSV 存储和自定义 Bar 回调。
 
 ## 数据契约
 
-推荐 bars 数据至少包含：
+Kline 行数据至少包含：
 
 ```text
 dt, symbol, close
@@ -91,20 +119,21 @@ dt, symbol, close
 - 单标的也是多标的的特例，仍建议保留 `symbol` 列。
 - 同一 `(dt, symbol)` 只能有一条 bar。
 - 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
-- Exchange 会先更新同一 `dt` 下全部 symbol 的最新价，再触发策略回调。
+- Kline 不强制完整 OHLCV；`close` 是否用于估值由 Broker 配置决定。
+- Exchange 不根据 Feed 优先级选择盈亏价格。
 - 不要使用行号代替时间；`date_key` 必须存在。
 
 如果用户数据列名不同，映射参数即可：
 
 ```python
-exchange.set_bars(data, date_key="date", symbol_key="ticker", price_key="close_price")
+exchange.set_bars(data, date_key="date", symbol_key="ticker")
 ```
 
 如果用户只有单标的 CSV 且缺少 `symbol` 列，可以在加载后补一列：
 
 ```python
 data["symbol"] = "BTCUSDT"
-exchange.set_bars(data, date_key="date", symbol_key="symbol", price_key="close")
+exchange.set_bars(data, date_key="date", symbol_key="symbol")
 ```
 
 ## 自动下载行情
@@ -136,10 +165,12 @@ def on_bars(self, dt, bars):
 ```
 
 如果用户要求完全离线运行，可以传 `cache_only=True`。缓存不存在或覆盖不完整时会报错，不会创建空缓存。
+该 Binance Feed 当前在准备阶段读取缓存查询结果，默认适合全量预加载；需要渐进回放时使用 CSV 或
+iosql Feed。
 
 ## 渐进读取 CSV / iosql
 
-数据来自 `crypto.bn_data_sync` 月度 CSV 或 iosql 库时，使用流式 Feed：
+数据来自 `crypto.bn_data_sync` 月度 CSV 或 iosql 库时，使用支持渐进回放的 Feed：
 
 ```python
 from minbt.data import CsvBarsFeed, IosqlBarsFeed
@@ -156,9 +187,15 @@ exchange.add_feed(CsvBarsFeed(
 exchange.run()
 ```
 
-这些 Feed 在策略启动前检查数据完整性：请求 symbol、CSV 月份、iosql table/interval
-或时间范围没有数据时直接报错，不会静默运行空回测。流式路径节省内存，但会增加一些
-归并与迭代耗时。
+`start/end` 使用半开区间 `[start, end)`；iosql 的闭区间查询由 Feed 自动转换。两个 Feed
+在策略启动前检查数据完整性：请求 symbol、CSV 月份、iosql table/interval 或时间范围没有
+数据时直接报错，不会静默运行空回测。`IosqlBarsFeed` 需要安装 `iosql` 0.3.x 或更新版本，
+`batch_size` 只用于调整数据库读取缓冲。渐进回放节省历史数据内存，但会增加归并与迭代耗时；
+全量预加载适合小数据和速度优先的场景。
+
+如果 CSV/iosql 存储的是 OrderBook、Trade、Price 或自定义 Bar，使用通用 `CsvBarFeed` 或
+`IosqlBarFeed`。通用存储至少包含 `dt,symbol,kind,data`，其中 `data` 是 JSON；Kline 专用
+`CsvBarsFeed`、`IosqlBarsFeed` 继续用于 Binance Kline 文件和表。
 
 ## Strategy 模板
 
@@ -258,6 +295,15 @@ elif order.status == "rejected":
 
 不要依赖 `reason` 的精确字符串。
 
+常见订单状态为 `filled`（成交）、`pending`（限价单挂起）、`canceled`（已撤销）、`rejected`
+（资金或市场规则拒绝）和 `skipped`（目标仓位未变化）。稳定逻辑优先读取 `status`、`qty`、
+`filled_qty`、`avg_price` 等结构化字段。
+
+限价单按当前最新价触发，不根据 bar 的 `high/low` 推断 intrabar 路径。买入限价单在最新价
+小于等于 `limit_price` 时触发，卖出限价单在最新价大于等于 `limit_price` 时触发；提交时和触发
+时都会检查资金与市场规则，pending 期间不预留资金，也不模拟排队和部分成交。`close_portfolio()`
+成功后取消该 portfolio 的 pending 限价单，关闭预检失败时保持 pending。
+
 历史查询始终返回 Python `list`：
 
 ```python
@@ -266,6 +312,21 @@ sizes = strategy.get_hist_position_sizes(symbol)
 ```
 
 从未交易的 symbol 返回与权益历史等长的全零列表；安装 pyta2 只改变内部存储。
+
+净盈亏曲线可以直接由权益曲线计算。应在回测前保存初始权益：
+
+```python
+initial_equity = broker.get_total_equity()
+exchange.run()
+pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
+```
+
+定义为 `pnl(t) = equity(t) - initial_equity`。正值表示盈利，负值表示亏损；持仓未平时包含按最新价
+盯市的未实现盈亏，最终结果包含手续费。在默认杠杆、单次完整开平仓且没有其他成交的示例中，可用
+`gross_pnl = qty * (exit - entry)`、
+`fees = (abs(qty) * entry + abs(qty) * exit) * fee_rate`、
+`net_pnl = gross_pnl - fees` 独立核对。需要确认计算是否正确时，优先运行
+`examples/00_pnl_sanity_check.py`，它会把理论手算值和实际回测值同时打印并绘制零盈亏基线。
 
 ## 退出条件
 
@@ -371,8 +432,9 @@ self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="cry
 给用户生成或修改策略后，优先运行最小相关命令：
 
 ```bash
+python examples/00_pnl_sanity_check.py
 python examples/01_demo_mini.py
-python -m pytest -q tests/test_examples.py
+python -m pytest -q tests/test_pnl.py tests/test_examples.py
 python -m pytest -q
 python -m compileall -q minbt tests examples
 git diff --check
@@ -386,6 +448,6 @@ git diff --check
 
 - README 和示例优先面向用户写策略，不讲内部状态机。
 - 简单路径短，复杂功能渐进展开。
-- 不恢复 `on_data/on_bar/on_tick/set_data` 旧入口。
+- 不恢复旧的 `on_data/on_tick/set_data` 入口；`on_bar` 是当前通用自定义 Bar 的回调。
 - 不在 Strategy 上添加交易语法糖；交易统一通过 `self.broker`。
 - 限价单、固定退出价、追踪止损和函数式退出已经实现，文档不要写成未实现。

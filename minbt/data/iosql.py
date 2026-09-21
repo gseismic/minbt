@@ -2,7 +2,7 @@ from operator import index
 from pathlib import Path
 from typing import Iterator
 
-from .bars import _KlineRowFeed, datetime_to_ms, normalize_symbols, to_utc_datetime
+from .kline import _KlineRowFeed, datetime_to_ms, normalize_symbols, to_utc_datetime
 
 
 class _IosqlFeedConfigurationError(ValueError):
@@ -23,6 +23,7 @@ class IosqlBarsFeed(_KlineRowFeed):
         table=None,
         batch_size=10_000,
         name=None,
+        feed_priority=0,
     ):
         if isinstance(uri, Path):
             uri = str(uri)
@@ -53,6 +54,7 @@ class IosqlBarsFeed(_KlineRowFeed):
             raise ValueError("batch_size must be a positive integer")
         self.batch_size = normalized_batch_size
         self.name = name or self._default_name()
+        self.feed_priority = int(feed_priority)
         self._db = None
         self._query = None
         self._prepared = False

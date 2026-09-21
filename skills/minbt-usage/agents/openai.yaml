@@ -1,4 +1,4 @@
 interface:
   display_name: "minbt Usage"
-  short_description: "Write user-facing minbt strategies"
-  default_prompt: "Use $minbt-usage to write a minimal minbt Strategy from my local OHLCV data."
+  short_description: "Build and validate minbt strategies"
+  default_prompt: "Use $minbt-usage to write and validate a minbt Strategy from my local bars or data Feed."
