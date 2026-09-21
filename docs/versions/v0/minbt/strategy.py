@@ -1,0 +1,187 @@
+from typing import Dict, Optional, Protocol, runtime_checkable
+
+from .broker import Broker, Order
+from .logger import logger as default_logger
+
+
+BROKER_PROTOCOL_METHODS = (
+    "submit_market_order",
+    "submit_limit_order",
+    "cancel_order",
+    "get_position_size",
+    "get_position_sizes",
+    "get_total_equity",
+    "get_equity",
+    "get_cash",
+    "get_positions",
+    "order_target_size",
+    "order_target_value",
+    "order_target_percent",
+    "close_position",
+    "close_portfolio",
+    "set_exit",
+    "clear_exit",
+    "get_exit",
+    "add_exit",
+    "get_active_order",
+)
+
+
+@runtime_checkable
+class BrokerProtocol(Protocol):
+    def submit_market_order(self, symbol: str, qty: float, price: Optional[float] = None, **kwargs) -> Order: ...
+    def submit_limit_order(self, symbol: str, qty: float, limit_price: float, **kwargs) -> Order: ...
+    def cancel_order(self, order_id: str) -> Order: ...
+    def get_position_size(self, symbol: str, portfolio: Optional[str] = None) -> float: ...
+    def get_position_sizes(self, portfolio: Optional[str] = None) -> Dict[str, float]: ...
+    def get_total_equity(self) -> float: ...
+    def get_equity(self, portfolio: Optional[str] = None) -> float: ...
+    def get_cash(self, portfolio: Optional[str] = None, include_locked: bool = False) -> float: ...
+    def get_positions(self, portfolio: Optional[str] = None): ...
+    def order_target_size(self, symbol: str, target_size: float, price: Optional[float] = None, **kwargs) -> Order: ...
+    def order_target_value(self, symbol: str, target_value: float, price: Optional[float] = None, **kwargs) -> Order: ...
+    def order_target_percent(self, symbol: str, target_percent: float, price: Optional[float] = None, **kwargs) -> Order: ...
+    def close_position(self, symbol: str, price: Optional[float] = None, **kwargs) -> Order: ...
+    def close_portfolio(self, portfolio: str): ...
+    def set_exit(self, order_id: str, **kwargs): ...
+    def clear_exit(self, order_id: str, **kwargs): ...
+    def get_exit(self, order_id: str): ...
+    def add_exit(self, order_id: str, *, name: Optional[str] = None, condition, state=None): ...
+    def get_active_order(self, symbol: str, *, portfolio: Optional[str] = None) -> Optional[Order]: ...
+
+
+class Strategy:
+    def __init__(
+        self,
+        strategy_id: str,
+        broker: Optional[Broker] = None,
+        params: Optional[dict] = None,
+        logger=None,
+    ):
+        self.strategy_id = strategy_id
+        self.set_broker(broker)
+        self.params = params if params is not None else {}
+        self.logger = logger or default_logger
+        self._equity_history = None
+        self._position_size_history = None
+        self._pyta_available = None
+
+    def _check_pyta(self):
+        if self._pyta_available is None:
+            try:
+                from pyta2.utils.vector import NumpyVector, VectorTable
+
+                self._pyta_NumpyVector = NumpyVector
+                self._pyta_VectorTable = VectorTable
+                self._pyta_available = True
+            except ImportError:
+                self._pyta_available = False
+
+    def set_broker(self, broker):
+        if broker is None:
+            self.broker = None
+            return
+        if not isinstance(broker, BrokerProtocol):
+            raise TypeError(
+                f"broker must implement BrokerProtocol ({', '.join(BROKER_PROTOCOL_METHODS)}), "
+                f"got {type(broker).__name__}"
+            )
+        self.broker = broker
+
+    def set_params(self, params: dict):
+        self.params = params
+
+    def update_params(self, **kwargs):
+        self.params.update(kwargs)
+
+    def set_exchange(self, exchange):
+        self.exchange = exchange
+
+    def on_init(self):
+        pass
+
+    def on_bars(self, dt, bars):
+        pass
+
+    def on_books(self, dt, books):
+        pass
+
+    def on_trades(self, dt, trades):
+        pass
+
+    def on_news(self, dt, news):
+        pass
+
+    def on_finish(self):
+        pass
+
+    def _ensure_broker_history(self):
+        if self.broker is None:
+            return
+
+        if self._equity_history is None:
+            self._check_pyta()
+            if self._pyta_available:
+                self._equity_history = self._pyta_NumpyVector()
+            else:
+                self._equity_history = []
+
+        if self._position_size_history is None:
+            self._check_pyta()
+            if self._pyta_available:
+                self._position_size_history = self._pyta_VectorTable()
+            else:
+                self._position_size_history = []
+
+    def _record_broker_history(self):
+        if self.broker is None:
+            return
+
+        self._ensure_broker_history()
+        equity = self.broker.get_total_equity()
+        self._equity_history.append(equity)
+
+        positions = self.broker.get_position_sizes()
+        if isinstance(self._position_size_history, list):
+            self._position_size_history.append(positions)
+        else:
+            # VectorTable 用 dtype 填充值表示缺列；持仓历史的业务语义应为 0。
+            # 新 symbol 出现时补齐既有行，之后每行也显式写入已知 symbol。
+            known_symbols = set(self._position_size_history.columns)
+            for symbol in positions:
+                if symbol not in known_symbols:
+                    self._position_size_history.ensure_column(symbol, dtype=float)
+                    self._position_size_history[symbol] = 0.0
+            row = {
+                symbol: positions.get(symbol, 0.0)
+                for symbol in self._position_size_history.columns
+            }
+            self._position_size_history.append(row)
+
+    def _dispatch_exchange_callback(self, name: str, dt, data):
+        getattr(self, name)(dt, data)
+
+    def get_hist_equity(self):
+        if self._equity_history is None:
+            return []
+        if isinstance(self._equity_history, list):
+            return list(self._equity_history)
+        return self._equity_history.to_numpy().tolist()
+
+    def get_hist_position_sizes(self, symbol: str):
+        if self._position_size_history is None:
+            return []
+        if isinstance(self._position_size_history, list):
+            return [p.get(symbol, 0) for p in self._position_size_history]
+        if symbol not in self._position_size_history.columns:
+            return [0.0] * len(self._position_size_history)
+        values = self._position_size_history.get_column(symbol).tolist()
+        missing = self._position_size_history.get_fill_mask(symbol).tolist()
+        return [0.0 if is_missing else value for value, is_missing in zip(values, missing)]
+
+    def get_broker_stats(self, portfolio: str = "main"):
+        return {
+            "equity": self.broker.get_equity(portfolio=portfolio),
+            "cash": self.broker.get_cash(portfolio=portfolio),
+            "positions": self.broker.get_positions(portfolio=portfolio),
+        }

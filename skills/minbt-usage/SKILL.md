@@ -1,11 +1,28 @@
 ---
 name: minbt-usage
-description: This skill should be used when the user asks to "write a minbt strategy", "run a minbt backtest", "adapt OHLCV or bar data for minbt", or "debug minbt orders or PnL", or mentions Exchange.set_bars, Exchange.add_feed, Strategy.on_bars/on_bar, Broker orders, target positions, exits, limit orders, portfolios, markets, CSV/iosql/Binance feeds, or minbt examples. Do not use it for implementing minbt internals.
+description: This skill should be used when the user asks to "write a minbt strategy", "run a minbt backtest", "adapt OHLCV or bar data for minbt", or "debug minbt orders or PnL", or mentions Exchange.set_bars, Exchange.add_feed, Strategy.on_bars/on_bar, Broker orders, target positions, exits, limit orders, portfolios, markets, CSV/iosql/Binance feeds, or minbt examples. It distinguishes the current runnable API from the pending target API design. Do not use it for implementing minbt internals.
 ---
 
 # minbt Usage
 
 本 skill 面向“用户使用 minbt 写策略”，不是内部框架开发文档。默认目标是用最少代码完成一个可运行、可验证的回测。
+
+## 文档状态（先读）
+
+本文件描述的是**当前代码中可以运行的接口**。本轮 API 重构的目标设计记录在
+`docs/design/minbt-20260921-api-refactor.md`，目前仍是设计稿，尚未替换当前实现；不要把目标签名
+直接复制到当前策略中。
+
+| 主题 | 当前可运行实现 | 目标设计（待实施） |
+| --- | --- | --- |
+| K 线回调 | `on_bars(dt, bars)`，并兼容 `on_bar` | 只保留 `on_bars` |
+| 其他数据 | `on_books`、`on_trades`、`on_news` | 保持这些按数据类型的入口 |
+| 价格字段 | Broker 的 `mark_price`（默认 `kline.close`） | 数据入口的 `price_key`，默认值为 `close` |
+| 回放配置 | `run(load_mode=...)` 可用 | 隐藏回放模式，用户只需 `run()` |
+| 通用 Bar | 当前实现和示例 14/15 仍使用 `Bar.kind` | 移除通用 `Bar` 概念，保留按类型的数据入口 |
+
+因此，写**当前可执行代码**时遵循下文的“当前实现”说明；讨论或编写新设计时遵循目标设计，
+不要继续扩大 `on_bar`、`Bar.kind`、`mark_price`、`load_mode` 这些兼容接口的使用面。
 
 ## 用户心智模型
 
@@ -56,7 +73,7 @@ pip install -e ".[dev]"
 2. 本地已有数据时优先使用 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol")`。
 3. 需要自动下载和复用行情时，使用 `Exchange.add_feed(feed)`，例如 `minbt.data.binance.BinanceKlineFeed`。
 4. 继承 `Strategy`，在 `on_init()` 初始化状态。
-5. 在 `on_bars(dt, bars)` 读取当前时间截面。
+5. 在 `on_bars(dt, bars)` 读取当前时间截面；`on_bar` 只用于当前通用 Bar 的兼容场景。
 6. 只通过 `self.broker` 下单和查询状态。
 7. 用 `Order.status` 判断下单结果，不依赖 `reason` 精确文本。
 8. 给用户提供最小运行命令和验证命令。
@@ -76,9 +93,14 @@ exchange.set_news(data, date_key="dt", symbol_key="symbol")
 `mark_price` 选择估值价格并批量更新账户，随后处理待处理订单和退出条件，最后按
 `bars → books → trades → bar → news` 顺序调用策略回调。
 
-`on_bar` 面向 `price` 和其他自定义 kind，按单个事件逐条调用，不把同一 `dt` 的多个自定义 Bar
-聚合成截面。`mark_price="kind.field"` 是推荐形式；元组和 callable 属于高级用法，其中
+`on_bar` 面向当前实现中的 `Bar.kind`，按单个事件逐条调用，不把同一 `dt` 的多个自定义 Bar
+聚合成截面。它仅为兼容现有代码保留；普通新策略不要选择它。`mark_price="kind.field"` 是当前
+实现的推荐形式；元组和 callable 属于高级用法，其中
 `(feed_name, kind, field)` 会耦合 Feed 名称，只有需要精确路由时使用。
+
+目标设计中的 `price_key` 尚未实现，当前不能写成
+`exchange.set_bars(data, price_key="price")`。如果数据没有 `close`，当前实现应在 Broker 中配置
+`mark_price`，或在下单时显式传入 `price`；迁移到目标设计后再改用数据入口的 `price_key`。
 
 普通用户只需要 `exchange.run()`。需要控制内存/速度时，再使用 `load_mode`：
 
@@ -88,7 +110,8 @@ exchange.run(load_mode="preload")      # 全量预加载，速度优先
 exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 ```
 
-`stream` 只保留给未来实时模式，不用于历史回放。
+`stream` 只保留给未来实时模式，不用于历史回放。`load_mode` 是当前实现的高级选项，不要在新
+用户示例中继续传播；目标设计会将回放模式收回内部。
 
 如果用户要求写示例，优先参考：
 
@@ -106,12 +129,14 @@ exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 - `examples/11_crypto_binance_feed.py`: 自动下载、缓存并回放 Binance futures K 线。
 - `examples/12_csv_feed.py`: 渐进读取月度 CSV K 线。
 - `examples/13_iosql_feed.py`: 渐进读取 iosql K 线。
-- `examples/14_exchange_replay_modes.py`: 通用 Bar、Feed 优先级和 Broker 估值来源。
-- `examples/15_generic_bar_storage.py`: 通用 Bar CSV 存储和自定义 Bar 回调。
+- `examples/14_exchange_replay_modes.py`: 当前兼容 API 的通用 Bar、Feed 优先级和 Broker 估值来源。
+- `examples/15_generic_bar_storage.py`: 当前兼容 API 的通用 Bar CSV 存储和自定义 Bar 回调。
+
+示例 14、15 用来验证现有兼容面，不代表目标 API 的推荐写法。
 
 ## 数据契约
 
-Kline 行数据至少包含：
+当前实现的默认估值路径要求 Kline 行数据至少包含：
 
 ```text
 dt, symbol, close
@@ -123,9 +148,13 @@ dt, symbol, close
 - 单标的也是多标的的特例，仍建议保留 `symbol` 列。
 - 同一 `(dt, symbol)` 只能有一条 bar。
 - 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
-- Kline 不强制完整 OHLCV；`close` 是否用于估值由 Broker 配置决定。
+- Kline 不强制完整 OHLCV；默认 Broker 使用 `close` 估值。若使用其他字段，当前实现需要配置
+  `mark_price` 或在下单时传入 `price`。
 - Exchange 不根据 Feed 优先级选择盈亏价格。
 - 不要使用行号代替时间；`date_key` 必须存在。
+
+目标设计会把“哪一列是价格”移到 `set_bars`/`set_books`/`set_trades` 的 `price_key` 参数；这只
+是迁移方向，不是当前版本可调用的参数。
 
 如果用户数据列名不同，映射参数即可：
 
@@ -448,10 +477,36 @@ git diff --check
 
 当前环境可能出现 `Polars binary is missing!` warning；只要测试未失败，就按环境依赖警告处理。
 
+## 示例覆盖与验证边界
+
+仓库中的示例分为三类，测试时不要把外部数据缺失误判为代码错误：
+
+- `00`–`10`、`14`、`15`：`tests/test_examples.py` 会在本地临时数据或 fake Feed 上运行。
+- `11_crypto_binance_feed.py`：测试使用 fake Binance Feed；真实运行需要网络或已有缓存，不要求把
+  远端服务作为单元测试前置条件。
+- `12_csv_feed.py`、`13_iosql_feed.py`：需要通过 `MINBT_CSV_ROOT`、`MINBT_IOSQL_URI` 指定
+  本地 fixture 或真实数据。数据缺失时示例会明确退出，而不是静默产生空结果。
+
+推荐的完整检查顺序：
+
+```bash
+python -m pytest -q tests/test_examples.py
+python -m compileall -q examples
+# 准备 CSV/iosql 数据后再运行：
+MINBT_CSV_ROOT=/path/to/kline.csv/1m python examples/12_csv_feed.py
+MINBT_IOSQL_URI=sqlite:///path/to/kline.iosql python examples/13_iosql_feed.py
+```
+
+本次文档更新已用两行本地 CSV 和两行本地 iosql fixture 分别执行 12、13；二者均返回成功并输出
+`final_equity` 与 `bar_count`。基线 `python -m pytest -q tests/test_examples.py` 覆盖其余示例路径。
+
 ## 文档更新原则
 
 - README 和示例优先面向用户写策略，不讲内部状态机。
 - 简单路径短，复杂功能渐进展开。
-- 不恢复旧的 `on_data/on_tick/set_data` 入口；`on_bar` 是当前通用自定义 Bar 的回调。
+- 不恢复旧的 `on_data/on_tick/set_data` 入口；`on_bar` 只作为当前通用自定义 Bar 的兼容回调，
+  不得成为新示例或新设计的主路径。
+- 新接口文档必须明确标注“当前实现”与“目标设计”；目标设计未落地前，不得把 `price_key`、去
+  `on_bar`、隐藏 `load_mode` 写成当前可运行 API。
 - 不在 Strategy 上添加交易语法糖；交易统一通过 `self.broker`。
 - 限价单、固定退出价、追踪止损和函数式退出已经实现，文档不要写成未实现。

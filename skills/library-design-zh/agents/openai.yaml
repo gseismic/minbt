@@ -1,0 +1,4 @@
+interface:
+  display_name: "Library Design (ZH)"
+  short_description: "以用户场景降低库 API 认知负担并收敛内部概念"
+  default_prompt: "Use $library-design-zh to design a low-cognitive-load public API and minimal internal architecture for my library."
