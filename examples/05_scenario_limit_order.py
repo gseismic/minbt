@@ -13,7 +13,6 @@ except ImportError:
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 
 from minbt import Broker, Exchange, Strategy
@@ -77,10 +76,8 @@ def run_strategy():
     sym_bars["dt"] = pd.to_datetime(sym_bars["dt"])
     sym_bars = sym_bars.sort_values("dt")
 
-    equity = list(strategy.get_hist_equity())
     pos_sizes = list(strategy.get_hist_position_sizes(SYMBOL))
     dates = pd.DatetimeIndex(pd.to_datetime(data["dt"]).unique()).sort_values()
-    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
     pos = pd.Series(pos_sizes[: len(dates)], index=dates[: len(pos_sizes)])
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)

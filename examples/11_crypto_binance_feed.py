@@ -18,7 +18,6 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-import numpy as np
 import pandas as pd
 
 from minbt import Broker, Exchange, Strategy

@@ -1,4 +1,4 @@
-from typing import Dict, Literal, Optional, Tuple, Union
+from typing import Dict, Literal, Optional, Tuple
 import copy
 import numpy as np
 from ..logger import logger as default_logger
@@ -127,7 +127,7 @@ class Portfolio:
             else:
                 self.logger.warning(f'[{self.margin_mode}] Reach liquidation, close all positions')
                 self._pure_close_all_positions()
-                _require(self.get_all_positions_total_equity() == 0, f'All positions are not closed', RuntimeError)
+                _require(self.get_all_positions_total_equity() == 0, 'All positions are not closed', RuntimeError)
         elif margin_level <= self.warning_margin_level:
             self.logger.warning(f'[{self.margin_mode}] margin level is too low, margin_level: {margin_level}')
 
@@ -172,7 +172,7 @@ class Portfolio:
             3. 提交订单，更新仓位和现金
         """
         if self._bankrupt:
-            self.logger.error(f'Portfolio bankrupt, cannot submit order')
+            self.logger.error('Portfolio bankrupt, cannot submit order')
             return False
         
         if leverage is None:
@@ -266,10 +266,10 @@ class Portfolio:
                 self.close_position(symbol)
             else:
                 self.close_position(symbol, last_prices.get(symbol))
-        _require(np.allclose(self.get_all_positions_total_equity(), 0), f'All positions are not closed', RuntimeError)
+        _require(np.allclose(self.get_all_positions_total_equity(), 0), 'All positions are not closed', RuntimeError)
         _require(
             np.allclose(self.get_portfolio_equity(), self.total_cash),
-            f'Portfolio equity is not equal to total cash',
+            'Portfolio equity is not equal to total cash',
             RuntimeError,
         )
 

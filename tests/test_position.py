@@ -1,5 +1,4 @@
 import pytest
-import numpy as np
 from typing import Tuple
 from minbt.broker.struct import Position
 

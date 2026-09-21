@@ -44,3 +44,7 @@ include = ["minbt*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/*.py" = ["E402"]
+"docs/versions/v0/examples/*.py" = ["E402"]
