@@ -9,8 +9,8 @@ class _IosqlFeedConfigurationError(ValueError):
     """iosql Feed 可由用户修正的配置或数据范围错误。"""
 
 
-class IosqlBarsFeed(_KlineRowFeed):
-    """读取 iosql Binance K 线表的渐进式 bars Feed。"""
+class BinanceKlineIosqlFeed(_KlineRowFeed):
+    """读取 iosql Binance K 线表的渐进式 Feed。"""
 
     def __init__(
         self,
@@ -61,7 +61,7 @@ class IosqlBarsFeed(_KlineRowFeed):
 
     def _default_name(self) -> str:
         symbols = ",".join(self.symbols) if self.symbols else "all"
-        return f"iosql:bars:{self.table_name}:{symbols}"
+        return f"iosql:binance:kline:{self.table_name}:{symbols}"
 
     def prepare(self) -> None:
         if self._prepared:
@@ -70,7 +70,7 @@ class IosqlBarsFeed(_KlineRowFeed):
             from iosql import Database
         except ImportError as exc:
             raise ImportError(
-                "IosqlBarsFeed requires iosql; install iosql v0.3.x or newer"
+                "BinanceKlineIosqlFeed requires iosql; install iosql v0.3.x or newer"
             ) from exc
 
         try:

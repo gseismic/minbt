@@ -8,7 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from minbt import Broker, Exchange, Strategy
-from minbt.data import IosqlBarsFeed
+from minbt.data import BinanceKlineIosqlFeed
 
 
 SYMBOL = "BTCUSDT"
@@ -57,7 +57,7 @@ def run_strategy():
 
     exchange = Exchange()
     exchange.add_feed(
-        IosqlBarsFeed(
+        BinanceKlineIosqlFeed(
             uri=IOSQL_URI,
             interval="1m",
             symbols=[SYMBOL],

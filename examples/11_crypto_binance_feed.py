@@ -54,7 +54,7 @@ class BinanceFeedStrategy(Strategy):
 def run_strategy():
     exchange = Exchange()
     exchange.add_feed(
-        binance.BarsReplayFeed(
+        binance.BinanceKlineFeed(
             symbols=[SYMBOL],
             interval="1h",
             start="2024-01-01",

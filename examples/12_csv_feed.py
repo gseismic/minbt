@@ -8,7 +8,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from minbt import Broker, Exchange, Strategy
-from minbt.data import CsvBarsFeed
+from minbt.data import BinanceKlineCsvFeed
 
 
 SYMBOL = "BTCUSDT"
@@ -46,7 +46,7 @@ def run_strategy():
 
     exchange = Exchange()
     exchange.add_feed(
-        CsvBarsFeed(
+        BinanceKlineCsvFeed(
             root=CSV_ROOT,
             symbols=[SYMBOL],
             interval="1m",

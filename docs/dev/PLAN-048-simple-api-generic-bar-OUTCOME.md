@@ -28,7 +28,8 @@ Exchange/Broker 内核保留显式的时间批次、Feed 优先级和估值规�
 
 - 新增 `CsvBarFeed` 和 `IosqlBarFeed`，统一读取 `dt,symbol,kind,data` 信封。
 - `data` 使用 JSON 表示，读取后保留原始 kind 和载荷，不解释为 OHLCV。
-- 原有 `CsvBarsFeed`、`IosqlBarsFeed`、Binance Feed 保留为 Kline 专用便利入口。
+- Binance Kline 外部格式使用明确的 `BinanceKlineCsvFeed`、`BinanceKlineIosqlFeed` 和
+  `binance.BinanceKlineFeed`；通用入口保持为 `CsvBarFeed`、`IosqlBarFeed`。
 - 不引入 `Storage`、`Schema`、`Adapter` 层级。
 
 ### 4. Exchange 正确性与性能边界

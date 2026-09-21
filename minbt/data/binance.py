@@ -104,7 +104,7 @@ class BinanceKlineClient:
             )
 
 
-class BarsReplayFeed:
+class BinanceKlineFeed:
     supports_preload = True
     # prepare() 当前会把缓存查询结果读入 _rows；它不是渐进读取来源。
     supports_incremental = False
@@ -133,7 +133,7 @@ class BarsReplayFeed:
         if self.end_dt <= self.start_dt:
             raise ValueError("end must be greater than start")
         if market != SUPPORTED_MARKET:
-            raise ValueError('Binance BarsReplayFeed currently supports only market="futures"')
+            raise ValueError('BinanceKlineFeed currently supports only market="futures"')
         self.market = market
         self.cache_dir = Path(cache_dir)
         self.db_path = self.cache_dir / DEFAULT_DB_NAME

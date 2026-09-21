@@ -54,7 +54,7 @@ pip install -e ".[dev]"
 
 1. 先确认用户数据结构：时间列、标的列和市场字段。
 2. 本地已有数据时优先使用 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol")`。
-3. 需要自动下载和复用行情时，使用 `Exchange.add_feed(feed)`，例如 `minbt.data.binance.BarsReplayFeed`。
+3. 需要自动下载和复用行情时，使用 `Exchange.add_feed(feed)`，例如 `minbt.data.binance.BinanceKlineFeed`。
 4. 继承 `Strategy`，在 `on_init()` 初始化状态。
 5. 在 `on_bars(dt, bars)` 读取当前时间截面。
 6. 只通过 `self.broker` 下单和查询状态。
@@ -146,7 +146,7 @@ from minbt.data import binance
 
 exchange = Exchange()
 exchange.add_feed(
-    binance.BarsReplayFeed(
+    binance.BinanceKlineFeed(
         symbols=["BTCUSDT", "ETHUSDT"],
         interval="1h",
         start="2024-01-01",
@@ -173,9 +173,9 @@ iosql Feed。
 数据来自 `crypto.bn_data_sync` 月度 CSV 或 iosql 库时，使用支持渐进回放的 Feed：
 
 ```python
-from minbt.data import CsvBarsFeed, IosqlBarsFeed
+from minbt.data import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
 
-exchange.add_feed(CsvBarsFeed(
+exchange.add_feed(BinanceKlineCsvFeed(
     root="/path/to/kline.csv/1m",
     symbols=["BTCUSDT"],
     interval="1m",
@@ -183,19 +183,19 @@ exchange.add_feed(CsvBarsFeed(
     end="2023-01-03",
 ))
 
-# 或：IosqlBarsFeed("sqlite:///path/to/data.iosql", "1m", ...)
+# 或：BinanceKlineIosqlFeed("sqlite:///path/to/data.iosql", "1m", ...)
 exchange.run()
 ```
 
 `start/end` 使用半开区间 `[start, end)`；iosql 的闭区间查询由 Feed 自动转换。两个 Feed
 在策略启动前检查数据完整性：请求 symbol、CSV 月份、iosql table/interval 或时间范围没有
-数据时直接报错，不会静默运行空回测。`IosqlBarsFeed` 需要安装 `iosql` 0.3.x 或更新版本，
+数据时直接报错，不会静默运行空回测。`BinanceKlineIosqlFeed` 需要安装 `iosql` 0.3.x 或更新版本，
 `batch_size` 只用于调整数据库读取缓冲。渐进回放节省历史数据内存，但会增加归并与迭代耗时；
 全量预加载适合小数据和速度优先的场景。
 
 如果 CSV/iosql 存储的是 OrderBook、Trade、Price 或自定义 Bar，使用通用 `CsvBarFeed` 或
 `IosqlBarFeed`。通用存储至少包含 `dt,symbol,kind,data`，其中 `data` 是 JSON；Kline 专用
-`CsvBarsFeed`、`IosqlBarsFeed` 继续用于 Binance Kline 文件和表。
+`BinanceKlineCsvFeed`、`BinanceKlineIosqlFeed` 继续用于 Binance Kline 文件和表。
 
 ## Strategy 模板
 

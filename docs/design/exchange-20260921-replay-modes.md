@@ -194,8 +194,8 @@ News 可以有可选 `symbol`，多标的关联信息放入 `data`。
 
 ## 3. Feed 契约
 
-用户可以直接使用 Kline 专用的 `CsvBarsFeed`、`IosqlBarsFeed`、`BarsReplayFeed`，也可以使用通用
-`CsvBarFeed`、`IosqlBarFeed` 或实现自己的历史 Feed。
+用户可以直接使用 Binance Kline 专用的 `BinanceKlineCsvFeed`、`BinanceKlineIosqlFeed`、
+`binance.BinanceKlineFeed`，也可以使用通用 `CsvBarFeed`、`IosqlBarFeed` 或实现自己的历史 Feed。
 Feed 输出必须直接是 `Bar | News`：
 
 ```python

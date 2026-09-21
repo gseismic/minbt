@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from minbt import Bar, Broker, Exchange, Strategy
-from minbt.data import CsvBarsFeed, IosqlBarsFeed
+from minbt.data import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
 
 
 def _csv_row(open_time, close):
@@ -34,7 +34,7 @@ def _write_csv(path: Path, rows, *, header=True):
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def test_csv_bars_feed_yields_individual_kline_bars(tmp_path):
+def test_binance_kline_csv_feed_yields_individual_bars(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(
         tmp_path / "BTCUSDT-1m-2023-01.csv",
@@ -46,7 +46,7 @@ def test_csv_bars_feed_yields_individual_kline_bars(tmp_path):
         header=False,
     )
 
-    feed = CsvBarsFeed(
+    feed = BinanceKlineCsvFeed(
         tmp_path,
         symbols=["BTCUSDT", "ETHUSDT"],
         start="2023-01-01T00:00:00Z",
@@ -63,24 +63,24 @@ def test_csv_bars_feed_yields_individual_kline_bars(tmp_path):
     assert all(event.kind == "kline" for event in events)
 
 
-def test_csv_bars_feed_rejects_out_of_order_rows(tmp_path):
+def test_binance_kline_csv_feed_rejects_out_of_order_rows(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(
         tmp_path / "BTCUSDT-1m-2023-01.csv",
         [_csv_row(start_ms + 60_000, 101), _csv_row(start_ms, 100)],
     )
     with pytest.raises(ValueError, match="not ordered"):
-        list(CsvBarsFeed(tmp_path, symbols="BTCUSDT").events())
+        list(BinanceKlineCsvFeed(tmp_path, symbols="BTCUSDT").events())
 
 
-def test_csv_bars_feed_rejects_missing_months(tmp_path):
+def test_binance_kline_csv_feed_rejects_missing_months(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(tmp_path / "BTCUSDT-1m-2023-01.csv", [_csv_row(start_ms, 100)])
     _write_csv(
         tmp_path / "BTCUSDT-1m-2023-03.csv",
         [_csv_row(start_ms + 86_400_000 * 59, 300)],
     )
-    feed = CsvBarsFeed(
+    feed = BinanceKlineCsvFeed(
         tmp_path,
         symbols="BTCUSDT",
         start="2023-01-01T00:00:00Z",
@@ -90,15 +90,15 @@ def test_csv_bars_feed_rejects_missing_months(tmp_path):
         list(feed.events())
 
 
-def test_csv_bars_feed_rejects_missing_requested_symbol(tmp_path):
+def test_binance_kline_csv_feed_rejects_missing_requested_symbol(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(tmp_path / "BTCUSDT-1m-2023-01.csv", [_csv_row(start_ms, 100)])
-    feed = CsvBarsFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"], interval="1m")
+    feed = BinanceKlineCsvFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"], interval="1m")
     with pytest.raises(FileNotFoundError, match="ETHUSDT"):
         list(feed.events())
 
 
-def test_exchange_consumes_csv_feed_in_incremental_mode(tmp_path):
+def test_exchange_consumes_binance_kline_csv_feed_in_incremental_mode(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(
         tmp_path / "BTCUSDT-1m-2023-01.csv",
@@ -114,7 +114,7 @@ def test_exchange_consumes_csv_feed_in_incremental_mode(tmp_path):
 
     exchange = Exchange()
     exchange.add_feed(
-        CsvBarsFeed(
+        BinanceKlineCsvFeed(
             tmp_path,
             symbols="BTCUSDT",
             start="2023-01-01T00:00:00Z",
@@ -129,15 +129,15 @@ def test_exchange_consumes_csv_feed_in_incremental_mode(tmp_path):
     assert strategy.prices == [100.0, 101.0]
 
 
-def test_iosql_feed_declares_incremental_capability():
-    feed = IosqlBarsFeed("sqlite:///tmp/example.iosql", interval="1m")
+def test_binance_kline_iosql_feed_declares_incremental_capability():
+    feed = BinanceKlineIosqlFeed("sqlite:///tmp/example.iosql", interval="1m")
     assert feed.supports_incremental is True
     assert feed.supports_preload is True
     assert feed.ordered is True
     assert feed.replayable is True
 
 
-def test_iosql_feed_reads_rows_as_kline_bars(tmp_path):
+def test_binance_kline_iosql_feed_reads_rows_as_bars(tmp_path):
     iosql = pytest.importorskip("iosql")
     uri = f"sqlite://{tmp_path / 'bars.iosql'}"
     rows = [
@@ -195,7 +195,7 @@ def test_iosql_feed_reads_rows_as_kline_bars(tmp_path):
         )
         table.write(rows)
 
-    feed = IosqlBarsFeed(
+    feed = BinanceKlineIosqlFeed(
         uri,
         interval="1m",
         symbols="BTCUSDT",

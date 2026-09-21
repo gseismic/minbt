@@ -254,7 +254,7 @@ from minbt.data import binance
 
 exchange = Exchange()
 exchange.add_feed(
-    binance.BarsReplayFeed(
+        binance.BinanceKlineFeed(
         symbols=["BTCUSDT", "ETHUSDT"],
         interval="1h",
         start="2024-01-01",
@@ -280,9 +280,9 @@ def on_bars(self, dt, bars):
 有序 Feed 支持渐进回放，Exchange 只保留当前时间批次和各来源的少量读取缓冲：
 
 ```python
-from minbt.data import CsvBarsFeed, IosqlBarsFeed
+from minbt.data import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
 
-exchange.add_feed(CsvBarsFeed(
+exchange.add_feed(BinanceKlineCsvFeed(
     root="/media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv/1m",
     symbols=["BTCUSDT"],
     interval="1m",
@@ -291,7 +291,7 @@ exchange.add_feed(CsvBarsFeed(
 ))
 
 # 或使用 iosql：
-exchange.add_feed(IosqlBarsFeed(
+exchange.add_feed(BinanceKlineIosqlFeed(
     uri="sqlite:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
     interval="1m",
     symbols=["BTCUSDT"],

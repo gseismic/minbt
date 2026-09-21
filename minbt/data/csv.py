@@ -34,7 +34,7 @@ def _iter_months(first: str, last: str) -> Iterator[str]:
             month = 1
 
 
-class CsvBarsFeed(_KlineRowFeed):
+class BinanceKlineCsvFeed(_KlineRowFeed):
     """读取 crypto.bn_data_sync 月度 Binance K 线 CSV 的渐进式 Feed。"""
 
     def __init__(
@@ -65,7 +65,7 @@ class CsvBarsFeed(_KlineRowFeed):
 
     def _default_name(self) -> str:
         symbols = ",".join(self.symbols) if self.symbols else "all"
-        return f"csv:bars:{self.root.name}:{symbols}"
+        return f"csv:binance:kline:{self.root.name}:{symbols}"
 
     def prepare(self) -> None:
         if self._prepared:

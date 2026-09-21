@@ -17,8 +17,8 @@
 - 简单 Feed 采用安全默认值：支持全量预加载、不假设有序、不默认支持渐进回放、可重复读取。
 - 通用 CSV Bar 文件使用 `dt,symbol,kind,data` 最小信封，`data` 为 JSON；通用 iosql 表使用
   `dt,symbol,kind,data`，`dt` 为毫秒时间戳。
-- `CsvBarsFeed`、`IosqlBarsFeed` 和 Binance Feed 保持为 Kline 专用便利入口；通用入口命名为
-  `CsvBarFeed`、`IosqlBarFeed`。
+- Binance Kline 外部格式使用明确的 `BinanceKlineCsvFeed`、`BinanceKlineIosqlFeed` 和
+  `binance.BinanceKlineFeed`；通用入口命名为 `CsvBarFeed`、`IosqlBarFeed`。
 - 不引入 Storage、Schema、Adapter 层级；具体读取类直接产生 `Bar`。
 
 ## 实施范围
