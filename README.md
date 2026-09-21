@@ -254,7 +254,7 @@ from minbt.data import binance
 
 exchange = Exchange()
 exchange.add_feed(
-        binance.BinanceKlineFeed(
+    binance.BinanceKlineFeed(
         symbols=["BTCUSDT", "ETHUSDT"],
         interval="1h",
         start="2024-01-01",
@@ -327,6 +327,9 @@ exchange.add_feed(CsvBarFeed("/path/to/bars.csv"))
 
 通用 CSV/iosql Feed 只要求 `dt`、`symbol`、`kind`、`data`，不会把数据强制解释成 OHLCV。
 
+`price` 或其他自定义 kind 会通过 `on_bar(dt, bar)` 回调给策略。`on_bar` 按事件逐条调用；同一
+`dt` 下的多个自定义 Bar 不会合并成 `symbol -> data` 的截面。
+
 除 bars 外，Exchange 还支持相同时间截面模型的数据入口：
 
 - `set_books(data, date_key="dt", symbol_key="symbol")`
@@ -351,9 +354,12 @@ broker = Broker(
 )
 ```
 
-普通 Kline 回测不需要配置 `mark_price`，`Broker()` 默认使用 `kline.close`。常见的其他来源可以
-使用 `mark_price="orderbook.mid"` 或 `mark_price="trade.price"`。同一批次出现多个候选价格时
-默认报错；需要明确选择时再配置 `mark_price_aggregation="first"`、`"last"` 或自定义函数。
+普通 Kline 回测不需要配置 `mark_price`，`Broker()` 默认使用 `kline.close`。推荐使用字符串形式，
+例如 `mark_price="orderbook.mid"` 或 `mark_price="trade.price"`。`(kind, field)` 元组、
+`(feed_name, kind, field)` 三元组和 callable 属于高级用法；三元组会把 Broker 配置耦合到 Feed 名称，
+Feed 重命名后需要同步修改，只有在需要精确路由时使用。`mark_price=None` 表示关闭自动估值。
+同一批次出现多个候选价格时默认报错；需要明确选择时再配置
+`mark_price_aggregation="first"`、`"last"` 或自定义函数。
 如果账户已有持仓或挂单，却从未得到可用估值价格，Broker 会报错并提示补充字段或修改 `mark_price`。
 
 ## Broker 交易接口

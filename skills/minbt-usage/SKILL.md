@@ -76,6 +76,10 @@ exchange.set_news(data, date_key="dt", symbol_key="symbol")
 `mark_price` 选择估值价格并批量更新账户，随后处理待处理订单和退出条件，最后按
 `bars → books → trades → bar → news` 顺序调用策略回调。
 
+`on_bar` 面向 `price` 和其他自定义 kind，按单个事件逐条调用，不把同一 `dt` 的多个自定义 Bar
+聚合成截面。`mark_price="kind.field"` 是推荐形式；元组和 callable 属于高级用法，其中
+`(feed_name, kind, field)` 会耦合 Feed 名称，只有需要精确路由时使用。
+
 普通用户只需要 `exchange.run()`。需要控制内存/速度时，再使用 `load_mode`：
 
 ```python

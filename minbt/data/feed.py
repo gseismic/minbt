@@ -61,8 +61,6 @@ class MemoryFeed(SimpleFeed):
 
     def __init__(self, name: str, events, *, feed_priority: int = 0):
         super().__init__(name, feed_priority=feed_priority)
-        self.supports_incremental = True
-        self.ordered = True
         self._events = tuple(events)
 
     def events(self):

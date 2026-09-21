@@ -395,7 +395,9 @@ mark_price="trade.price"
 mark_price="price.value"
 ```
 
-默认值为 `"kline.close"`。高级场景仍可使用精确 Feed 路由或 callable，但不属于普通用户的主路径。
+默认值为 `"kline.close"`，字符串 `"kind.field"` 是推荐形式。`(kind, field)`、
+`(feed_name, kind, field)` 和 callable 只属于高级用法；三元组会把 Broker 配置耦合到 Feed 名称，
+Feed 重命名后需要同步修改，只有在需要精确路由时使用。`mark_price=None` 可关闭自动估值。
 
 ### 7.2 多候选与缺失
 
@@ -445,7 +447,7 @@ mini 版本暂时可以让一个选出的价格同时用于估值、挂单触发
 |`News`|`on_news`|`News` 对象序列|
 
 Broker 仍然可以独立使用自定义 Bar 作为估值来源；`on_bar` 只负责把原始 Bar 交给 Strategy，
-不解释其 `data` 字段。
+不解释其 `data` 字段。`on_bar` 按事件逐条调用，同一 `dt` 下的多个自定义 Bar 不聚合成截面。
 
 ## 9. 生命周期、错误与性能
 
