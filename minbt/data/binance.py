@@ -156,18 +156,28 @@ class BinanceKlineFeed:
         self._ensure_schema()
         start_ms = _datetime_to_ms(self.start_dt)
         end_ms = _datetime_to_ms(self.end_dt)
+        now_ms = int(time.time() * 1000)
 
         for symbol in self.symbols:
-            missing_ranges = [(start_ms, end_ms)] if self.refresh else self._missing_ranges(symbol, start_ms, end_ms)
+            if self.refresh:
+                missing_ranges = [(start_ms, end_ms)]
+            else:
+                missing_ranges = self._missing_ranges(symbol, start_ms, end_ms)
+                if self.closed_only:
+                    missing_ranges = _merge_intervals(
+                        missing_ranges
+                        + self._uncertain_closed_ranges(symbol, start_ms, end_ms, now_ms)
+                    )
             if self.cache_only and missing_ranges:
                 raise RuntimeError(
                     f"Binance cache is incomplete for {symbol} {self.interval} "
                     f"{self.start_dt.isoformat()} -> {self.end_dt.isoformat()}"
                 )
             for range_start, range_end in missing_ranges:
-                self._download_range(symbol, range_start, range_end)
+                self._download_range(symbol, range_start, range_end, now_ms=now_ms)
 
-        self._rows = self._load_rows(start_ms, end_ms)
+        self._rows = self._load_rows(start_ms, end_ms, now_ms=now_ms)
+        self._validate_loaded_rows(start_ms, end_ms, now_ms=now_ms)
         self._prepared = True
 
     def events(self) -> Iterable[Bar]:
@@ -241,6 +251,7 @@ class BinanceKlineFeed:
                     num_trades INTEGER,
                     volume_base_buy REAL,
                     volume_quote_buy REAL,
+                    downloaded_at_ms INTEGER,
                     PRIMARY KEY (source, market, symbol, interval, dt_ms)
                 )
                 """
@@ -259,6 +270,13 @@ class BinanceKlineFeed:
                 )
                 """
             )
+            columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(bars)").fetchall()
+            }
+            if "downloaded_at_ms" not in columns:
+                conn.execute("ALTER TABLE bars ADD COLUMN downloaded_at_ms INTEGER")
+                # 旧缓存无法区分收盘前抓取的数据，清除覆盖标记以便后续重新验证。
+                conn.execute("DELETE FROM bar_coverage")
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_bars_query
@@ -295,7 +313,40 @@ class BinanceKlineFeed:
             ).fetchall()
         return _merge_intervals((row["start_ms"], row["end_ms"]) for row in rows)
 
-    def _download_range(self, symbol: str, start_ms: int, end_ms: int) -> None:
+    def _uncertain_closed_ranges(self, symbol: str, start_ms: int, end_ms: int, now_ms: int):
+        """返回覆盖过但无法证明是在收盘后抓取的 K 线区间。"""
+        interval_ms = _interval_to_ms(self.interval)
+        closed_end_ms = min(end_ms, _current_open_time_ms(now_ms, self.interval))
+        if closed_end_ms <= start_ms:
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT dt_ms, close_time, downloaded_at_ms
+                FROM bars
+                WHERE source = ? AND market = ? AND symbol = ? AND interval = ?
+                  AND dt_ms >= ? AND dt_ms < ?
+                ORDER BY dt_ms
+                """,
+                (SOURCE, self.market, symbol, self.interval, start_ms, closed_end_ms),
+            ).fetchall()
+        uncertain = []
+        for row in rows:
+            close_time = row["close_time"]
+            downloaded_at_ms = row["downloaded_at_ms"]
+            if (
+                close_time is not None
+                and downloaded_at_ms is not None
+                and downloaded_at_ms > close_time
+            ):
+                continue
+            row_start = max(start_ms, row["dt_ms"])
+            row_end = min(end_ms, row["dt_ms"] + interval_ms)
+            if row_start < row_end:
+                uncertain.append((row_start, row_end))
+        return uncertain
+
+    def _download_range(self, symbol: str, start_ms: int, end_ms: int, *, now_ms: int) -> None:
         start_dt = _ms_to_datetime(start_ms)
         end_dt = _ms_to_datetime(end_ms)
         raw_rows = self._client.fetch_klines(
@@ -311,12 +362,44 @@ class BinanceKlineFeed:
             for row in raw_rows
             if start_ms <= int(row["open_time"]) < end_ms
         ]
+        for row in rows:
+            row["downloaded_at_ms"] = now_ms
         coverage_end_ms = end_ms
+        interval_ms = _interval_to_ms(self.interval)
         if self.closed_only:
-            now_ms = int(time.time() * 1000)
             coverage_end_ms = min(end_ms, _current_open_time_ms(now_ms, self.interval))
-            rows = [row for row in rows if row.get("close_time") is None or row["close_time"] < now_ms]
+            rows = [
+                row
+                for row in rows
+                if row.get("close_time") is not None and row["close_time"] < now_ms
+            ]
+        else:
+            latest_available_end = _current_open_time_ms(now_ms, self.interval) + interval_ms
+            coverage_end_ms = min(end_ms, latest_available_end)
+        rows = [row for row in rows if row["dt_ms"] < coverage_end_ms]
+        rows.sort(key=lambda row: row["dt_ms"])
+
         if coverage_end_ms > start_ms:
+            if not rows:
+                raise RuntimeError(
+                    f"Binance returned no usable klines for {symbol} {self.interval} "
+                    f"in [{_ms_to_datetime(start_ms).isoformat()}, "
+                    f"{_ms_to_datetime(coverage_end_ms).isoformat()})"
+                )
+            for previous, current in zip(rows, rows[1:]):
+                if current["dt_ms"] - previous["dt_ms"] != interval_ms:
+                    raise RuntimeError(
+                        f"Binance returned an incomplete kline range for {symbol} {self.interval}: "
+                        f"gap between {_ms_to_datetime(previous['dt_ms']).isoformat()} and "
+                        f"{_ms_to_datetime(current['dt_ms']).isoformat()}"
+                    )
+            expected_last_open = ((coverage_end_ms - 1) // interval_ms) * interval_ms
+            if expected_last_open >= start_ms and rows[-1]["dt_ms"] != expected_last_open:
+                raise RuntimeError(
+                    f"Binance returned an incomplete kline range for {symbol} {self.interval}: "
+                    f"expected last open time {_ms_to_datetime(expected_last_open).isoformat()}, "
+                    f"got {_ms_to_datetime(rows[-1]['dt_ms']).isoformat()}"
+                )
             self._write_rows_and_coverage(symbol, rows, start_ms, coverage_end_ms)
         elif rows:
             self._write_rows(rows)
@@ -364,13 +447,13 @@ class BinanceKlineFeed:
                 source, market, symbol, interval, dt_ms,
                 open, high, low, close, volume,
                 close_time, volume_quote, num_trades,
-                volume_base_buy, volume_quote_buy
+                volume_base_buy, volume_quote_buy, downloaded_at_ms
             )
             VALUES (
                 :source, :market, :symbol, :interval, :dt_ms,
                 :open, :high, :low, :close, :volume,
                 :close_time, :volume_quote, :num_trades,
-                :volume_base_buy, :volume_quote_buy
+                :volume_base_buy, :volume_quote_buy, :downloaded_at_ms
             )
             """,
             rows,
@@ -407,8 +490,14 @@ class BinanceKlineFeed:
             [(SOURCE, self.market, symbol, self.interval, start, end, now_ms) for start, end in intervals],
         )
 
-    def _load_rows(self, start_ms: int, end_ms: int) -> List[dict]:
+    def _load_rows(self, start_ms: int, end_ms: int, *, now_ms: int) -> List[dict]:
         placeholders = ",".join("?" for _ in self.symbols)
+        closed_filter = (
+            "AND close_time IS NOT NULL AND close_time < ? "
+            "AND downloaded_at_ms IS NOT NULL AND downloaded_at_ms > close_time"
+            if self.closed_only
+            else ""
+        )
         sql = f"""
             SELECT *
             FROM bars
@@ -418,12 +507,57 @@ class BinanceKlineFeed:
               AND symbol IN ({placeholders})
               AND dt_ms >= ?
               AND dt_ms < ?
+              {closed_filter}
             ORDER BY dt_ms, symbol
         """
         params = [SOURCE, self.market, self.interval, *self.symbols, start_ms, end_ms]
+        if self.closed_only:
+            params.append(now_ms)
         with self._connect() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
+
+    def _validate_loaded_rows(self, start_ms: int, end_ms: int, *, now_ms: int) -> None:
+        rows_by_symbol = {symbol: [] for symbol in self.symbols}
+        for row in self._rows:
+            rows_by_symbol[row["symbol"]].append(row)
+        interval_ms = _interval_to_ms(self.interval)
+        if self.closed_only:
+            expected_end = min(end_ms, _current_open_time_ms(now_ms, self.interval))
+        else:
+            expected_end = min(
+                end_ms,
+                _current_open_time_ms(now_ms, self.interval) + interval_ms,
+            )
+        expected_last_open = (
+            ((expected_end - 1) // interval_ms) * interval_ms
+            if expected_end > start_ms
+            else None
+        )
+
+        for symbol, rows in rows_by_symbol.items():
+            if not rows:
+                raise RuntimeError(
+                    f"Binance cache contains no usable klines for requested symbol {symbol} "
+                    f"{self.interval} in [{self.start_dt.isoformat()}, {self.end_dt.isoformat()})"
+                )
+            for previous, current in zip(rows, rows[1:]):
+                if current["dt_ms"] - previous["dt_ms"] != interval_ms:
+                    raise RuntimeError(
+                        f"Binance cache is incomplete for {symbol} {self.interval}: "
+                        f"gap between {_ms_to_datetime(previous['dt_ms']).isoformat()} and "
+                        f"{_ms_to_datetime(current['dt_ms']).isoformat()}"
+                    )
+            if (
+                expected_last_open is not None
+                and expected_last_open >= start_ms
+                and rows[-1]["dt_ms"] != expected_last_open
+            ):
+                raise RuntimeError(
+                    f"Binance cache is incomplete for {symbol} {self.interval}: "
+                    f"expected last open time {_ms_to_datetime(expected_last_open).isoformat()}, "
+                    f"got {_ms_to_datetime(rows[-1]['dt_ms']).isoformat()}"
+                )
 
 
 def _to_utc_datetime(value) -> datetime:

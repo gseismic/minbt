@@ -46,6 +46,27 @@ def test_set_bars_sorts_rows_and_emits_one_complete_time_slice():
     assert exchange.get_current_dt() == _dt(2)
 
 
+def test_normalize_datetime_accepts_explicit_timestamp_unit():
+    explicit_ms = normalize_datetime(1_000_000_000, unit="ms")
+    assert explicit_ms == datetime(1970, 1, 12, 13, 46, 40, tzinfo=UTC)
+    with pytest.raises(ValueError, match="unit"):
+        normalize_datetime(1_000, unit="minutes")
+
+
+def test_set_bars_rejects_replacing_custom_feed_with_reserved_name():
+    class CustomBarsFeed:
+        name = "bars"
+
+        def events(self):
+            return iter(())
+
+    exchange = Exchange()
+    exchange.add_feed(CustomBarsFeed())
+
+    with pytest.raises(ValueError, match="cannot be replaced"):
+        exchange.set_bars([{"dt": _dt(), "symbol": "A", "close": 100}])
+
+
 def test_kline_does_not_require_complete_ohlcv():
     exchange = Exchange()
     strategy = BarsStrategy("partial", Broker(initial_cash=1000))

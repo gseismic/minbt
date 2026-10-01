@@ -15,4 +15,5 @@ A_STOCK = Market(
     weekdays_only=True,
     trading_sessions=(("09:30", "11:30"), ("13:00", "15:00")),
     allow_daily_bar=True,
+    timezone="Asia/Shanghai",
 )

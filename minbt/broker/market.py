@@ -1,8 +1,15 @@
 import datetime as _dt
 import math
 import numbers
+import sys
 from dataclasses import dataclass
+from datetime import timezone
 from typing import Any, Optional, Tuple
+
+try:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+except ImportError:  # Python 3.8 compatibility
+    from backports.zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def _to_datetime(value):
@@ -38,10 +45,34 @@ def _to_time(value) -> _dt.time:
 
 
 def _is_multiple(value: float, step: Optional[float]) -> bool:
-    if step is None or step == 0:
+    if step is None:
         return True
+    if not math.isfinite(value) or not math.isfinite(step) or step <= 0:
+        return False
     ratio = value / step
-    return abs(ratio - round(ratio)) < 1e-9
+    if not math.isfinite(ratio):
+        return False
+    nearest = round(ratio)
+    represented = nearest * step
+    if not math.isfinite(represented):
+        return False
+    tolerance = 4 * max(
+        _float_ulp(value),
+        _float_ulp(represented),
+        abs(nearest) * _float_ulp(step),
+    )
+    return abs(value - represented) <= tolerance
+
+
+def _float_ulp(value: float) -> float:
+    """返回浮点数附近的间距，兼容 Python 3.8（math.ulp 从 3.9 才提供）。"""
+    if value == 0:
+        return float.fromhex("0x0.0000000000001p-1022")
+    _, exponent = math.frexp(abs(value))
+    return max(
+        float.fromhex("0x0.0000000000001p-1022"),
+        math.ldexp(1.0, exponent - sys.float_info.mant_dig),
+    )
 
 
 @dataclass
@@ -52,7 +83,10 @@ class OrderValidation:
 
 @dataclass
 class Market:
-    """市场特征配置，负责订单校验和市场相关持仓状态维护。"""
+    """市场特征配置。
+
+    ``timezone`` 是 IANA 时区名；无时区的 datetime 按 UTC 解释，再转换到该市场时区。
+    """
 
     name: str = "Default"
     allow_short: bool = True
@@ -65,30 +99,57 @@ class Market:
     weekdays_only: bool = False
     trading_sessions: Optional[Tuple[Tuple[Any, Any], ...]] = None
     allow_daily_bar: bool = True
+    timezone: str = "UTC"
 
     def __post_init__(self):
         if self.t_plus not in (0, 1):
             raise ValueError(f"only T+0/T+1 market is supported, got T+{self.t_plus}")
+        if not isinstance(self.timezone, str) or not self.timezone:
+            raise ValueError("timezone must be a non-empty IANA time zone name")
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown market timezone: {self.timezone!r}") from exc
+        for field_name in ("lot_size", "tick_size", "min_qty", "min_notional"):
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, numbers.Real):
+                raise TypeError(f"{field_name} must be a finite positive number or None")
+            if not math.isfinite(float(value)) or value <= 0:
+                raise ValueError(f"{field_name} must be a finite positive number or None")
         if self.trading_sessions is not None:
             self.trading_sessions = tuple(
                 (_to_time(start), _to_time(end))
                 for start, end in self.trading_sessions
             )
 
-    def is_trading_time(self, dt) -> bool:
+    def _local_datetime(self, dt):
         value = _to_datetime(dt)
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(ZoneInfo(self.timezone))
+
+    def is_trading_time(self, dt) -> bool:
+        raw_value = _to_datetime(dt)
+        value = self._local_datetime(dt)
         if value is None:
             return not self.require_dt and not self.weekdays_only and not self.trading_sessions
         if self.weekdays_only and value.weekday() >= 5:
             return False
         if not self.trading_sessions:
             return True
-        if self.allow_daily_bar and value.time() == _dt.time():
+        if self.allow_daily_bar and (
+            value.time() == _dt.time()
+            or (raw_value is not None and raw_value.time() == _dt.time())
+        ):
             return True
         return any(start <= value.time() <= end for start, end in self.trading_sessions)
 
     def trading_day(self, dt):
-        value = _to_datetime(dt)
+        value = self._local_datetime(dt)
         if value is None:
             return None
         return value.date()
@@ -120,10 +181,19 @@ class Market:
         current_size = 0 if position is None else position.size
         if current_size < 0:
             return qty
-        normalized = math.floor(abs(qty) / self.lot_size + 1e-12) * self.lot_size
+        ratio = abs(qty) / self.lot_size
+        if not math.isfinite(ratio):
+            raise ValueError("target quantity divided by lot_size must be finite")
+        nearest = round(ratio)
+        units = nearest if _is_multiple(abs(qty), self.lot_size) else math.floor(ratio)
+        normalized = units * self.lot_size
         return float(normalized)
 
     def validate_order(self, broker, symbol: str, qty: float, price: float, dt=None, portfolio: str = "main") -> OrderValidation:
+        if not math.isfinite(qty):
+            return OrderValidation(False, "qty must be finite")
+        if not math.isfinite(price):
+            return OrderValidation(False, "price must be finite")
         if qty == 0:
             return OrderValidation(False, "qty must be non-zero")
         if price <= 0:

@@ -9,16 +9,17 @@ from datetime import date, datetime, time, timezone
 import math
 from numbers import Number
 from types import MappingProxyType
-from typing import Any, Union
+from typing import Any, Optional, Union
 
 import pandas as pd
 
 
-def normalize_datetime(value: Any) -> datetime:
+def normalize_datetime(value: Any, *, unit: Optional[str] = None) -> datetime:
     """把常见时间输入统一为 UTC datetime。
 
     无时区输入按 UTC 解释。Exchange 使用统一到毫秒的时间键做批次边界判断，
-    但仍保留 datetime 作为公开字段。
+    但仍保留 datetime 作为公开字段。数字输入默认按数量级推断秒、毫秒、微秒或纳秒；
+    对有歧义的时间戳可通过 ``unit="s"/"ms"/"us"/"ns"`` 显式指定单位。
     """
 
     try:
@@ -26,16 +27,23 @@ def normalize_datetime(value: Any) -> datetime:
             numeric = float(value)
             if not math.isfinite(numeric):
                 raise ValueError("datetime number must be finite")
-            numeric = abs(numeric)
-            if numeric >= 1e17:
-                unit = "ns"
-            elif numeric >= 1e14:
-                unit = "us"
-            elif numeric >= 1e11:
-                unit = "ms"
+            if unit is not None:
+                if unit not in {"s", "ms", "us", "ns"}:
+                    raise ValueError("unit must be one of 's', 'ms', 'us', or 'ns'")
+                timestamp_unit = unit
             else:
-                unit = "s"
-            timestamp = pd.Timestamp(value, unit=unit, tz="UTC")
+                magnitude = abs(numeric)
+                if magnitude >= 1e17:
+                    timestamp_unit = "ns"
+                elif magnitude >= 1e14:
+                    timestamp_unit = "us"
+                elif magnitude >= 1e11:
+                    timestamp_unit = "ms"
+                else:
+                    timestamp_unit = "s"
+            timestamp = pd.Timestamp(value, unit=timestamp_unit, tz="UTC")
+        elif unit is not None:
+            raise ValueError("unit can only be specified for a numeric datetime value")
         elif isinstance(value, datetime):
             timestamp = pd.Timestamp(value)
         elif isinstance(value, date):
@@ -46,7 +54,7 @@ def normalize_datetime(value: Any) -> datetime:
             raise ValueError("datetime must not be NaT")
         result = timestamp.to_pydatetime()
     except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError(f"invalid datetime value: {value!r}") from exc
+        raise ValueError(f"invalid datetime value: {value!r} ({exc})") from exc
 
     if result.tzinfo is None:
         result = result.replace(tzinfo=timezone.utc)

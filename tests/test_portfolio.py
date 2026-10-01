@@ -159,7 +159,45 @@ def test_portfolio_close_empty_position():
     portfolio = Portfolio(initial_cash=100000, fee_rate=0.001)
     result = portfolio.close_position("AAPL", last_price=150.0)
     assert result is False
-    assert portfolio.get_position("AAPL").is_empty()
+    assert portfolio.get_position("AAPL") is None
+    assert portfolio.positions == {}
+
+
+def test_portfolio_position_reads_do_not_create_or_expose_position_map():
+    portfolio = Portfolio(initial_cash=1000, fee_rate=0)
+
+    assert portfolio.get_position("MISSING") is None
+    assert portfolio.positions == {}
+
+    portfolio.submit_order("AAPL", qty=1, price=100)
+    snapshot = portfolio.get_positions()
+    snapshot.clear()
+    assert portfolio.get_position_size("AAPL") == 1
+
+    property_snapshot = portfolio.positions
+    property_snapshot.clear()
+    assert portfolio.get_position_size("AAPL") == 1
+
+
+def test_isolated_batch_checks_every_position_after_bankruptcy():
+    portfolio = Portfolio(
+        initial_cash=10_000,
+        fee_rate=0,
+        leverage=10,
+        margin_mode="isolated",
+    )
+    assert portfolio.submit_order("BANKRUPT", qty=10, price=100)
+    assert portfolio.submit_order("LIQUIDATE", qty=10, price=100)
+
+    bankrupt, liquidated, margin_level = portfolio.update_market_batch(
+        {"BANKRUPT": 80, "LIQUIDATE": 91},
+    )
+
+    assert bankrupt is True
+    assert liquidated is True
+    assert margin_level == pytest.approx(-1)
+    assert portfolio.get_position_size("BANKRUPT") == 0
+    assert portfolio.get_position_size("LIQUIDATE") == 0
 
 def test_isolated_margin_liquidation():
     """测试逐仓保证金强平

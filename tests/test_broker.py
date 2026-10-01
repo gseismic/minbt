@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 from pytest import approx
 
-from minbt import Broker, Market, markets
+from minbt import Bar, Broker, Market, markets
+from minbt.data.model import normalize_datetime
+from minbt.data.replay import BatchItem, TimeBatch
 
 
 def test_submit_market_order_returns_filled_order():
@@ -456,6 +458,96 @@ def test_a_stock_market_rejects_explicit_non_lot_market_order():
 
     assert order.status == "rejected"
     assert broker.get_position_size("600519.SH") == 0
+
+
+def test_market_configuration_requires_positive_finite_trading_units():
+    for field_name in ("lot_size", "tick_size", "min_qty", "min_notional"):
+        for value in (0, -1, float("nan"), float("inf")):
+            with pytest.raises(ValueError, match=field_name):
+                Market(name="invalid", **{field_name: value})
+
+
+def test_market_tick_validation_handles_large_price_and_small_tick():
+    broker = Broker(initial_cash=100_000, fee_rate=0)
+    market = Market(name="small-tick", tick_size=0.00001)
+
+    valid = market.validate_order(broker, "TEST", qty=1, price=60_000)
+    invalid = market.validate_order(broker, "TEST", qty=1, price=60_000.000005)
+
+    assert valid.ok is True
+    assert invalid.ok is False
+    assert "tick_size" in invalid.message
+
+
+def test_market_target_lot_normalization_never_rounds_above_target():
+    broker = Broker(initial_cash=10_000, fee_rate=0, market=Market(name="lots", lot_size=100))
+
+    order = broker.order_target_size("TEST", 150, price=10)
+
+    assert order.status == "filled"
+    assert broker.get_position_size("TEST") == 100
+
+
+def test_broker_get_positions_returns_a_mapping_snapshot():
+    broker = Broker(initial_cash=1_000, fee_rate=0)
+    broker.submit_market_order("TEST", qty=1, price=100)
+
+    snapshot = broker.get_positions()
+    snapshot.clear()
+
+    assert broker.get_position_size("TEST") == 1
+
+
+def test_a_stock_sessions_use_market_timezone():
+    from datetime import datetime, timedelta, timezone
+
+    shanghai = timezone(timedelta(hours=8))
+    local = datetime(2026, 1, 5, 9, 35, tzinfo=shanghai)
+    equivalent_utc = local.astimezone(timezone.utc)
+
+    assert markets.A_STOCK.is_trading_time(local)
+    assert markets.A_STOCK.is_trading_time(equivalent_utc)
+    assert markets.A_STOCK.is_trading_time(datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc))
+    assert not markets.A_STOCK.is_trading_time(datetime(2026, 1, 5, 9, 35))
+    assert markets.A_STOCK.trading_day(datetime(2026, 1, 4, 16, 30, tzinfo=timezone.utc)).isoformat() == "2026-01-05"
+
+
+def test_pending_limit_order_requires_new_price_for_its_own_symbol():
+    broker = Broker(initial_cash=1_000, fee_rate=0)
+    broker.on_new_price("A", 100, "2026-01-01T00:00:00Z")
+    order = broker.submit_limit_order("A", qty=1, limit_price=95)
+    assert order.status == "pending"
+
+    other_dt = normalize_datetime("2026-01-02T00:00:00Z")
+    other_batch = TimeBatch(
+        other_dt,
+        (BatchItem("other", 0, 0, 0, Bar(other_dt, "B", "kline", {"close": 50})),),
+    )
+    broker.process_market_batch(other_batch)
+    assert order.status == "pending"
+
+    own_dt = normalize_datetime("2026-01-03T00:00:00Z")
+    own_batch = TimeBatch(
+        own_dt,
+        (BatchItem("own", 0, 0, 0, Bar(own_dt, "A", "kline", {"close": 94})),),
+    )
+    broker.process_market_batch(own_batch)
+    assert order.status == "filled"
+    assert order.updated_dt == own_dt
+
+
+def test_partial_exit_configuration_inherits_unspecified_active_conditions():
+    broker = Broker(initial_cash=10_000, fee_rate=0)
+    first = broker.submit_market_order(
+        "TEST", qty=1, price=100, stop_loss_price=90, take_profit_price=120
+    )
+    second = broker.submit_market_order("TEST", qty=1, price=105, stop_loss_price=95)
+    exit_config = broker.get_exit(second.id)
+
+    assert first.status == "filled"
+    assert second.status == "filled"
+    assert exit_config.stop_loss_price == 95
+    assert exit_config.take_profit_price == 120
 
 
 def test_t1_market_locks_only_new_long_size_when_reversing_short_to_long():

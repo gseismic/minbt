@@ -159,24 +159,33 @@ class Portfolio:
                 position.update_price_and_pnl(price, dt)
 
         if self.margin_mode == 'isolated':
+            bankrupt = False
+            liquidated = False
+            lowest_margin_level = float('inf')
             for symbol, position in list(self._positions.items()):
                 if position.is_empty():
                     continue
                 margin_level = position.margin_level
+                lowest_margin_level = min(lowest_margin_level, margin_level)
                 if margin_level < 0:
                     self.logger.error(f'[{self.margin_mode}] {symbol} bankrupt, margin_level: {margin_level}')
                     position.mark_bankrupt()
-                    return True, True, margin_level
+                    bankrupt = True
+                    liquidated = True
+                    continue
                 if margin_level <= self.min_margin_level:
                     self.logger.warning(
                         f'[{self.margin_mode}] {symbol} reach liquidation, margin_level: {margin_level}'
                     )
                     self._pure_close_position(symbol, normalized.get(symbol))
-                    return False, True, margin_level
+                    liquidated = True
+                    continue
                 if margin_level <= self.warning_margin_level:
                     self.logger.warning(
                         f'[{self.margin_mode}] margin level is too low, margin_level: {margin_level}'
                     )
+            if bankrupt or liquidated:
+                return bankrupt, liquidated, lowest_margin_level
             return False, False, self.get_portfolio_margin_level()
 
         margin_level = self.get_portfolio_margin_level()
@@ -305,8 +314,8 @@ class Portfolio:
     
     def close_position(self, symbol: str, last_price: Optional[float] = None) -> bool:
         """平仓: 提交与当前持仓方向相反、数量相同的订单"""
-        position = self.get_position(symbol)
-        if position.is_empty():
+        position = self.get_position(symbol, create_if_missing=False)
+        if position is None or position.is_empty():
             self.logger.warning(f'Cannot close empty position: {symbol}')
             return False
         if last_price is None:
@@ -356,7 +365,8 @@ class Portfolio:
             else:
                 self._pure_close_position(symbol, last_prices.get(symbol))
     
-    def get_position(self, symbol: str, create_if_missing: bool = True) -> Optional[Position]:
+    def get_position(self, symbol: str, create_if_missing: bool = False) -> Optional[Position]:
+        """查询持仓；默认只读查询，需要初始化空仓时显式传 ``create_if_missing=True``。"""
         if symbol not in self._positions:
             if not create_if_missing:
                 return None
@@ -370,7 +380,8 @@ class Portfolio:
         return position.size
     
     def get_positions(self) -> Dict[str, Position]:
-        return self._positions
+        """返回 symbol 到 Position 的浅快照，修改字典不会改动 Portfolio 索引。"""
+        return self._positions.copy()
     
     def get_position_sizes(self) -> Dict[str, float]:
         return {symbol: pos.size for symbol, pos in self._positions.items() if not pos.is_empty()}
@@ -421,7 +432,7 @@ class Portfolio:
     
     @property
     def positions(self) -> Dict[str, Position]:
-        return self._positions
+        return self._positions.copy()
 
     @property
     def bankrupt(self) -> bool:

@@ -86,6 +86,7 @@ class Exchange:
         self.strategies = OrderedDict()
         self.logger = logger or default_logger
         self._sources: Dict[str, _Source] = OrderedDict()
+        self._managed_memory_sources = set()
         self._current_dt: Optional[datetime] = None
         self._run_count = 0
 
@@ -627,6 +628,8 @@ class Exchange:
 
     def _replace_source(self, feed) -> None:
         name = feed.name
+        if name in self._sources and name not in self._managed_memory_sources:
+            raise ValueError(f"feed name already exists and cannot be replaced by set_*(): {name!r}")
         self._sources[name] = _Source(
             feed=feed,
             name=name,
@@ -635,6 +638,7 @@ class Exchange:
                 self._sources[name].registration_index if name in self._sources else len(self._sources)
             ),
         )
+        self._managed_memory_sources.add(name)
 
     @staticmethod
     def _validate_priority(value: int) -> int:

@@ -77,6 +77,25 @@ def test_generic_csv_bar_feed_preserves_kind_and_payload(tmp_path):
     }
 
 
+def test_generic_csv_end_filter_does_not_hide_out_of_order_rows(tmp_path):
+    path = tmp_path / "bars.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["dt", "symbol", "kind", "data"])
+        writer.writeheader()
+        for minute in (0, 10, 5):
+            writer.writerow(
+                {
+                    "dt": f"2026-01-01T00:{minute:02d}:00Z",
+                    "symbol": "A",
+                    "kind": "price",
+                    "data": json.dumps({"value": 100 + minute}),
+                }
+            )
+
+    with pytest.raises(ValueError, match="not ordered"):
+        list(CsvBarFeed(path, start="2026-01-01T00:00:00Z", end="2026-01-01T00:06:00Z").events())
+
+
 def test_generic_csv_bar_feed_dispatches_custom_bar(tmp_path):
     path = tmp_path / "bars.csv"
     with path.open("w", newline="", encoding="utf-8") as handle:

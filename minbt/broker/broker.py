@@ -395,6 +395,7 @@ class Broker:
         trailing_stop_pct: Optional[float] = None,
         trailing_stop_amount: Optional[float] = None,
     ) -> None:
+        """激活退出条件；新成交省略的字段继承该仓位之前的活动配置。"""
         if not self._exit_params_provided(
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
@@ -402,7 +403,19 @@ class Broker:
             trailing_stop_amount=trailing_stop_amount,
         ):
             return
+        previous_id = self._active_exit_order_by_position.get((order.portfolio, order.symbol))
+        previous_state = self._exit_states.get(previous_id) if previous_id is not None else None
         state = self._get_or_create_exit_state(order)
+        if previous_state is not None and previous_id != order.id:
+            for field_name in (
+                "stop_loss_price",
+                "take_profit_price",
+                "trailing_stop_pct",
+                "trailing_stop_amount",
+                "trailing_anchor",
+            ):
+                if getattr(state, field_name) is None:
+                    setattr(state, field_name, getattr(previous_state, field_name))
         if stop_loss_price is not None:
             state.stop_loss_price = stop_loss_price
         if take_profit_price is not None:
@@ -564,7 +577,7 @@ class Broker:
         """
 
         prices = self.update_market_batch(batch)
-        self.process_pending_orders(dt=batch.dt)
+        self.process_pending_orders(dt=batch.dt, symbols=prices)
         self.check_exit_rules(dt=batch.dt, data=batch)
         return prices
 
@@ -925,12 +938,15 @@ class Broker:
                 continue
             self._cancel_pending_order(order, reason=f"portfolio closed: {portfolio}")
 
-    def process_pending_orders(self, dt=None) -> None:
+    def process_pending_orders(self, dt=None, *, symbols=None) -> None:
+        updated_symbols = None if symbols is None else set(symbols)
         for order_id in list(self._pending_order_ids):
             order = self.orders.get(order_id)
             if order is None or order.status != "pending":
                 self._pending_order_ids.remove(order_id)
                 self._pending_exit_params.pop(order_id, None)
+                continue
+            if updated_symbols is not None and order.symbol not in updated_symbols:
                 continue
             current_price = self.last_prices.get(order.symbol)
             if current_price is None:

@@ -17,6 +17,7 @@ dependencies = [
     "pandas",
     "polars",
     "loguru",
+    "backports.zoneinfo; python_version < '3.9'",
 ]
 
 [project.urls]

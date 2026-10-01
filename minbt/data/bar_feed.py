@@ -157,9 +157,11 @@ class CsvBarFeed(_BarRowFeed):
     def _row_stream(self) -> Iterator[dict]:
         if not self._prepared:
             self.prepare()
+        previous_key = None
+        previous_dt = None
         with self.path.open("r", newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
-            for row in reader:
+            for line_number, row in enumerate(reader, start=2):
                 if row.get("symbol") is None:
                     yield row
                     continue
@@ -167,10 +169,18 @@ class CsvBarFeed(_BarRowFeed):
                 if self.requested_symbols is not None and symbol not in self.requested_symbols:
                     continue
                 dt = _normalize_storage_datetime(row.get("dt"))
+                current_key = datetime_key(dt)
+                if previous_key is not None and current_key < previous_key:
+                    raise ValueError(
+                        f"{self.name} CSV line {line_number} is not ordered by dt: "
+                        f"{dt!r} came after {previous_dt!r}"
+                    )
+                previous_key = current_key
+                previous_dt = dt
                 if self.start_dt is not None and datetime_key(dt) < datetime_key(self.start_dt):
                     continue
                 if self.end_dt is not None and datetime_key(dt) >= datetime_key(self.end_dt):
-                    break
+                    continue
                 yield row
 
 

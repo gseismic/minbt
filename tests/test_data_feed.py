@@ -98,6 +98,20 @@ def test_binance_kline_csv_feed_rejects_missing_requested_symbol(tmp_path):
         list(feed.events())
 
 
+def test_binance_kline_csv_infers_unbounded_months_per_symbol(tmp_path):
+    jan_ms = 1_672_531_200_000
+    mar_ms = jan_ms + 86_400_000 * 59
+    _write_csv(tmp_path / "BTCUSDT-1m-2023-01.csv", [_csv_row(jan_ms, 100)])
+    _write_csv(tmp_path / "ETHUSDT-1m-2023-03.csv", [_csv_row(mar_ms, 200)])
+
+    feed = BinanceKlineCsvFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"])
+
+    assert [(event.symbol, event.data["close"]) for event in feed.events()] == [
+        ("BTCUSDT", 100.0),
+        ("ETHUSDT", 200.0),
+    ]
+
+
 def test_exchange_consumes_binance_kline_csv_feed_in_incremental_mode(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(

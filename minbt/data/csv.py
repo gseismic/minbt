@@ -178,30 +178,28 @@ class BinanceKlineCsvFeed(_KlineRowFeed):
         """按时间边界推导应有月份；月份文件空洞直接失败。"""
         if not discovered_months:
             return
-        first = (
-            self.start_dt.strftime("%Y-%m")
-            if self.start_dt is not None
-            else min(discovered_months)
-        )
-        last = (
-            (self.end_dt - timedelta(milliseconds=1)).strftime("%Y-%m")
-            if self.end_dt is not None
-            else max(discovered_months)
-        )
-        if first > last:
-            return
-
         files_by_pair = {
             (symbol, month)
             for month, entries in self._files_by_month.items()
             for symbol, _ in entries
         }
-        missing = [
-            f"{symbol}@{month}"
-            for month in _iter_months(first, last)
-            for symbol in self.symbols
-            if (symbol, month) not in files_by_pair
-        ]
+        missing = []
+        for symbol in self.symbols:
+            symbol_months = sorted(month for candidate, month in files_by_pair if candidate == symbol)
+            if not symbol_months:
+                continue
+            first = self.start_dt.strftime("%Y-%m") if self.start_dt is not None else symbol_months[0]
+            last = (
+                (self.end_dt - timedelta(milliseconds=1)).strftime("%Y-%m")
+                if self.end_dt is not None
+                else symbol_months[-1]
+            )
+            if first <= last:
+                missing.extend(
+                    f"{symbol}@{month}"
+                    for month in _iter_months(first, last)
+                    if (symbol, month) not in files_by_pair
+                )
         if missing:
             raise FileNotFoundError(
                 f"missing CSV month files for requested range: {missing!r}; "
