@@ -374,7 +374,7 @@ key = (event.dt, _FEED_ORDER.index(event_type), feed.name)
    在现有物化路径下可用；单测与 feed 集成测试。
 2. **Phase 2（L2）**：`Exchange` 流式 run 路径 + `streaming` 声明 + 自动选择规则 +
    等价性/归并顺序/内存基准测试。
-3. **Phase 3**：`examples/12_csv_feed.py`、`examples/13_iosql_feed.py`
+3. **Phase 3**：`examples/301_feed_csv.py`、`examples/302_feed_iosql.py`
    （数据路径缺省指向用户 Z 盘目录，文件或数据库缺失时以 `SystemExit` 给出配置指引），
    导出 `minbt.data` 顶层。
 

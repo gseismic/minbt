@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 `examples/01_demo_mini.py`、`examples/02_single_symbol_sma.py` 等示例主要绘制权益曲线，
+当前 `examples/001_core_demo_mini.py`、`examples/002_core_single_symbol_sma.py` 等示例主要绘制权益曲线，
 但没有把盈亏定义、理论值和实际回测值放在一起展示。用户很难仅凭最终权益判断一笔交易是否按预期计算，
 也不容易区分价格波动、做空方向和手续费的影响。
 
@@ -43,7 +43,7 @@
 
 ## 文件与验证
 
-- `examples/00_pnl_sanity_check.py`：示例实现和 P&L 曲线。
+- `examples/000_core_pnl_sanity_check.py`：示例实现和 P&L 曲线。
 - `tests/test_examples.py`：验证脚本可运行和理论盈亏曲线。
 - `tests/test_pnl.py`：从 Broker 公共接口验证多空往返交易和手续费后的总权益。
 - `README.md`、`skills/minbt-usage/SKILL.md`：增加示例入口和盈亏定义说明。

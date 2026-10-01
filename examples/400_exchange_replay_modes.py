@@ -1,15 +1,13 @@
 """展示通用 Bar、Feed 优先级、Broker 估值和历史回放模式。"""
 
 from datetime import datetime, timezone
-from pathlib import Path
-import sys
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+try:
+    import matplotlib  # noqa: F401
+except ImportError as exc:
+    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]") from exc
 
 from minbt import Bar, Broker, Exchange, Strategy
+from plot_utils import plot_feed_price_and_equity
 
 
 SYMBOL = "BTCUSDT"
@@ -44,8 +42,10 @@ class PriceFeed:
 class DemoStrategy(Strategy):
     def on_init(self):
         self.steps = 0
+        self.bar_records = []
 
     def on_bars(self, dt, bars):
+        self.bar_records.append({"dt": dt, "symbol": SYMBOL, "close": bars[SYMBOL]["close"]})
         if self.steps == 0:
             self.broker.submit_market_order(
                 SYMBOL,
@@ -91,8 +91,15 @@ def run(mode="auto"):
         initial_cash=10_000,
         mark_price="price.value",
     )
-    exchange.add_strategy(DemoStrategy(strategy_id="bar-demo", broker=broker))
+    strategy = DemoStrategy(strategy_id="bar-demo", broker=broker)
+    exchange.add_strategy(strategy)
     exchange.run(load_mode=mode)
+    plot_feed_price_and_equity(
+        "400_exchange_replay_modes",
+        "400 Replay Modes — BTCUSDT Price & Equity",
+        strategy.bar_records,
+        strategy,
+    )
     return broker
 
 

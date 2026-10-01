@@ -4,16 +4,17 @@ import csv
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import sys
 from tempfile import TemporaryDirectory
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+try:
+    import matplotlib  # noqa: F401
+except ImportError as exc:
+    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]") from exc
 
 from minbt import Broker, Exchange, Strategy  # noqa: E402
 from minbt.data import CsvBarFeed  # noqa: E402
+from plot_utils import plot_feed_price_and_equity  # noqa: E402
 
 
 SYMBOL = "BTCUSDT"
@@ -23,16 +24,21 @@ class GenericBarStrategy(Strategy):
     def on_init(self):
         self.entered = False
         self.seen = []
+        self.bar_records = []
 
     def on_bar(self, dt, bar):
         self.seen.append(bar.kind)
-        if bar.kind == "price" and not self.entered:
-            self.broker.submit_market_order(
-                SYMBOL,
-                qty=0.1,
-                price=bar.data["value"],
+        if bar.kind == "price":
+            self.bar_records.append(
+                {"dt": dt, "symbol": bar.symbol, "close": bar.data["value"]}
             )
-            self.entered = True
+            if not self.entered:
+                self.broker.submit_market_order(
+                    SYMBOL,
+                    qty=0.1,
+                    price=bar.data["value"],
+                )
+                self.entered = True
 
     def on_books(self, dt, books):
         self.seen.append("orderbook")
@@ -76,8 +82,15 @@ def run():
         exchange = Exchange()
         exchange.add_feed(CsvBarFeed(path))
         broker = Broker(initial_cash=10_000, mark_price="price.value")
-        exchange.add_strategy(GenericBarStrategy("generic-bar", broker))
+        strategy = GenericBarStrategy("generic-bar", broker)
+        exchange.add_strategy(strategy)
         exchange.run()
+        plot_feed_price_and_equity(
+            "401_exchange_generic_bar_storage",
+            "401 Generic Bar Storage — BTCUSDT Price & Equity",
+            strategy.bar_records,
+            strategy,
+        )
         return broker
 
 

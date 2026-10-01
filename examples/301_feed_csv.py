@@ -1,14 +1,13 @@
 import os
 from pathlib import Path
-import sys
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+try:
+    import matplotlib  # noqa: F401
+except ImportError as exc:
+    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]") from exc
 
 from minbt import Broker, Exchange, Strategy
 from minbt.data import BinanceKlineCsvFeed
+from plot_utils import plot_feed_price_and_equity
 
 
 SYMBOL = "BTCUSDT"
@@ -25,9 +24,11 @@ END = "2023-01-03"
 class CsvFeedStrategy(Strategy):
     def on_init(self):
         self.bar_count = 0
+        self.bar_records = []
 
     def on_bars(self, dt, bars):
         price = bars[SYMBOL]["close"]
+        self.bar_records.append({"dt": dt, "symbol": SYMBOL, "close": price})
         if self.bar_count == 0:
             self.broker.order_target_percent(SYMBOL, 0.8, price=price)
         self.bar_count += 1
@@ -58,6 +59,12 @@ def run_strategy():
     strategy = CsvFeedStrategy(strategy_id="csv_feed", broker=broker)
     exchange.add_strategy(strategy)
     exchange.run()
+    plot_feed_price_and_equity(
+        "301_feed_csv",
+        "301 CSV Feed — BTCUSDT Price & Equity",
+        strategy.bar_records,
+        strategy,
+    )
     return strategy, broker
 
 

@@ -1,16 +1,8 @@
-from pathlib import Path
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 try:
     import matplotlib
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -119,7 +111,7 @@ def run_strategy():
         ps = pd.Series(pos[: len(dates)], index=dates[: len(pos)])
         ax2.plot(ps.index, ps.values, color=color, linewidth=1.2, marker=".", markersize=4, label=symbol)
         ax2.fill_between(ps.index, 0, ps.values, color=color, alpha=0.1)
-    ax1.set_title("04 Exit Rules — Price & Positions", fontsize=13, fontweight="bold")
+    ax1.set_title("100 Exit Rules — Price & Positions", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Price")
     ax1.legend(loc="upper left", fontsize="small")
     ax1.grid(True, alpha=0.3)
@@ -128,7 +120,7 @@ def run_strategy():
     ax2.legend(loc="upper left", fontsize="small")
     ax2.grid(True, alpha=0.3)
     ax2.axhline(y=0, color="black", linewidth=0.5)
-    save_figure("04_scenario_exit_rules")
+    save_figure("100_scenario_exit_rules")
 
     return strategy, broker
 

@@ -1,10 +1,4 @@
 from pathlib import Path
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from collections import deque
 
 try:
@@ -12,7 +6,6 @@ try:
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -106,7 +99,7 @@ def run_strategy():
         ax1.scatter(pos.index[long_mask], [y_marker] * long_mask.sum(), color="green", marker="^", s=25, alpha=0.6, label="Long")
     if short_mask.any():
         ax1.scatter(pos.index[short_mask], [y_marker] * short_mask.sum(), color="red", marker="v", s=25, alpha=0.6, label="Short")
-    ax1.set_title("02 Single Symbol SMA — Price & Equity", fontsize=13, fontweight="bold")
+    ax1.set_title("002 Single Symbol SMA — Price & Equity", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Price")
     ax1.legend(loc="upper left", fontsize="small")
     ax1.grid(True, alpha=0.3)
@@ -120,7 +113,7 @@ def run_strategy():
     ax2.legend(loc="upper left", fontsize="small")
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    save_figure("02_single_symbol_sma")
+    save_figure("002_core_single_symbol_sma")
 
     return strategy, broker
 

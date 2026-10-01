@@ -1,10 +1,3 @@
-from pathlib import Path
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 import math
 from collections import deque
 
@@ -13,7 +6,6 @@ try:
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -170,7 +162,7 @@ def run_strategy():
     ax1_twin.axhline(y=0, color="gray", linestyle=":", alpha=0.5)
     ax1_twin.axhline(y=0.25, color="orange", linestyle="--", alpha=0.4, label="Exit ±0.25")
     ax1_twin.axhline(y=-0.25, color="orange", linestyle="--", alpha=0.4)
-    ax1.set_title("08 Pairs Mean Reversion — Spread, Z-Score & Equity", fontsize=13, fontweight="bold")
+    ax1.set_title("104 Pairs Mean Reversion — Spread, Z-Score & Equity", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Log Spread")
     ax1_twin.set_ylabel("Z-Score")
     ax1.legend(loc="upper left", fontsize="small")
@@ -186,7 +178,7 @@ def run_strategy():
     ax2.legend(loc="upper left", fontsize="small")
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    save_figure("08_scenario_pairs_mean_reversion")
+    save_figure("104_scenario_pairs_mean_reversion")
 
     return strategy, broker
 

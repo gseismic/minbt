@@ -1,17 +1,10 @@
-from pathlib import Path
-import sys
 import time
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
     import matplotlib
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -78,12 +71,12 @@ def run_benchmark():
     values = [build_seconds, set_bars_seconds, run_seconds, total_seconds]
     fig, ax = plt.subplots(figsize=(10, 5))
     bars = ax.bar(labels, values, color="steelblue", edgecolor="white", linewidth=0.5)
-    ax.set_title(f"09 Benchmark — {N_ROWS:,} rows ({N_DT:,} dt × {N_SYMBOLS} symbols)", fontsize=13, fontweight="bold")
+    ax.set_title(f"200 Benchmark — {N_ROWS:,} rows ({N_DT:,} dt × {N_SYMBOLS} symbols)", fontsize=13, fontweight="bold")
     ax.set_ylabel("Seconds")
     ax.grid(True, alpha=0.3, axis="y")
     for bar, val in zip(bars, values):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(values) * 0.02, f"{val:.3f}s", ha="center", va="bottom", fontsize=10)
-    save_figure("09_benchmark_100k_empty")
+    save_figure("200_benchmark_100k_empty")
 
 
 if __name__ == "__main__":

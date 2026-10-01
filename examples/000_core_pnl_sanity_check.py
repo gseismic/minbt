@@ -1,23 +1,11 @@
 """用可手算的最小场景校验 minbt 的多空盈亏和手续费。"""
 
-from pathlib import Path
 import math
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-_EXAMPLES_DIR = Path(__file__).resolve().parent
-if str(_EXAMPLES_DIR) not in sys.path:
-    sys.path.insert(0, str(_EXAMPLES_DIR))
-
 try:
     import matplotlib
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -189,13 +177,13 @@ def plot_pnl_curves(results) -> None:
         )
 
     ax.axhline(0.0, color="black", linestyle="--", linewidth=1, label="Zero P&L")
-    ax.set_title("00 P&L Sanity Check - Net P&L Curve", fontsize=14, fontweight="bold")
+    ax.set_title("000 P&L Sanity Check - Net P&L Curve", fontsize=14, fontweight="bold")
     ax.set_ylabel("Net P&L (Equity - Initial Cash)")
     ax.set_xlabel("Date")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda value, _: f"{value:+.2f}"))
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best")
-    save_figure("00_pnl_sanity_check")
+    save_figure("000_core_pnl_sanity_check")
 
 
 def run_scenarios(make_plot: bool = True):

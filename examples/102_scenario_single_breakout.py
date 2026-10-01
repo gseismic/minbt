@@ -1,10 +1,3 @@
-from pathlib import Path
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 import math
 from collections import deque
 
@@ -13,7 +6,6 @@ try:
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -151,7 +143,7 @@ def run_strategy():
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
     ax1.plot(sym_bars["dt"], sym_bars["close"], color="steelblue", linewidth=1.2, label=f"{SYMBOL} close")
     ax1.plot(sym_bars["dt"], rolling_max, color="orange", linestyle="--", linewidth=0.8, alpha=0.7, label="Rolling High (18)")
-    ax1.set_title("06 Single Breakout — Price & Equity", fontsize=13, fontweight="bold")
+    ax1.set_title("102 Single Breakout — Price & Equity", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Price")
     ax1.legend(loc="upper left", fontsize="small")
     ax1.grid(True, alpha=0.3)
@@ -165,7 +157,7 @@ def run_strategy():
     ax2.legend(loc="upper left", fontsize="small")
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    save_figure("06_scenario_single_breakout")
+    save_figure("102_scenario_single_breakout")
 
     return strategy, broker
 

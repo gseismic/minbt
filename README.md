@@ -52,6 +52,8 @@ pip install -e ".[dev]"
 
 `pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。`plot` 额外依赖只在绘图时需要。`dev` 包含运行测试需要的 pytest。
 
+所有示例运行后都会保存图表，并在桌面交互环境中弹出窗口；关闭窗口后程序继续退出。自动化或无窗口运行可设置 `MINBT_EXAMPLE_SHOW=0`，只保存截图。
+
 测试配置也放在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中，因此不需要单独维护 `pytest.ini`。
 
 ## 日志
@@ -272,7 +274,7 @@ def on_bars(self, dt, bars):
     self.broker.order_target_percent("BTCUSDT", 0.8, price=price)
 ```
 
-完整示例见 `examples/11_crypto_binance_feed.py`。
+完整示例见 `examples/300_feed_crypto_binance.py`。
 
 ## CSV / iosql K 线回放
 
@@ -307,8 +309,8 @@ exchange.run(load_mode="incremental")
 
 iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序查询，
 需要安装 iosql v0.3.x 或更新版本。`start/end` 在 minbt 中是半开区间 `[start, end)`；
-iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/12_csv_feed.py` 和
-`examples/13_iosql_feed.py`。
+iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/301_feed_csv.py` 和
+`examples/302_feed_iosql.py`。
 
 两个 Feed 默认进行数据完整性预检：显式请求的 symbol 必须在指定区间内有数据；
 CSV 请求月份不能缺文件；iosql 的 interval/table 必须存在且表契约可查询。检查失败会
@@ -586,7 +588,7 @@ pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
 ```
 
 曲线中的正值表示盈利，负值表示亏损；持仓未平时是按最新价计算的未实现盈亏，最终平仓后还包含手续费影响。
-可直接运行 `examples/00_pnl_sanity_check.py` 查看多头、空头和手续费的手算校验。
+可直接运行 `examples/000_core_pnl_sanity_check.py` 查看多头、空头和手续费的手算校验。
 
 两个历史查询都返回 Python `list`。从未交易过的 symbol 返回与权益历史等长的全零列表；
 安装 pyta2 只改变内部存储方式，不改变查询结果类型和缺失值语义。
@@ -602,45 +604,48 @@ broker.get_orders()
 
 ## 示例
 
+示例按分级编号法命名：首位是大类编号，接下来两位是类内序号，随后是类别标识和名称。类别依次为 `core`、`scenario`、`benchmark`、`feed`、`exchange`。
+运行前请先按上方安装步骤安装 minbt 和 `plot` 依赖。示例会弹出图表窗口并同时保存到 `examples/screenshots/`；要只保存截图，可在命令前设置 `MINBT_EXAMPLE_SHOW=0`。
+
 推荐按顺序阅读：
 
 ```bash
-python examples/00_pnl_sanity_check.py
-python examples/01_demo_mini.py
-python examples/02_single_symbol_sma.py
-python examples/03_multi_symbol_rotation.py
-python examples/04_scenario_exit_rules.py
-python examples/05_scenario_limit_order.py
-python examples/06_scenario_single_breakout.py
-python examples/07_scenario_multi_rotation.py
-python examples/08_scenario_pairs_mean_reversion.py
-python examples/09_benchmark_100k_empty.py
-python examples/10_scenario_cross_market.py
-python examples/11_crypto_binance_feed.py
-python examples/12_csv_feed.py
-python examples/13_iosql_feed.py
-python examples/14_exchange_replay_modes.py
-python examples/15_generic_bar_storage.py
+python examples/000_core_pnl_sanity_check.py
+python examples/001_core_demo_mini.py
+python examples/002_core_single_symbol_sma.py
+python examples/003_core_multi_symbol_rotation.py
+python examples/100_scenario_exit_rules.py
+python examples/101_scenario_limit_order.py
+python examples/102_scenario_single_breakout.py
+python examples/103_scenario_multi_rotation.py
+python examples/104_scenario_pairs_mean_reversion.py
+python examples/105_scenario_cross_market.py
+python examples/200_benchmark_100k_empty.py
+python examples/300_feed_crypto_binance.py
+python examples/301_feed_csv.py
+python examples/302_feed_iosql.py
+python examples/400_exchange_replay_modes.py
+python examples/401_exchange_generic_bar_storage.py
 ```
 
 示例文件：
 
-- [examples/00_pnl_sanity_check.py](./examples/00_pnl_sanity_check.py)：可手算的多空、手续费和净盈亏曲线校验。
-- [examples/01_demo_mini.py](./examples/01_demo_mini.py)：最小单标的示例。
-- [examples/02_single_symbol_sma.py](./examples/02_single_symbol_sma.py)：单标的双均线趋势跟随。
-- [examples/03_multi_symbol_rotation.py](./examples/03_multi_symbol_rotation.py)：多标的横截面动量轮动。
-- [examples/04_scenario_exit_rules.py](./examples/04_scenario_exit_rules.py)：订单附带止盈止损和追踪止损。
-- [examples/05_scenario_limit_order.py](./examples/05_scenario_limit_order.py)：限价单、成交和撤单。
-- [examples/06_scenario_single_breakout.py](./examples/06_scenario_single_breakout.py)：单标的趋势突破。
-- [examples/07_scenario_multi_rotation.py](./examples/07_scenario_multi_rotation.py)：多标的轮动和再平衡。
-- [examples/08_scenario_pairs_mean_reversion.py](./examples/08_scenario_pairs_mean_reversion.py)：配对均值回归。
-- [examples/09_benchmark_100k_empty.py](./examples/09_benchmark_100k_empty.py)：10 万行空策略基准。
-- [examples/10_scenario_cross_market.py](./examples/10_scenario_cross_market.py)：一个 Broker 内同时交易 A 股和 crypto。
-- [examples/11_crypto_binance_feed.py](./examples/11_crypto_binance_feed.py)：自动下载、缓存并回放 Binance futures K 线。
-- [examples/12_csv_feed.py](./examples/12_csv_feed.py)：渐进读取 crypto.bn_data_sync 月度 CSV K 线。
-- [examples/13_iosql_feed.py](./examples/13_iosql_feed.py)：使用 iosql 有序查询渐进回放 K 线。
-- [examples/14_exchange_replay_modes.py](./examples/14_exchange_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
-- [examples/15_generic_bar_storage.py](./examples/15_generic_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
+- [examples/000_core_pnl_sanity_check.py](./examples/000_core_pnl_sanity_check.py)：可手算的多空、手续费和净盈亏曲线校验。
+- [examples/001_core_demo_mini.py](./examples/001_core_demo_mini.py)：最小单标的示例。
+- [examples/002_core_single_symbol_sma.py](./examples/002_core_single_symbol_sma.py)：单标的双均线趋势跟随。
+- [examples/003_core_multi_symbol_rotation.py](./examples/003_core_multi_symbol_rotation.py)：多标的横截面动量轮动。
+- [examples/100_scenario_exit_rules.py](./examples/100_scenario_exit_rules.py)：订单附带止盈止损和追踪止损。
+- [examples/101_scenario_limit_order.py](./examples/101_scenario_limit_order.py)：限价单、成交和撤单。
+- [examples/102_scenario_single_breakout.py](./examples/102_scenario_single_breakout.py)：单标的趋势突破。
+- [examples/103_scenario_multi_rotation.py](./examples/103_scenario_multi_rotation.py)：多标的轮动和再平衡。
+- [examples/104_scenario_pairs_mean_reversion.py](./examples/104_scenario_pairs_mean_reversion.py)：配对均值回归。
+- [examples/105_scenario_cross_market.py](./examples/105_scenario_cross_market.py)：一个 Broker 内同时交易 A 股和 crypto。
+- [examples/200_benchmark_100k_empty.py](./examples/200_benchmark_100k_empty.py)：10 万行空策略基准。
+- [examples/300_feed_crypto_binance.py](./examples/300_feed_crypto_binance.py)：自动下载、缓存并回放 Binance futures K 线。
+- [examples/301_feed_csv.py](./examples/301_feed_csv.py)：渐进读取 crypto.bn_data_sync 月度 CSV K 线。
+- [examples/302_feed_iosql.py](./examples/302_feed_iosql.py)：使用 iosql 有序查询渐进回放 K 线。
+- [examples/400_exchange_replay_modes.py](./examples/400_exchange_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
+- [examples/401_exchange_generic_bar_storage.py](./examples/401_exchange_generic_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
 - [examples/example_utils.py](./examples/example_utils.py)：高级示例共用的目标名义金额调仓辅助函数。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 

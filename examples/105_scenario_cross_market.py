@@ -1,21 +1,13 @@
-from pathlib import Path
-import sys
-
 try:
     import matplotlib
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import pandas as pd
 
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 from minbt import Broker, Exchange, Strategy, markets
 from plot_utils import save_figure
@@ -87,7 +79,7 @@ def run_strategy():
         sym_bars["dt"] = pd.to_datetime(sym_bars["dt"])
         sym_bars = sym_bars.sort_values("dt")
         ax1.plot(sym_bars["dt"], sym_bars["close"], color=color, linestyle=ls, linewidth=1.5, marker="o", markersize=4, label=symbol)
-    ax1.set_title("10 Cross-Market — A-Share & Crypto Prices + Equity", fontsize=13, fontweight="bold")
+    ax1.set_title("105 Cross-Market — A-Share & Crypto Prices + Equity", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Price")
     ax1.legend(loc="upper left", fontsize="small")
     ax1.grid(True, alpha=0.3)
@@ -102,7 +94,7 @@ def run_strategy():
     ax2.legend(loc="upper left", fontsize="small")
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    save_figure("10_scenario_cross_market")
+    save_figure("105_scenario_cross_market")
 
     return strategy, broker
 

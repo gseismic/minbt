@@ -1,20 +1,9 @@
 from pathlib import Path
-import sys
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-_EXAMPLES_DIR = Path(__file__).resolve().parent
-if str(_EXAMPLES_DIR) not in sys.path:
-    sys.path.insert(0, str(_EXAMPLES_DIR))
-
 try:
     import matplotlib
 except ImportError:
     raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
 
-matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
@@ -80,7 +69,7 @@ def run_strategy():
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
     ax1.plot(sym_bars["dt"], sym_bars["close"], color="steelblue", linewidth=1.2, label=f"{SYMBOL} close")
-    ax1.set_title("11 Binance Feed — BTCUSDT Price & Equity", fontsize=13, fontweight="bold")
+    ax1.set_title("300 Binance Feed — BTCUSDT Price & Equity", fontsize=13, fontweight="bold")
     ax1.set_ylabel("Price")
     ax1.legend(loc="upper left")
     ax1.grid(True, alpha=0.3)
@@ -94,7 +83,7 @@ def run_strategy():
     ax2.legend(loc="upper left")
     ax2.grid(True, alpha=0.3)
     ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    save_figure("11_crypto_binance_feed")
+    save_figure("300_feed_crypto_binance")
 
     return strategy, broker
 

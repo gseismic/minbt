@@ -19,7 +19,7 @@ description: This skill should be used when the user asks to "write a minbt stra
 | 其他数据 | `on_books`、`on_trades`、`on_news` | 保持这些按数据类型的入口 |
 | 价格字段 | Broker 的 `mark_price`（默认 `kline.close`） | 数据入口的 `price_key`，默认值为 `close` |
 | 回放配置 | `run(load_mode=...)` 可用 | 隐藏回放模式，用户只需 `run()` |
-| 通用 Bar | 当前实现和示例 14/15 仍使用 `Bar.kind` | 移除通用 `Bar` 概念，保留按类型的数据入口 |
+| 通用 Bar | 当前实现和 `examples/400_exchange_replay_modes.py`、`examples/401_exchange_generic_bar_storage.py` 仍使用 `Bar.kind` | 移除通用 `Bar` 概念，保留按类型的数据入口 |
 
 因此，写**当前可执行代码**时遵循下文的“当前实现”说明；讨论或编写新设计时遵循目标设计，
 不要继续扩大 `on_bar`、`Bar.kind`、`mark_price`、`load_mode` 这些兼容接口的使用面。
@@ -64,7 +64,7 @@ pip install -e ".[dev]"
 ```
 
 - `pyta`: 安装 `pyta2`，用于更高效的历史向量存储。
-- `plot`: 安装绘图依赖。
+- `plot`: 安装 Matplotlib 绘图依赖；运行示例默认弹出图表窗口并保存截图，关闭窗口后继续退出。
 - `dev`: 安装 pytest，用于运行测试。
 
 ## 策略开发工作流
@@ -115,24 +115,26 @@ exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 
 如果用户要求写示例，优先参考：
 
-- `examples/00_pnl_sanity_check.py`: 可手算的多空、手续费和净盈亏曲线校验。
-- `examples/01_demo_mini.py`: 最小单标的。
-- `examples/02_single_symbol_sma.py`: 单标的均线。
-- `examples/03_multi_symbol_rotation.py`: 多标的横截面轮动。
-- `examples/04_scenario_exit_rules.py`: 订单级退出条件。
-- `examples/05_scenario_limit_order.py`: 限价单。
-- `examples/06_scenario_single_breakout.py`: 单标的真实场景。
-- `examples/07_scenario_multi_rotation.py`: 多标的轮动。
-- `examples/08_scenario_pairs_mean_reversion.py`: 配对均值回归。
-- `examples/09_benchmark_100k_empty.py`: 10 万行空策略基准。
-- `examples/10_scenario_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
-- `examples/11_crypto_binance_feed.py`: 自动下载、缓存并回放 Binance futures K 线。
-- `examples/12_csv_feed.py`: 渐进读取月度 CSV K 线。
-- `examples/13_iosql_feed.py`: 渐进读取 iosql K 线。
-- `examples/14_exchange_replay_modes.py`: 当前兼容 API 的通用 Bar、Feed 优先级和 Broker 估值来源。
-- `examples/15_generic_bar_storage.py`: 当前兼容 API 的通用 Bar CSV 存储和自定义 Bar 回调。
+运行示例前确认 minbt 已安装；所有示例直接导入已安装的包。图表依赖通过 `pip install -e ".[plot]"` 安装。
 
-示例 14、15 用来验证现有兼容面，不代表目标 API 的推荐写法。
+- `examples/000_core_pnl_sanity_check.py`: 可手算的多空、手续费和净盈亏曲线校验。
+- `examples/001_core_demo_mini.py`: 最小单标的。
+- `examples/002_core_single_symbol_sma.py`: 单标的均线。
+- `examples/003_core_multi_symbol_rotation.py`: 多标的横截面轮动。
+- `examples/100_scenario_exit_rules.py`: 订单级退出条件。
+- `examples/101_scenario_limit_order.py`: 限价单。
+- `examples/102_scenario_single_breakout.py`: 单标的真实场景。
+- `examples/103_scenario_multi_rotation.py`: 多标的轮动。
+- `examples/104_scenario_pairs_mean_reversion.py`: 配对均值回归。
+- `examples/105_scenario_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
+- `examples/200_benchmark_100k_empty.py`: 10 万行空策略基准。
+- `examples/300_feed_crypto_binance.py`: 自动下载、缓存并回放 Binance futures K 线。
+- `examples/301_feed_csv.py`: 渐进读取月度 CSV K 线。
+- `examples/302_feed_iosql.py`: 渐进读取 iosql K 线。
+- `examples/400_exchange_replay_modes.py`: 当前兼容 API 的通用 Bar、Feed 优先级和 Broker 估值来源。
+- `examples/401_exchange_generic_bar_storage.py`: 当前兼容 API 的通用 Bar CSV 存储和自定义 Bar 回调。
+
+`examples/400_exchange_replay_modes.py` 和 `examples/401_exchange_generic_bar_storage.py` 用来验证现有兼容面，不代表目标 API 的推荐写法。
 
 ## 数据契约
 
@@ -359,7 +361,7 @@ pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
 `gross_pnl = qty * (exit - entry)`、
 `fees = (abs(qty) * entry + abs(qty) * exit) * fee_rate`、
 `net_pnl = gross_pnl - fees` 独立核对。需要确认计算是否正确时，优先运行
-`examples/00_pnl_sanity_check.py`，它会把理论手算值和实际回测值同时打印并绘制零盈亏基线。
+`examples/000_core_pnl_sanity_check.py`，它会把理论手算值和实际回测值同时打印并绘制零盈亏基线。
 
 ## 退出条件
 
@@ -465,8 +467,8 @@ self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="cry
 给用户生成或修改策略后，优先运行最小相关命令：
 
 ```bash
-python examples/00_pnl_sanity_check.py
-python examples/01_demo_mini.py
+python examples/000_core_pnl_sanity_check.py
+python examples/001_core_demo_mini.py
 python -m pytest -q tests/test_pnl.py tests/test_examples.py
 python -m pytest -q
 python -m compileall -q minbt tests examples
@@ -475,16 +477,19 @@ git diff --check
 
 如果只写了新的独立策略脚本，至少运行该脚本和 `python -m compileall -q`。
 
+示例默认打开绘图窗口。脚本会等待用户关闭窗口后再退出；自动化运行只需要截图时，可设置 `MINBT_EXAMPLE_SHOW=0`。
+
 当前环境可能出现 `Polars binary is missing!` warning；只要测试未失败，就按环境依赖警告处理。
 
 ## 示例覆盖与验证边界
 
-仓库中的示例分为三类，测试时不要把外部数据缺失误判为代码错误：
+测试时按示例的数据依赖区分，避免把外部数据缺失误判为代码错误：
 
-- `00`–`10`、`14`、`15`：`tests/test_examples.py` 会在本地临时数据或 fake Feed 上运行。
-- `11_crypto_binance_feed.py`：测试使用 fake Binance Feed；真实运行需要网络或已有缓存，不要求把
+- `000_core_*`、`100_scenario_*`、`400_exchange_*`：`tests/test_examples.py` 会在本地临时数据或 fake Feed 上运行。
+- `200_benchmark_100k_empty.py`：单独检查 10 万行性能示例的输出。
+- `300_feed_crypto_binance.py`：测试使用 fake Binance Feed；真实运行需要网络或已有缓存，不要求把
   远端服务作为单元测试前置条件。
-- `12_csv_feed.py`、`13_iosql_feed.py`：需要通过 `MINBT_CSV_ROOT`、`MINBT_IOSQL_URI` 指定
+- `301_feed_csv.py`、`302_feed_iosql.py`：需要通过 `MINBT_CSV_ROOT`、`MINBT_IOSQL_URI` 指定
   本地 fixture 或真实数据。数据缺失时示例会明确退出，而不是静默产生空结果。
 
 推荐的完整检查顺序：
@@ -493,8 +498,8 @@ git diff --check
 python -m pytest -q tests/test_examples.py
 python -m compileall -q examples
 # 准备 CSV/iosql 数据后再运行：
-MINBT_CSV_ROOT=/path/to/kline.csv/1m python examples/12_csv_feed.py
-MINBT_IOSQL_URI=sqlite:///path/to/kline.iosql python examples/13_iosql_feed.py
+MINBT_CSV_ROOT=/path/to/kline.csv/1m python examples/301_feed_csv.py
+MINBT_IOSQL_URI=sqlite:///path/to/kline.iosql python examples/302_feed_iosql.py
 ```
 
 本次文档更新已用两行本地 CSV 和两行本地 iosql fixture 分别执行 12、13；二者均返回成功并输出
