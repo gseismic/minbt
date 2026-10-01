@@ -150,6 +150,8 @@ dt, symbol, close
 - 单标的也是多标的的特例，仍建议保留 `symbol` 列。
 - 同一 `(dt, symbol)` 只能有一条 bar。
 - 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
+- 数字时间戳按数量级推断秒、毫秒、微秒或纳秒；有歧义时先用
+  `minbt.data.model.normalize_datetime(value, unit="ms")` 显式转换，再传给 Feed。
 - Kline 不强制完整 OHLCV；默认 Broker 使用 `close` 估值。若使用其他字段，当前实现需要配置
   `mark_price` 或在下单时传入 `price`。
 - Exchange 不根据 Feed 优先级选择盈亏价格。
@@ -200,6 +202,8 @@ def on_bars(self, dt, bars):
 ```
 
 如果用户要求完全离线运行，可以传 `cache_only=True`。缓存不存在或覆盖不完整时会报错，不会创建空缓存。
+默认 `closed_only=True`，只回放准备时已确认收盘的 K 线；缓存无法证明 K 线是在收盘后抓取时会重新下载，
+离线模式下则报告缓存不完整。设为 `closed_only=False` 可包含尚未收盘的 K 线。
 该 Binance Feed 当前在准备阶段读取缓存查询结果，默认适合全量预加载；需要渐进回放时使用 CSV 或
 iosql Feed。
 
@@ -338,6 +342,7 @@ elif order.status == "rejected":
 小于等于 `limit_price` 时触发，卖出限价单在最新价大于等于 `limit_price` 时触发；提交时和触发
 时都会检查资金与市场规则，pending 期间不预留资金，也不模拟排队和部分成交。`close_portfolio()`
 成功后取消该 portfolio 的 pending 限价单，关闭预检失败时保持 pending。
+回放中只有当前批次更新了该标的估值价格时才会尝试触发；其他标的或其他事件不会用旧价格触发。
 
 历史查询始终返回 Python `list`：
 
@@ -404,6 +409,7 @@ self.broker.add_exit(
 
 - `trailing_stop_pct` 和 `trailing_stop_amount` 互斥。
 - 固定止损/止盈可以和追踪止损同时存在。
+- 同一净持仓生命周期内，同方向成交只更新传入的退出字段，未传字段沿用已有配置；使用 `clear_exit()` 显式清除条件。
 - 函数返回 `True` 表示退出当前 `portfolio + symbol` 净持仓。
 - `Order` 只有在仍属于当前净持仓生命周期时才能新增或修改退出规则。
 
@@ -426,6 +432,11 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 ```
 
 `market` 是默认市场规则。未通过 `add_market(...)` 显式映射的 symbol 使用默认规则。`add_market(...)` 应在回测运行和任何交易发生前调用。查询 market 使用 `broker.get_market(symbol)`，不要使用或修改 `broker.market`。`markets.A_STOCK` 包含交易时间、100 股一手、价格 tick、不可做空和 T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
+
+`Market` 默认使用 UTC 时区，`markets.A_STOCK` 使用 `Asia/Shanghai`。带时区的交易时间会转换到市场时区；无时区时间按 UTC 解释后再转换。设置 `lot_size`、`tick_size`、`min_qty` 或 `min_notional` 时必须使用有限正数。
+
+`broker.get_position(symbol)` 对未持仓的标的返回 `None`，不会创建空仓；`broker.get_positions()` 返回新的字典快照，
+但其中的 `Position` 对象仍是当前持仓对象。不要直接修改查询到的仓位对象，仓位变化应通过 Broker 交易接口完成。
 
 跨市场分仓：
 

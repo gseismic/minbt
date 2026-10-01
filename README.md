@@ -218,6 +218,8 @@ Kline 不强制完整 OHLCV。`close` 只是常见字段；如果用户只需要
 - Kline 和完整 OrderBook 在同一来源同一 `(dt, symbol)` 只能有一条 Bar；Trade 和自定义 Bar 可以有多条。
 - Exchange 会按时间排序并在每个 `dt` 聚合完整截面。
 - 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
+- 数字时间戳按数量级推断秒、毫秒、微秒或纳秒；有歧义时先用
+  `minbt.data.model.normalize_datetime(value, unit="ms")` 显式转换，再传入数据。
 - 同一 `dt` 下，Exchange 先收齐全部市场事件；Broker 按 `mark_price` 选择估值价格，
   批量更新所有标的，再处理限价单和退出条件，最后调用策略回调。
 - 不提供 `date_key=None` 或行号时间；时间字段必须显式存在。
@@ -275,6 +277,9 @@ def on_bars(self, dt, bars):
 ```
 
 完整示例见 `examples/300_feed_crypto_binance.py`。
+
+默认 `closed_only=True`，只回放准备时已确认收盘的 K 线；缓存无法证明 K 线是在收盘后抓取时会重新下载，
+离线模式下则报告缓存不完整。设为 `closed_only=False` 可包含尚未收盘的 K 线。
 
 ## CSV / iosql K 线回放
 
@@ -454,6 +459,7 @@ self.broker.cancel_order(order.id)
 - 卖出限价单在最新价大于等于 `limit_price` 时成交。
 - 提交时预检资金，但不为 pending 订单预留资金。
 - 触发时再次检查资金和市场规则。
+- 回放中只有当前批次更新了该标的估值价格时才会尝试触发；其他标的或其他事件不会用旧价格触发挂单。
 - 不模拟队列位置和部分成交。
 
 ## 止盈止损和退出条件
@@ -481,6 +487,7 @@ order = self.broker.order_target_percent(
 - `trailing_stop_amount`: 固定金额追踪止损。
 
 `trailing_stop_pct` 和 `trailing_stop_amount` 互斥；固定止损/止盈可以和追踪止损同时存在。
+同一净持仓生命周期内，同方向成交只更新传入的退出字段，未传字段沿用已有配置；调用 `clear_exit()` 可显式清除条件。
 
 ### 持仓中修改
 
@@ -542,6 +549,9 @@ broker.get_orders(portfolio="main", symbol="BTCUSDT")
 broker.get_portfolios()
 ```
 
+`get_position()` 查询不存在的标的时返回 `None`，不会创建空仓；`get_positions()` 返回新的字典快照，
+其中的 `Position` 对象仍是当前持仓对象。策略应通过 Broker 的交易接口修改仓位，不要直接改写查询结果。
+
 市场预设：
 
 ```python
@@ -554,6 +564,8 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 `market` 是默认市场规则，未通过 `add_market(...)` 显式映射的 symbol 使用默认规则。上例中 `600519.SH` 和 `510300.SH` 使用 A 股规则，`BTCUSDT` 等未映射 symbol 使用 crypto 规则。
 
 `add_market(...)` 应在回测运行和任何交易发生前调用。查询某个 symbol 使用的市场规则时使用 `broker.get_market(symbol)`，返回的是快照，不能通过修改返回对象改变 broker 内部规则。
+
+`Market` 默认使用 UTC 时区，`markets.A_STOCK` 使用 `Asia/Shanghai`。带时区的交易时间会转换到市场时区；无时区时间按 UTC 解释后再转换。设置 `lot_size`、`tick_size`、`min_qty` 或 `min_notional` 时必须使用有限正数。
 
 `markets.A_STOCK` 是最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
 
@@ -702,5 +714,6 @@ minbt 当前明确不做：
 
 ## ChangeLog
 
+- [@2026-10-02] v0.1.0：修复逐仓风控、市场时区与交易单位校验、持仓查询副作用、挂单触发、退出条件继承和数据 Feed/缓存边界；支持显式时间戳单位。
 - [@2026-06-24] v0.0.4：修复全仓保证金、总权益统计、日志参数和 Python 3.8 注解兼容问题。
 - [@2024-11-16] v0.0.3 release。
