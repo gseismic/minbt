@@ -79,7 +79,7 @@ def test_examples_run_from_repo_root(script_path):
 
 
 def test_pnl_sanity_example_matches_independent_hand_calculation():
-    """盈亏示例的最终结果必须符合独立手算值。"""
+    """在测试中独立核对示例的库级结果，示例本身无需重复实现盈亏公式。"""
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "examples" / "000_core_pnl_sanity_check.py"
     spec = importlib.util.spec_from_file_location("example_000_core_pnl_sanity_check", script_path)
@@ -88,16 +88,20 @@ def test_pnl_sanity_example_matches_independent_hand_calculation():
 
     results = module.run_scenarios()
     expected = {
-        "long_profit": ([0.0, 10.0, 20.0], 20.0),
-        "short_profit": ([0.0, 5.0, 10.0], 10.0),
-        "fees_turn_small_gain_into_loss": ([-0.1, -0.15005], -0.15005),
+        "long_profit": ([0.0, 10.0, 20.0], 20.0, 20.0, 0.0),
+        "short_profit": ([0.0, 5.0, 10.0], 10.0, 10.0, 0.0),
+        "fees_turn_small_gain_into_loss": ([-0.1, -0.15005], -0.15005, 0.05, 0.20005),
     }
 
     assert {result["name"] for result in results} == set(expected)
     for result in results:
-        expected_curve, expected_final = expected[result["name"]]
-        assert result["pnl"] == pytest.approx(expected_curve)
-        assert result["actual_pnl"] == pytest.approx(expected_final)
+        expected_curve, expected_final, expected_realized, expected_fees = expected[result["name"]]
+        assert result["pnl_curve"] == pytest.approx(expected_curve)
+        assert result["pnl"].net_pnl == pytest.approx(expected_final)
+        assert result["pnl"].realized_pnl == pytest.approx(expected_realized)
+        assert result["pnl"].unrealized_pnl == 0
+        assert result["pnl"].fees == pytest.approx(expected_fees)
+        assert sum(record.net_pnl for record in result["records"]) == pytest.approx(expected_final)
         assert result["final_equity"] == pytest.approx(1000.0 + expected_final)
 
 

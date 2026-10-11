@@ -7,7 +7,8 @@
 - `broker-market-routing-20260701-design.md`：Strategy-Broker 关系和 broker 内多市场路由设计稿，明确保留 `Strategy(..., broker=broker)` 主路径，并通过 `broker.add_market(...)` 支持跨市场规则。
 - `data-feed-20260701-design.md`：历史数据接入背景稿；其中用户接口、FeedEvent、价格和回放契约已被 `minbt-20260921-api-refactor.md` 替代。
 - `exchange-20260921-replay-modes.md`：当前代码的 Exchange 实现背景；其中公开接口、通用 `Bar.kind`、TimeBatch/Cursor 类和回放模式均被 `minbt-20260921-api-refactor.md` 替代；同一 dt 收齐、批量账户更新和异常路径释放资源的正确性要求继续有效。
-- `pnl-20260920-examples.md`：可手算盈亏示例、净盈亏曲线定义和端到端正确性校验设计。
+- `pnl-20261011-library-api.md`：库级账户、分仓、标的与订单盈亏查询，明确平均成本、手续费、强平、穿仓和已关闭分仓统计契约。
+- `pnl-20260920-examples.md`：多空与手续费场景的库级接口示例、权益历史绘图和测试分工。
 
 ## 已合并删除的旧设计
 

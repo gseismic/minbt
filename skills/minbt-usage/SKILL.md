@@ -118,7 +118,7 @@ exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 
 示例只导入 minbt 和标准库，不依赖其他示例文件。Feed 示例仍需要各自的数据源；iosql 示例还需要安装 iosql。
 
-- `examples/000_core_pnl_sanity_check.py`: 可手算的多空和手续费校验。
+- `examples/000_core_pnl_sanity_check.py`: 库级多空盈亏、手续费和订单记账查询。
 - `examples/001_core_demo_mini.py`: 最小单标的。
 - `examples/002_core_single_symbol_sma.py`: 单标的均线。
 - `examples/003_core_multi_symbol_rotation.py`: 多标的横截面轮动。
@@ -354,7 +354,27 @@ sizes = strategy.get_hist_position_sizes(symbol)
 
 从未交易的 symbol 返回与权益历史等长的全零列表；安装 pyta2 只改变内部存储。
 
-净盈亏曲线可以直接由权益曲线计算。应在回测前保存初始权益：
+当前盈亏直接查询库级接口，无需在策略中编写成交盈亏公式：
+
+```python
+pnl = broker.get_total_pnl()
+print(pnl.net_pnl, pnl.realized_pnl, pnl.unrealized_pnl, pnl.fees)
+main_pnl = broker.get_pnl()
+symbol_pnl = broker.get_pnl(symbol, portfolio="trend")
+all_symbol_pnl = broker.get_total_pnl(symbol)
+records = broker.get_pnl_records(order_id=order.id)
+```
+
+`Pnl` 和 `PnlRecord` 是不可变快照。已实现、未实现盈亏为毛盈亏，手续费累计全部实际扣款；
+净盈亏为 `realized_pnl + unrealized_pnl - fees + settlement_adjustment`。结算调整普通交易为零，
+只用于反映穿仓清零。全账户净盈亏与总权益减 Broker 初始资金一致。
+
+`get_pnl()` 默认查询 main，指定分仓或标的可进一步筛选；分仓关闭和同名重建仍保留历史，
+内部资金划拨不计为利润。`get_pnl_records()` 默认返回全部记账，支持 `portfolio/symbol/order_id` 交集筛选，
+按实际记账顺序返回。系统风险结算没有订单 ID；全仓穿仓的账户调整没有标的归属。
+明细按一次成交记录，不配对往返交易、不分摊开仓费。未知标的返回零值，未知分仓抛 `ValueError`。
+
+净盈亏曲线继续由权益历史计算。应在回测前保存初始权益：
 
 ```python
 initial_equity = broker.get_total_equity()
@@ -363,11 +383,8 @@ pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
 ```
 
 定义为 `pnl(t) = equity(t) - initial_equity`。正值表示盈利，负值表示亏损；持仓未平时包含按最新价
-盯市的未实现盈亏，最终结果包含手续费。在默认杠杆、单次完整开平仓且没有其他成交的示例中，可用
-`gross_pnl = qty * (exit - entry)`、
-`fees = (abs(qty) * entry + abs(qty) * exit) * fee_rate`、
-`net_pnl = gross_pnl - fees` 独立核对。需要确认计算是否正确时，优先运行
-`examples/000_core_pnl_sanity_check.py`，它会把理论手算值和实际回测值同时打印并绘制零盈亏基线。
+盯市的未实现盈亏，最终结果包含手续费。`examples/000_core_pnl_sanity_check.py` 展示公开接口结果和曲线；
+独立手算核对由 `tests/test_pnl.py` 和 `tests/test_examples.py` 完成。
 
 ## 退出条件
 

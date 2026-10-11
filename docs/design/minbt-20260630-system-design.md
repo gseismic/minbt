@@ -1274,6 +1274,20 @@ broker.get_portfolios() -> list[str]
 - `get_market_price(...)` 是 `get_last_price(...)` 的兼容别名，不推荐在新示例中使用。
 - `get_all_portfolio_equity()` 是 `get_total_equity()` 的实现别名，不推荐在新示例中使用。
 
+### 盈亏
+
+盈亏查询契约见 `pnl-20261011-library-api.md`：
+
+```python
+broker.get_total_pnl(symbol=None) -> Pnl
+broker.get_pnl(symbol=None, *, portfolio=None) -> Pnl
+broker.get_pnl_records(*, portfolio=None, symbol=None, order_id=None) -> list[PnlRecord]
+```
+
+`get_pnl()` 默认查询 main；`get_total_pnl()` 汇总所有分仓，包括已关闭历史。
+已实现盈亏和未实现盈亏均为毛盈亏，净盈亏扣除全部手续费并加上穿仓结算调整。
+资金划拨不计盈亏，分仓名称复用时结果继续累计历史。明细按成交或系统结算记录，不配对往返交易。
+
 ### 持仓
 
 ```python

@@ -164,6 +164,9 @@ def test_broker_query_signatures_match_design():
     _assert_parameter_contract(Broker.get_position_size, ["symbol", "portfolio"], [])
     _assert_parameter_contract(Broker.get_position_sizes, ["portfolio"], [])
     _assert_parameter_contract(Broker.get_positions, ["portfolio"], [])
+    _assert_parameter_contract(Broker.get_total_pnl, ["symbol"], [])
+    _assert_parameter_contract(Broker.get_pnl, ["symbol"], ["portfolio"])
+    _assert_parameter_contract(Broker.get_pnl_records, [], ["portfolio", "symbol", "order_id"])
 
 
 def test_broker_does_not_expose_mutable_market_attribute():

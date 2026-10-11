@@ -582,6 +582,31 @@ self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="cry
 
 ## 结果查询
 
+当前盈亏由库统一统计：
+
+```python
+pnl = broker.get_total_pnl()
+print(pnl.net_pnl, pnl.realized_pnl, pnl.unrealized_pnl, pnl.fees)
+
+broker.get_pnl()  # main 分仓
+broker.get_pnl("BTCUSDT", portfolio="trend")
+broker.get_total_pnl("BTCUSDT")  # 跨分仓汇总标的
+records = broker.get_pnl_records(portfolio="main", symbol="BTCUSDT")
+order_records = broker.get_pnl_records(order_id=order.id)
+```
+
+返回的 `Pnl` 是不可变快照：已实现盈亏按平均成本计算，未实现盈亏按最新估值计算，两者均为毛盈亏；
+`fees` 是实际累计支付的全部手续费。普通交易满足 `net_pnl = realized_pnl + unrealized_pnl - fees`。
+穿仓时另有 `settlement_adjustment`，`net_pnl` 会自动包含它，与实际清零后的权益对齐。
+全账户净盈亏等于 `broker.get_total_equity() - broker.initial_cash`。
+
+分仓划拨不计为盈亏，已关闭分仓及同名重建后的历史仍保留原归属。因此主分仓和同名重建分仓的累计净盈亏，
+不能直接用其当前权益减初始资金计算。全仓穿仓的账户结算调整没有标的归属，按标的汇总时不包含这部分调整。
+
+`PnlRecord` 每条记录对应一次实际成交或系统风险结算，包含分仓、标的、数量、价格、时间、订单 ID 和盈亏金额，
+按实际记账顺序返回。开仓记录的净贡献可能只有手续费；不配对 FIFO 往返交易，也不分摊过去的开仓手续费。
+系统结算没有订单 ID，强平沿用现有免手续费规则。未知标的返回零值或空明细，未知分仓抛出 `ValueError`。
+
 Strategy 自动记录回测中的总权益和持仓数量：
 
 ```python
@@ -599,7 +624,7 @@ pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
 ```
 
 曲线中的正值表示盈利，负值表示亏损；持仓未平时是按最新价计算的未实现盈亏，最终平仓后还包含手续费影响。
-可直接运行 `examples/000_core_pnl_sanity_check.py` 查看多头、空头和手续费的手算校验。
+可直接运行 `examples/000_core_pnl_sanity_check.py` 查看多头、空头和手续费场景的库级查询结果与曲线。
 
 两个历史查询都返回 Python `list`。从未交易过的 symbol 返回与权益历史等长的全零列表；
 安装 pyta2 只改变内部存储方式，不改变查询结果类型和缺失值语义。
@@ -641,7 +666,7 @@ python examples/401_exchange_generic_bar_storage.py
 
 示例文件：
 
-- [examples/000_core_pnl_sanity_check.py](./examples/000_core_pnl_sanity_check.py)：用手算结果校验多空盈亏和手续费。
+- [examples/000_core_pnl_sanity_check.py](./examples/000_core_pnl_sanity_check.py)：展示多空盈亏、手续费和订单记账明细。
 - [examples/001_core_demo_mini.py](./examples/001_core_demo_mini.py)：最小单标的示例。
 - [examples/002_core_single_symbol_sma.py](./examples/002_core_single_symbol_sma.py)：单标的双均线趋势跟随。
 - [examples/003_core_multi_symbol_rotation.py](./examples/003_core_multi_symbol_rotation.py)：多标的横截面动量轮动。

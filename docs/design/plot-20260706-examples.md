@@ -58,7 +58,7 @@
 
 | 示例 | 图表 | 说明 |
 |---|---|---|
-| 000_core_pnl_sanity_check | 多组净盈亏曲线和零盈亏基线 | 手算校验 |
+| 000_core_pnl_sanity_check | 多组净盈亏曲线和零盈亏基线 | 库级盈亏查询 |
 | 001_core_demo_mini | 价格线 + 权益曲线（双面板） | 标注开仓/平仓点 |
 | 002_core_single_symbol_sma | 价格+双均线（上） + 权益+持仓方向（下） | 看出金叉死叉与权益关系 |
 | 003_core_multi_symbol_rotation | 四标的价走势（上） + 权益+动量排行（下） | 看出轮动效果 |

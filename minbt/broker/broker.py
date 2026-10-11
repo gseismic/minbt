@@ -7,6 +7,7 @@ from .exit import ExitConfig, ExitContext, ExitRule, _ExitState
 from .market import Market
 from .order import Order, OrderSource
 from .portfolio import Portfolio
+from .pnl import Pnl, PnlRecord, _sum_pnl
 from .struct import DateType, Position, _require
 from ..data.model import Bar
 from ..data.replay import TimeBatch
@@ -81,6 +82,8 @@ class Broker:
             raise ValueError("mark_price_missing must be 'keep' or 'error'")
         self.mark_price_missing = mark_price_missing
 
+        self._pnl_records: List[PnlRecord] = []  # 按实际记账顺序保留所有分仓的不可变明细。
+        self._closed_pnl: Dict[str, Dict[Optional[str], Pnl]] = {}  # 已关闭分仓的汇总，按名称累计历史。
         self.portfolios: Dict[str, Portfolio] = {
             DEFAULT_PORTFOLIO: self._create_portfolio(initial_cash)
         }
@@ -127,8 +130,8 @@ class Broker:
             raise ValueError("mark_price_aggregation must be 'error', 'first', 'last', or callable")
         return value
 
-    def _create_portfolio(self, initial_cash: float) -> Portfolio:
-        return Portfolio(
+    def _create_portfolio(self, initial_cash: float, name: str = DEFAULT_PORTFOLIO) -> Portfolio:
+        portfolio = Portfolio(
             initial_cash,
             fee_rate=self.fee_rate,
             leverage=self.leverage,
@@ -136,7 +139,23 @@ class Broker:
             warning_margin_level=self.warning_margin_level,
             min_margin_level=self.min_margin_level,
             logger=self.logger,
+            name=name,
         )
+        portfolio._pnl_record_sink = self._pnl_records.append
+        return portfolio
+
+    def _close_portfolio_account(self, name: str) -> None:
+        """关闭分仓并归还现金，保留原分仓盈亏，划拨不产生交易收益。"""
+        closed = self.portfolios.pop(name)
+        self.portfolios[DEFAULT_PORTFOLIO]._current_cash.change_cash(closed.total_cash)
+        archived = self._closed_pnl.setdefault(name, {})
+        for symbol, pnl in closed._booked_pnl.items():
+            archived[symbol] = _sum_pnl((archived.get(symbol, Pnl()), pnl))
+        closed._pnl_record_sink = None
+
+    def _require_pnl_portfolio(self, name: str) -> None:
+        if name not in self.portfolios and name not in self._closed_pnl:
+            raise ValueError(f"portfolio not found: {name}")
 
     def _require_portfolio(self, portfolio: str) -> None:
         if portfolio not in self.portfolios:
@@ -499,6 +518,7 @@ class Broker:
             price=price,
             leverage=leverage,
             price_dt=price_dt,
+            order_id=order.id,
         )
         if not result:
             return self._update_order(
@@ -529,7 +549,7 @@ class Broker:
             f"cash must be less than or equal to main portfolio free cash, cash: {cash}, free_cash: {source.free_cash}",
         )
         source._current_cash.change_cash(-cash)
-        self.portfolios[name] = self._create_portfolio(cash)
+        self.portfolios[name] = self._create_portfolio(cash, name=name)
 
     def add_market(self, name: str, market: Market, symbols: Sequence[str]) -> None:
         """为一组 symbol 添加市场规则路由。"""
@@ -1232,8 +1252,7 @@ class Broker:
         if not close_plan:
             self._cancel_pending_orders_for_portfolio(portfolio)
             if portfolio != DEFAULT_PORTFOLIO:
-                closed_portfolio = self.portfolios.pop(portfolio)
-                self.portfolios[DEFAULT_PORTFOLIO]._current_cash.change_cash(closed_portfolio.total_cash)
+                self._close_portfolio_account(portfolio)
             return [
                 self._create_order(
                     symbol="*",
@@ -1292,8 +1311,7 @@ class Broker:
         if all(order.status == "filled" for order in orders):
             self._cancel_pending_orders_for_portfolio(portfolio)
             if portfolio != DEFAULT_PORTFOLIO:
-                closed_portfolio = self.portfolios.pop(portfolio)
-                self.portfolios[DEFAULT_PORTFOLIO]._current_cash.change_cash(closed_portfolio.total_cash)
+                self._close_portfolio_account(portfolio)
         return orders
 
     def set_exit(
@@ -1529,6 +1547,52 @@ class Broker:
 
     def get_total_equity(self) -> float:
         return self.get_all_portfolio_equity()
+
+    def get_total_pnl(self, symbol: Optional[str] = None) -> Pnl:
+        """查询全账户累计盈亏，包括已关闭分仓；净盈亏与总权益减初始资金一致。
+
+        指定 symbol 时只汇总该标的，全仓穿仓的账户结算调整不归属任何标的。
+        """
+        results = [portfolio.get_pnl(symbol) for portfolio in self.portfolios.values()]
+        for archived in self._closed_pnl.values():
+            results.extend(archived.values() if symbol is None else (archived.get(symbol, Pnl()),))
+        return _sum_pnl(results)
+
+    def get_pnl(self, symbol: Optional[str] = None, *, portfolio: Optional[str] = None) -> Pnl:
+        """查询一个分仓名称的累计盈亏，默认 main；关闭及同名重建后仍包含历史。
+
+        未知标的返回零值。内部资金划拨不计入盈亏，因此分仓净盈亏不能直接用
+        分仓当前权益减初始资金计算。
+        """
+        name = DEFAULT_PORTFOLIO if portfolio is None else portfolio
+        self._require_pnl_portfolio(name)
+        archived = self._closed_pnl.get(name, {})
+        results = list(archived.values()) if symbol is None else [archived.get(symbol, Pnl())]
+        active = self.portfolios.get(name)
+        if active is not None:
+            results.append(active.get_pnl(symbol))
+        return _sum_pnl(results)
+
+    def get_pnl_records(
+        self,
+        *,
+        portfolio: Optional[str] = None,
+        symbol: Optional[str] = None,
+        order_id: Optional[str] = None,
+    ) -> List[PnlRecord]:
+        """按实际记账顺序返回成交及风险结算明细，默认全部，筛选条件取交集。
+
+        未成交订单没有明细，系统结算的 order_id 为 None。返回新列表和不可变记录。
+        """
+        if portfolio is not None:
+            self._require_pnl_portfolio(portfolio)
+        return [
+            record
+            for record in self._pnl_records
+            if (portfolio is None or record.portfolio == portfolio)
+            and (symbol is None or record.symbol == symbol)
+            and (order_id is None or record.order_id == order_id)
+        ]
 
     def get_portfolios(self) -> List[str]:
         return list(self.portfolios.keys())

@@ -1,8 +1,10 @@
-from typing import Dict, Literal, Optional, Tuple
+from math import fsum
+from typing import Callable, Dict, List, Literal, Optional, Tuple
 import copy
 import numpy as np
 from ..logger import logger as default_logger
 from .struct import Position, Cash, DateType, _require
+from .pnl import Pnl, PnlReason, PnlRecord, _sum_pnl
 
 
 class _PreviewLogger:
@@ -19,7 +21,9 @@ class Portfolio:
                  margin_mode: Literal['cross', 'isolated'] = 'cross',
                  warning_margin_level: float = 0.2,
                  min_margin_level: float = 0.1 ,
-                 logger=None):
+                 logger=None,
+                 *,
+                 name: str = "main"):
         """
         初始化Portfolio
         
@@ -30,6 +34,7 @@ class Portfolio:
             margin_mode: 保证金模式, cross[全仓]或isolated[逐仓]
             warning_margin_level: 警告保证金水平, 0-1
             min_margin_level: 最小保证金水平, 0-1s
+            name: 记账所属分仓名称，独立使用时默认为 main
         """
         _require(initial_cash > 0, f'initial_cash must be greater than 0, got {initial_cash}')
         _require(0 <= fee_rate < 1, f'fee_rate must be between 0 and 1, got {fee_rate}')
@@ -48,16 +53,118 @@ class Portfolio:
         self.warning_margin_level = warning_margin_level
         self.min_margin_level = min_margin_level
         self.logger = logger or default_logger
+        self.name = name  # 记账所属分仓名称，独立 Portfolio 默认使用 main。
+        # Broker 接入实际记账日志；预检副本禁用此回调，避免污染真实记录。
+        self._pnl_record_sink: Optional[Callable[[PnlRecord], None]] = None
         self.reset()
             
     def reset(self):
+        """重置独立分仓的资金、持仓和统计；Broker 管理的分仓由 Broker 统一维护。"""
         self.last_prices = {}
         self.last_prices_dt = {}
         self._bankrupt = False
         self._current_cash = Cash(self.initial_cash, self.initial_cash)
         self._positions: Dict[str, Position] = {}
+        self._booked_pnl: Dict[Optional[str], Pnl] = {}  # 按标的累计已结算盈亏，不保存未实现盈亏。
+        self._pnl_records: List[PnlRecord] = []  # 本分仓实际记账明细，重置时清空。
+
+    def _record_pnl(
+        self,
+        *,
+        symbol: Optional[str],
+        qty: float,
+        price: Optional[float],
+        realized_pnl: float,
+        fees: float = 0.0,
+        settlement_adjustment: float = 0.0,
+        order_id: Optional[str] = None,
+        reason: PnlReason = "trade",
+        dt: Optional[DateType] = None,
+    ) -> None:
+        """仅记录已经提交的成交或结算，汇总和明细使用同一份实际金额。"""
+        record = PnlRecord(
+            portfolio=self.name,
+            symbol=symbol,
+            qty=qty,
+            price=price,
+            realized_pnl=realized_pnl,
+            fees=fees,
+            settlement_adjustment=settlement_adjustment,
+            order_id=order_id,
+            reason=reason,
+            dt=dt,
+        )
+        self._booked_pnl[symbol] = _sum_pnl((
+            self._booked_pnl.get(symbol, Pnl()),
+            Pnl(realized_pnl=realized_pnl, fees=fees, settlement_adjustment=settlement_adjustment),
+        ))
+        self._pnl_records.append(record)
+        if self._pnl_record_sink is not None:
+            self._pnl_record_sink(record)
+
+    def get_pnl(self, symbol: Optional[str] = None) -> Pnl:
+        """查询本生命周期累计盈亏；未知标的返回零值，不创建持仓。"""
+        if symbol is None:
+            booked = _sum_pnl(self._booked_pnl.values())
+            unrealized_pnl = fsum(position.unrealized_pnl for position in self._positions.values())
+        else:
+            booked = self._booked_pnl.get(symbol, Pnl())
+            position = self._positions.get(symbol)
+            unrealized_pnl = 0.0 if position is None else position.unrealized_pnl
+        return Pnl(
+            realized_pnl=booked.realized_pnl,
+            unrealized_pnl=unrealized_pnl,
+            fees=booked.fees,
+            settlement_adjustment=booked.settlement_adjustment,
+        )
+
+    def get_pnl_records(self, symbol: Optional[str] = None) -> List[PnlRecord]:
+        """返回本生命周期明细的新列表，记录本身不可变。"""
+        return [record for record in self._pnl_records if symbol is None or record.symbol == symbol]
+
+    def _mark_position_bankrupt(self, symbol: str) -> None:
+        """逐仓穿仓只清零该仓位保证金，用结算调整保留毛亏损和实际损失。"""
+        position = self._positions[symbol]
+        qty, price = -position.size, position.last_price
+        realized_pnl = position.unrealized_pnl
+        settlement_adjustment = -position.equity
+        position.mark_bankrupt()
+        self._record_pnl(
+            symbol=symbol,
+            qty=qty,
+            price=price,
+            realized_pnl=realized_pnl,
+            settlement_adjustment=settlement_adjustment,
+            reason="bankruptcy",
+            dt=self.last_prices_dt.get(symbol),
+        )
     
-    def mark_bankrupt(self) -> None:
+    def mark_bankrupt(self, dt: Optional[DateType] = None) -> None:
+        """全仓清零并保留毛盈亏与账户结算调整，重复调用不重复记账。"""
+        if self._bankrupt:
+            return
+        equity_before = self.get_portfolio_equity()
+        for symbol, position in self._positions.items():
+            if not position.is_empty():
+                self._record_pnl(
+                    symbol=symbol,
+                    qty=-position.size,
+                    price=position.last_price,
+                    realized_pnl=position.unrealized_pnl,
+                    reason="bankruptcy",
+                    dt=self.last_prices_dt.get(symbol),
+                )
+        if equity_before != 0:
+            # 全仓清零是账户结算，不把债务减免或资产核销归到某个标的。
+            self._record_pnl(
+                symbol=None,
+                qty=0.0,
+                price=None,
+                realized_pnl=0.0,
+                settlement_adjustment=-equity_before,
+                reason="bankruptcy_settlement",
+                dt=dt,
+            )
         self._bankrupt = True
         self._positions.clear()
         self._current_cash = Cash(0.0, 0.0)
@@ -114,10 +221,10 @@ class Portfolio:
             self.logger.error(f'[{self.margin_mode}] {symbol} bankrupt, margin_level: {margin_level}')
             if self.margin_mode == 'isolated':
                 position = self.get_position(symbol)
-                position.mark_bankrupt()
+                self._mark_position_bankrupt(symbol)
                 _require(position.size == 0, f'{symbol} is not closed after bankruptcy', RuntimeError)
             else:
-                self.mark_bankrupt()
+                self.mark_bankrupt(dt)
         elif margin_level <= self.min_margin_level:
             liquidated = True
             if self.margin_mode == 'isolated':
@@ -169,7 +276,7 @@ class Portfolio:
                 lowest_margin_level = min(lowest_margin_level, margin_level)
                 if margin_level < 0:
                     self.logger.error(f'[{self.margin_mode}] {symbol} bankrupt, margin_level: {margin_level}')
-                    position.mark_bankrupt()
+                    self._mark_position_bankrupt(symbol)
                     bankrupt = True
                     liquidated = True
                     continue
@@ -191,7 +298,7 @@ class Portfolio:
         margin_level = self.get_portfolio_margin_level()
         if margin_level < 0:
             self.logger.error(f'[{self.margin_mode}] portfolio bankrupt, margin_level: {margin_level}')
-            self.mark_bankrupt()
+            self.mark_bankrupt(dt)
             return True, True, margin_level
         if margin_level <= self.min_margin_level:
             self.logger.warning(f'[{self.margin_mode}] Reach liquidation, close all positions')
@@ -225,7 +332,7 @@ class Portfolio:
             margin_level = self.get_portfolio_margin_level()
         return margin_level
 
-    def submit_order(self, symbol: str, qty: float, price: float, leverage: Optional[float] = None, price_dt: Optional[DateType] = None) -> bool:
+    def submit_order(self, symbol: str, qty: float, price: float, leverage: Optional[float] = None, price_dt: Optional[DateType] = None, *, order_id: Optional[str] = None) -> bool:
         """提交订单
         
         Args:
@@ -233,6 +340,7 @@ class Portfolio:
             qty: 数量，可正可负
             price: 价格
             leverage: 杠杆倍数，如果为None，使用默认杠杆
+            order_id: Broker 实际订单 ID，仅在成交成功后关联到盈亏记录
         
         依次进行:
             1. 更新价格，检查保证金水平，是否触发强制平仓
@@ -285,6 +393,15 @@ class Portfolio:
         
         # 前面已经考虑穿仓了，这里不会报错
         self._current_cash.change_cash(released_cash)
+        self._record_pnl(
+            symbol=symbol,
+            qty=qty,
+            price=price,
+            realized_pnl=realized_pnl,
+            fees=required_fee,
+            order_id=order_id,
+            dt=price_dt,
+        )
         
         self.logger.debug(
             f'Submit order: {symbol}, qty={qty}, price={price}, new_position_size={new_position_size}, '
@@ -299,6 +416,10 @@ class Portfolio:
         preview.last_prices_dt = self.last_prices_dt.copy()
         preview._current_cash = copy.deepcopy(self._current_cash)
         preview._positions = copy.deepcopy(self._positions)
+        preview._booked_pnl = self._booked_pnl.copy()
+        # 预检只模拟新增记账，不复制历史日志，也不通知真实 Broker。
+        preview._pnl_records = []
+        preview._pnl_record_sink = None
         preview.logger = _PreviewLogger()
 
         for index, order in enumerate(orders):
@@ -345,6 +466,9 @@ class Portfolio:
         if symbol not in self._positions:
             return None
         position = self._positions[symbol]
+        if position.is_empty():
+            return position
+        qty = -position.size
         released_margin, realized_pnl = position.commit_close_all(last_price)
         released_cash = released_margin + realized_pnl
         _require(
@@ -353,6 +477,14 @@ class Portfolio:
             RuntimeError,
         )
         self._current_cash.change_cash(released_cash)
+        self._record_pnl(
+            symbol=symbol,
+            qty=qty,
+            price=position.last_price,
+            realized_pnl=realized_pnl,
+            reason="liquidation",
+            dt=self.last_prices_dt.get(symbol),
+        )
         return position
     
     def _pure_close_all_positions(self, last_prices: Optional[Dict[str, float]] = None) -> None:
