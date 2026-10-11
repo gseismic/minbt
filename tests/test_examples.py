@@ -1,4 +1,3 @@
-import os
 import importlib.util
 import subprocess
 import sys
@@ -30,12 +29,9 @@ from minbt import Bar
 def test_examples_run_from_repo_root(script_path):
     """测试安装 minbt 后 README 中的示例命令可从仓库根目录运行。"""
     repo_root = Path(__file__).resolve().parents[1]
-    env = os.environ.copy()
-    env["MINBT_EXAMPLE_SHOW"] = "0"
     result = subprocess.run(
         [sys.executable, script_path],
         cwd=repo_root,
-        env=env,
         text=True,
         capture_output=True,
         timeout=30,
@@ -46,16 +42,15 @@ def test_examples_run_from_repo_root(script_path):
     assert result.stderr == ""
 
 
-def test_pnl_sanity_example_matches_independent_hand_calculation(monkeypatch):
-    """盈亏示例的曲线和最终结果必须符合独立手算值。"""
+def test_pnl_sanity_example_matches_independent_hand_calculation():
+    """盈亏示例的最终结果必须符合独立手算值。"""
     repo_root = Path(__file__).resolve().parents[1]
-    monkeypatch.syspath_prepend(str(repo_root / "examples"))
     script_path = repo_root / "examples" / "000_core_pnl_sanity_check.py"
     spec = importlib.util.spec_from_file_location("example_000_core_pnl_sanity_check", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    results = module.run_scenarios(make_plot=False)
+    results = module.run_scenarios()
     expected = {
         "long_profit": ([0.0, 10.0, 20.0], 20.0),
         "short_profit": ([0.0, 5.0, 10.0], 10.0),
@@ -72,12 +67,9 @@ def test_pnl_sanity_example_matches_independent_hand_calculation(monkeypatch):
 
 def test_100k_benchmark_example_runs_without_logs():
     repo_root = Path(__file__).resolve().parents[1]
-    env = os.environ.copy()
-    env["MINBT_EXAMPLE_SHOW"] = "0"
     result = subprocess.run(
         [sys.executable, "examples/200_benchmark_100k_empty.py"],
         cwd=repo_root,
-        env=env,
         text=True,
         capture_output=True,
         timeout=30,
@@ -92,9 +84,7 @@ def test_100k_benchmark_example_runs_without_logs():
 
 
 def test_crypto_binance_feed_example_runs_with_fake_feed(monkeypatch, capsys):
-    monkeypatch.setenv("MINBT_EXAMPLE_SHOW", "0")
     repo_root = Path(__file__).resolve().parents[1]
-    monkeypatch.syspath_prepend(str(repo_root / "examples"))
     script_path = repo_root / "examples" / "300_feed_crypto_binance.py"
     spec = importlib.util.spec_from_file_location("example_300_feed_crypto_binance", script_path)
     module = importlib.util.module_from_spec(spec)

@@ -1,28 +1,17 @@
 import math
 from collections import deque
+from datetime import date, timedelta
 
-try:
-    import matplotlib
-except ImportError:
-    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
-
-
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
-import pandas as pd
-
-from example_utils import target_position_value
 from minbt import Broker, Exchange, Strategy
-from plot_utils import save_figure
 
 SYMBOL = "BTCUSDT"
 
 
-def build_sample_data() -> pd.DataFrame:
+def build_sample_data():
     """构造带有盘整、突破、回撤和二次趋势的单标的行情。"""
     rows = []
     close = 100.0
-    start_dt = pd.Timestamp("2026-02-01")
+    start_dt = date(2026, 2, 1)
     for step in range(96):
         if step < 24:
             drift = 0.04 * math.sin(step / 2)
@@ -36,7 +25,7 @@ def build_sample_data() -> pd.DataFrame:
         daily_range = 0.7 + 0.25 * abs(math.sin(step / 5))
         rows.append(
             {
-                "dt": (start_dt + pd.Timedelta(days=step)).date().isoformat(),
+                "dt": (start_dt + timedelta(days=step)).isoformat(),
                 "symbol": SYMBOL,
                 "open": round(close - drift, 4),
                 "high": round(close + daily_range, 4),
@@ -44,7 +33,7 @@ def build_sample_data() -> pd.DataFrame:
                 "close": round(close, 4),
             }
         )
-    return pd.DataFrame(rows)
+    return rows
 
 
 class BreakoutWithStopStrategy(Strategy):
@@ -92,7 +81,10 @@ class BreakoutWithStopStrategy(Strategy):
                 self.highest_close = max(self.highest_close or close, close)
                 stop_price = max(self.entry_price - 2.0 * atr, self.highest_close - 3.0 * atr)
                 if close < stop_price:
-                    if target_position_value(self.broker, SYMBOL, 0.0, close, leverage=self.leverage):
+                    order = self.broker.order_target_value(
+                        SYMBOL, target_value=0.0, price=close, leverage=self.leverage
+                    )
+                    if order.status == "filled":
                         self.stop_count += 1
                         self.trade_count += 1
                     self.entry_price = None
@@ -102,7 +94,10 @@ class BreakoutWithStopStrategy(Strategy):
                 volatility_ok = atr / close < 0.04
                 if breakout and volatility_ok:
                     target_value = self.broker.get_equity() * self.target_fraction
-                    if target_position_value(self.broker, SYMBOL, target_value, close, leverage=self.leverage):
+                    order = self.broker.order_target_value(
+                        SYMBOL, target_value=target_value, price=close, leverage=self.leverage
+                    )
+                    if order.status == "filled":
                         self.entry_price = close
                         self.highest_close = close
                         self.trade_count += 1
@@ -127,37 +122,6 @@ def run_strategy():
 
     exchange.add_strategy(strategy)
     exchange.run()
-
-    # ── 绘图：价格+突破高亮 + 权益 ──
-    data = build_sample_data()
-    sym_bars = data[data["symbol"] == SYMBOL].copy()
-    sym_bars["dt"] = pd.to_datetime(sym_bars["dt"])
-    sym_bars = sym_bars.sort_values("dt")
-
-    equity = list(strategy.get_hist_equity())
-    dates = pd.DatetimeIndex(pd.to_datetime(data["dt"]).unique()).sort_values()
-    eq = pd.Series(equity[: len(dates)], index=dates[: len(equity)])
-
-    rolling_max = sym_bars["close"].rolling(18).max()
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
-    ax1.plot(sym_bars["dt"], sym_bars["close"], color="steelblue", linewidth=1.2, label=f"{SYMBOL} close")
-    ax1.plot(sym_bars["dt"], rolling_max, color="orange", linestyle="--", linewidth=0.8, alpha=0.7, label="Rolling High (18)")
-    ax1.set_title("102 Single Breakout — Price & Equity", fontsize=13, fontweight="bold")
-    ax1.set_ylabel("Price")
-    ax1.legend(loc="upper left", fontsize="small")
-    ax1.grid(True, alpha=0.3)
-
-    ax2.plot(eq.index, eq.values, color="steelblue", linewidth=1.5, label="Equity")
-    ax2.axhline(y=eq.iloc[0], color="gray", linestyle="--", alpha=0.5)
-    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values >= eq.iloc[0]), color="green", alpha=0.08)
-    ax2.fill_between(eq.index, eq.iloc[0], eq.values, where=(eq.values < eq.iloc[0]), color="red", alpha=0.08)
-    ax2.set_ylabel("Equity")
-    ax2.set_xlabel("Date")
-    ax2.legend(loc="upper left", fontsize="small")
-    ax2.grid(True, alpha=0.3)
-    ax2.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
-    save_figure("102_scenario_single_breakout")
 
     return strategy, broker
 

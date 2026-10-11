@@ -1,18 +1,8 @@
 """用可手算的最小场景校验 minbt 的多空盈亏和手续费。"""
 
 import math
-try:
-    import matplotlib
-except ImportError:
-    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
-
-
-import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
-import pandas as pd
 
 from minbt import Broker, Exchange, Strategy
-from plot_utils import save_figure
 
 
 INITIAL_CASH = 1_000.0
@@ -72,18 +62,12 @@ class FixedTradeStrategy(Strategy):
         self.step += 1
 
 
-def build_sample_data(prices) -> pd.DataFrame:
+def build_sample_data(prices):
     """构造只包含 dt、symbol、close 的最小 bars 数据。"""
-    return pd.DataFrame(
-        [
-            {
-                "dt": f"2026-01-{index + 1:02d}",
-                "symbol": SYMBOL,
-                "close": price,
-            }
-            for index, price in enumerate(prices)
-        ]
-    )
+    return [
+        {"dt": f"2026-01-{index + 1:02d}", "symbol": SYMBOL, "close": price}
+        for index, price in enumerate(prices)
+    ]
 
 
 def expected_pnl(qty: float, prices, fee_rate: float) -> dict:
@@ -121,7 +105,7 @@ def run_scenario(config: dict) -> dict:
     if strategy.exit_order is None or strategy.exit_order.status != "filled":
         raise AssertionError(f"exit order was not filled: {strategy.exit_order}")
 
-    equity = [float(value) for value in strategy.get_hist_equity()]
+    equity = strategy.get_hist_equity()
     pnl = [value - INITIAL_CASH for value in equity]
     hand_calculation = expected_pnl(config["qty"], prices, config["fee_rate"])
     actual_pnl = pnl[-1]
@@ -133,7 +117,6 @@ def run_scenario(config: dict) -> dict:
     return {
         "name": config["name"],
         "label": config["label"],
-        "dates": pd.DatetimeIndex(pd.to_datetime(data["dt"])),
         "equity": equity,
         "pnl": pnl,
         "final_equity": broker.get_total_equity(),
@@ -142,52 +125,8 @@ def run_scenario(config: dict) -> dict:
     }
 
 
-def plot_pnl_curves(results) -> None:
-    """绘制各场景的净盈亏曲线，并以零线区分盈利和亏损。"""
-    fig, ax = plt.subplots(figsize=(11, 6))
-    colors = ("#16803c", "#2563eb", "#c2410c")
-
-    for result, color in zip(results, colors):
-        dates = result["dates"]
-        pnl = result["pnl"]
-        ax.fill_between(
-            dates,
-            0,
-            pnl,
-            where=[value >= 0 for value in pnl],
-            color=color,
-            alpha=0.08,
-        )
-        ax.fill_between(
-            dates,
-            0,
-            pnl,
-            where=[value < 0 for value in pnl],
-            color="#dc2626",
-            alpha=0.08,
-        )
-        ax.plot(dates, pnl, marker="o", linewidth=2, color=color, label=result["name"])
-        ax.scatter(dates[-1], pnl[-1], color=color, s=45, zorder=3)
-        ax.annotate(
-            f"{pnl[-1]:+.5f}",
-            (dates[-1], pnl[-1]),
-            xytext=(6, 6),
-            textcoords="offset points",
-            color=color,
-        )
-
-    ax.axhline(0.0, color="black", linestyle="--", linewidth=1, label="Zero P&L")
-    ax.set_title("000 P&L Sanity Check - Net P&L Curve", fontsize=14, fontweight="bold")
-    ax.set_ylabel("Net P&L (Equity - Initial Cash)")
-    ax.set_xlabel("Date")
-    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda value, _: f"{value:+.2f}"))
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc="best")
-    save_figure("000_core_pnl_sanity_check")
-
-
-def run_scenarios(make_plot: bool = True):
-    """运行全部手算场景，默认同时生成盈亏曲线。"""
+def run_scenarios():
+    """运行全部手算场景并打印结果。"""
     results = []
     for config in SCENARIOS:
         result = run_scenario(config)
@@ -201,8 +140,6 @@ def run_scenarios(make_plot: bool = True):
         )
         print(f"final_equity={result['final_equity']:.5f}")
 
-    if make_plot:
-        plot_pnl_curves(results)
     return results
 
 

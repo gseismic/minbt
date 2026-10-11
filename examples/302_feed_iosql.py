@@ -1,13 +1,7 @@
 import os
-from pathlib import Path
-try:
-    import matplotlib  # noqa: F401
-except ImportError as exc:
-    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]") from exc
 
 from minbt import Broker, Exchange, Strategy
 from minbt.data import BinanceKlineIosqlFeed
-from plot_utils import plot_feed_price_and_equity
 
 
 SYMBOL = "BTCUSDT"
@@ -19,21 +13,12 @@ START = "2023-01-01"
 END = "2023-01-03"
 
 
-def _sqlite_path(uri):
-    prefix = "sqlite://"
-    if uri.startswith(prefix):
-        return Path(uri[len(prefix):])
-    return None
-
-
 class IosqlFeedStrategy(Strategy):
     def on_init(self):
         self.bar_count = 0
-        self.bar_records = []
 
     def on_bars(self, dt, bars):
         price = bars[SYMBOL]["close"]
-        self.bar_records.append({"dt": dt, "symbol": SYMBOL, "close": price})
         if self.bar_count == 0:
             self.broker.order_target_percent(SYMBOL, 0.8, price=price)
         self.bar_count += 1
@@ -44,18 +29,6 @@ class IosqlFeedStrategy(Strategy):
 
 
 def run_strategy():
-    try:
-        import iosql  # noqa: F401
-    except ImportError as exc:
-        raise SystemExit("iosql is required; install iosql v0.3.x or newer") from exc
-
-    db_path = _sqlite_path(IOSQL_URI)
-    if db_path is not None and not db_path.exists():
-        raise SystemExit(
-            f"iosql database not found: {db_path}\n"
-            "Set MINBT_IOSQL_URI to the crypto.bn_data_sync iosql database URI."
-        )
-
     exchange = Exchange()
     exchange.add_feed(
         BinanceKlineIosqlFeed(
@@ -71,12 +44,6 @@ def run_strategy():
     strategy = IosqlFeedStrategy(strategy_id="iosql_feed", broker=broker)
     exchange.add_strategy(strategy)
     exchange.run()
-    plot_feed_price_and_equity(
-        "302_feed_iosql",
-        "302 iosql Feed — BTCUSDT Price & Equity",
-        strategy.bar_records,
-        strategy,
-    )
     return strategy, broker
 
 

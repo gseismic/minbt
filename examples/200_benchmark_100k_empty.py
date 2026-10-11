@@ -1,16 +1,7 @@
 import time
-
-try:
-    import matplotlib
-except ImportError:
-    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
-
-
-import matplotlib.pyplot as plt
-import pandas as pd
+from datetime import datetime, timedelta
 
 from minbt import Exchange, Strategy
-from plot_utils import save_figure
 
 N_DT = 10_000
 N_SYMBOLS = 10
@@ -24,9 +15,9 @@ class EmptyStrategy(Strategy):
 def build_data():
     symbols = [f"S{i:03d}" for i in range(N_SYMBOLS)]
     rows = []
-    start_dt = pd.Timestamp("2026-01-01")
+    start_dt = datetime(2026, 1, 1)
     for i in range(N_DT):
-        dt = (start_dt + pd.Timedelta(minutes=i)).isoformat()
+        dt = (start_dt + timedelta(minutes=i)).isoformat()
         for j, symbol in enumerate(symbols):
             rows.append(
                 {
@@ -35,7 +26,7 @@ def build_data():
                     "close": 100.0 + i * 0.01 + j,
                 }
             )
-    return pd.DataFrame(rows)
+    return rows
 
 
 def run_benchmark():
@@ -65,19 +56,6 @@ def run_benchmark():
     print(f"set_bars_seconds={set_bars_seconds:.4f}")
     print(f"run_seconds={run_seconds:.4f}")
     print(f"total_seconds={total_seconds:.4f}")
-
-    # ── 绘图：基准测试耗时 ──
-    labels = ["build_data", "set_bars", "run", "total"]
-    values = [build_seconds, set_bars_seconds, run_seconds, total_seconds]
-    fig, ax = plt.subplots(figsize=(10, 5))
-    bars = ax.bar(labels, values, color="steelblue", edgecolor="white", linewidth=0.5)
-    ax.set_title(f"200 Benchmark — {N_ROWS:,} rows ({N_DT:,} dt × {N_SYMBOLS} symbols)", fontsize=13, fontweight="bold")
-    ax.set_ylabel("Seconds")
-    ax.grid(True, alpha=0.3, axis="y")
-    for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(values) * 0.02, f"{val:.3f}s", ha="center", va="bottom", fontsize=10)
-    save_figure("200_benchmark_100k_empty")
-
 
 if __name__ == "__main__":
     run_benchmark()

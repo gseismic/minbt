@@ -1,31 +1,19 @@
-try:
-    import matplotlib
-except ImportError:
-    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]")
-
-
-import matplotlib.pyplot as plt
-import pandas as pd
-
 from minbt import Broker, Exchange, Strategy
-from plot_utils import save_figure
 
 TRAIL_SYMBOL = "TRAILCOIN"
 TAKE_SYMBOL = "TAKECOIN"
 
 
-def build_sample_data() -> pd.DataFrame:
+def build_sample_data():
     """构造两个标的：一个中途上移止损后触发，另一个直接触发止盈。"""
-    return pd.DataFrame(
-        [
-            {"dt": "2026-03-01", "symbol": TRAIL_SYMBOL, "close": 100.0},
-            {"dt": "2026-03-01", "symbol": TAKE_SYMBOL, "close": 100.0},
-            {"dt": "2026-03-02", "symbol": TRAIL_SYMBOL, "close": 106.0},
-            {"dt": "2026-03-02", "symbol": TAKE_SYMBOL, "close": 112.0},
-            {"dt": "2026-03-03", "symbol": TRAIL_SYMBOL, "close": 103.0},
-            {"dt": "2026-03-03", "symbol": TAKE_SYMBOL, "close": 113.0},
-        ]
-    )
+    return [
+        {"dt": "2026-03-01", "symbol": TRAIL_SYMBOL, "close": 100.0},
+        {"dt": "2026-03-01", "symbol": TAKE_SYMBOL, "close": 100.0},
+        {"dt": "2026-03-02", "symbol": TRAIL_SYMBOL, "close": 106.0},
+        {"dt": "2026-03-02", "symbol": TAKE_SYMBOL, "close": 112.0},
+        {"dt": "2026-03-03", "symbol": TRAIL_SYMBOL, "close": 103.0},
+        {"dt": "2026-03-03", "symbol": TAKE_SYMBOL, "close": 113.0},
+    ]
 
 
 class AttachedExitStrategy(Strategy):
@@ -94,33 +82,6 @@ def run_strategy():
 
     exchange.add_strategy(strategy)
     exchange.run()
-
-    # ── 绘图：双标的价格 + 持仓 ──
-    data = build_sample_data()
-    symbols = (TRAIL_SYMBOL, TAKE_SYMBOL)
-    dates = pd.DatetimeIndex(pd.to_datetime(data["dt"]).unique()).sort_values()
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
-    colors = ["steelblue", "darkorange"]
-    for symbol, color in zip(symbols, colors):
-        sym_bars = data[data["symbol"] == symbol].copy()
-        sym_bars["dt"] = pd.to_datetime(sym_bars["dt"])
-        sym_bars = sym_bars.sort_values("dt")
-        ax1.plot(sym_bars["dt"], sym_bars["close"], color=color, linewidth=1.2, marker="o", markersize=4, label=symbol)
-        pos = list(strategy.get_hist_position_sizes(symbol))
-        ps = pd.Series(pos[: len(dates)], index=dates[: len(pos)])
-        ax2.plot(ps.index, ps.values, color=color, linewidth=1.2, marker=".", markersize=4, label=symbol)
-        ax2.fill_between(ps.index, 0, ps.values, color=color, alpha=0.1)
-    ax1.set_title("100 Exit Rules — Price & Positions", fontsize=13, fontweight="bold")
-    ax1.set_ylabel("Price")
-    ax1.legend(loc="upper left", fontsize="small")
-    ax1.grid(True, alpha=0.3)
-    ax2.set_ylabel("Position Size")
-    ax2.set_xlabel("Date")
-    ax2.legend(loc="upper left", fontsize="small")
-    ax2.grid(True, alpha=0.3)
-    ax2.axhline(y=0, color="black", linewidth=0.5)
-    save_figure("100_scenario_exit_rules")
 
     return strategy, broker
 

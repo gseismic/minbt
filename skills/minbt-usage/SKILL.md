@@ -64,7 +64,7 @@ pip install -e ".[dev]"
 ```
 
 - `pyta`: 安装 `pyta2`，用于更高效的历史向量存储。
-- `plot`: 安装 Matplotlib 绘图依赖；运行示例默认弹出图表窗口并保存截图，关闭窗口后继续退出。
+- `plot`: 安装 Matplotlib，供 minbt 的可选绘图功能使用；示例不依赖该 extra。
 - `dev`: 安装 pytest，用于运行测试。
 
 ## 策略开发工作流
@@ -115,9 +115,9 @@ exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 
 如果用户要求写示例，优先参考：
 
-运行示例前确认 minbt 已安装；所有示例直接导入已安装的包。图表依赖通过 `pip install -e ".[plot]"` 安装。
+示例只导入 minbt 和标准库，不依赖其他示例文件。Feed 示例仍需要各自的数据源；iosql 示例还需要安装 iosql。
 
-- `examples/000_core_pnl_sanity_check.py`: 可手算的多空、手续费和净盈亏曲线校验。
+- `examples/000_core_pnl_sanity_check.py`: 可手算的多空和手续费校验。
 - `examples/001_core_demo_mini.py`: 最小单标的。
 - `examples/002_core_single_symbol_sma.py`: 单标的均线。
 - `examples/003_core_multi_symbol_rotation.py`: 多标的横截面轮动。
@@ -488,8 +488,6 @@ git diff --check
 
 如果只写了新的独立策略脚本，至少运行该脚本和 `python -m compileall -q`。
 
-示例默认打开绘图窗口。脚本会等待用户关闭窗口后再退出；自动化运行只需要截图时，可设置 `MINBT_EXAMPLE_SHOW=0`。
-
 当前环境可能出现 `Polars binary is missing!` warning；只要测试未失败，就按环境依赖警告处理。
 
 ## 示例覆盖与验证边界
@@ -501,7 +499,7 @@ git diff --check
 - `300_feed_crypto_binance.py`：测试使用 fake Binance Feed；真实运行需要网络或已有缓存，不要求把
   远端服务作为单元测试前置条件。
 - `301_feed_csv.py`、`302_feed_iosql.py`：需要通过 `MINBT_CSV_ROOT`、`MINBT_IOSQL_URI` 指定
-  本地 fixture 或真实数据。数据缺失时示例会明确退出，而不是静默产生空结果。
+  本地 fixture 或真实数据；Feed 在读取时报告数据或配置错误。
 
 推荐的完整检查顺序：
 
@@ -513,8 +511,8 @@ MINBT_CSV_ROOT=/path/to/kline.csv/1m python examples/301_feed_csv.py
 MINBT_IOSQL_URI=sqlite:///path/to/kline.iosql python examples/302_feed_iosql.py
 ```
 
-本次文档更新已用两行本地 CSV 和两行本地 iosql fixture 分别执行 12、13；二者均返回成功并输出
-`final_equity` 与 `bar_count`。基线 `python -m pytest -q tests/test_examples.py` 覆盖其余示例路径。
+本仓库的 `tests/test_examples.py` 使用 fake Binance Feed，避免要求网络服务和用户数据目录；CSV 与 iosql Feed
+可以在准备 fixture 或真实数据后按上述命令单独运行。
 
 ## 文档更新原则
 

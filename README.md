@@ -50,9 +50,7 @@ pip install -e ".[plot]"
 pip install -e ".[dev]"
 ```
 
-`pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。`plot` 额外依赖只在绘图时需要。`dev` 包含运行测试需要的 pytest。
-
-所有示例运行后都会保存图表，并在桌面交互环境中弹出窗口；关闭窗口后程序继续退出。自动化或无窗口运行可设置 `MINBT_EXAMPLE_SHOW=0`，只保存截图。
+`pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。`plot` 额外依赖用于 minbt 的绘图功能，示例不依赖它。`dev` 包含运行测试需要的 pytest。
 
 测试配置也放在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中，因此不需要单独维护 `pytest.ini`。
 
@@ -617,7 +615,7 @@ broker.get_orders()
 ## 示例
 
 示例按分级编号法命名：首位是大类编号，接下来两位是类内序号，随后是类别标识和名称。类别依次为 `core`、`scenario`、`benchmark`、`feed`、`exchange`。
-运行前请先按上方安装步骤安装 minbt 和 `plot` 依赖。示例会弹出图表窗口并同时保存到 `examples/screenshots/`；要只保存截图，可在命令前设置 `MINBT_EXAMPLE_SHOW=0`。
+每个示例都直接使用 minbt 和标准库，不导入其他示例文件。内存数据示例可直接运行；Feed 示例需要对应的数据源，其中 Binance 示例需要网络，CSV 示例需要配置数据目录，iosql 示例还需要安装 iosql 并配置数据库 URI。
 
 推荐按顺序阅读：
 
@@ -642,7 +640,7 @@ python examples/401_exchange_generic_bar_storage.py
 
 示例文件：
 
-- [examples/000_core_pnl_sanity_check.py](./examples/000_core_pnl_sanity_check.py)：可手算的多空、手续费和净盈亏曲线校验。
+- [examples/000_core_pnl_sanity_check.py](./examples/000_core_pnl_sanity_check.py)：用手算结果校验多空盈亏和手续费。
 - [examples/001_core_demo_mini.py](./examples/001_core_demo_mini.py)：最小单标的示例。
 - [examples/002_core_single_symbol_sma.py](./examples/002_core_single_symbol_sma.py)：单标的双均线趋势跟随。
 - [examples/003_core_multi_symbol_rotation.py](./examples/003_core_multi_symbol_rotation.py)：多标的横截面动量轮动。
@@ -658,7 +656,6 @@ python examples/401_exchange_generic_bar_storage.py
 - [examples/302_feed_iosql.py](./examples/302_feed_iosql.py)：使用 iosql 有序查询渐进回放 K 线。
 - [examples/400_exchange_replay_modes.py](./examples/400_exchange_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
 - [examples/401_exchange_generic_bar_storage.py](./examples/401_exchange_generic_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
-- [examples/example_utils.py](./examples/example_utils.py)：高级示例共用的目标名义金额调仓辅助函数。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
 ## Codex Skill

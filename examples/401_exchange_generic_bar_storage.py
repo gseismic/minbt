@@ -6,15 +6,8 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-
-try:
-    import matplotlib  # noqa: F401
-except ImportError as exc:
-    raise SystemExit("matplotlib is required for plotting. Install with: pip install minbt[plot]") from exc
-
-from minbt import Broker, Exchange, Strategy  # noqa: E402
-from minbt.data import CsvBarFeed  # noqa: E402
-from plot_utils import plot_feed_price_and_equity  # noqa: E402
+from minbt import Broker, Exchange, Strategy
+from minbt.data import CsvBarFeed
 
 
 SYMBOL = "BTCUSDT"
@@ -24,14 +17,10 @@ class GenericBarStrategy(Strategy):
     def on_init(self):
         self.entered = False
         self.seen = []
-        self.bar_records = []
 
     def on_bar(self, dt, bar):
         self.seen.append(bar.kind)
         if bar.kind == "price":
-            self.bar_records.append(
-                {"dt": dt, "symbol": bar.symbol, "close": bar.data["value"]}
-            )
             if not self.entered:
                 self.broker.submit_market_order(
                     SYMBOL,
@@ -85,12 +74,6 @@ def run():
         strategy = GenericBarStrategy("generic-bar", broker)
         exchange.add_strategy(strategy)
         exchange.run()
-        plot_feed_price_and_equity(
-            "401_exchange_generic_bar_storage",
-            "401 Generic Bar Storage — BTCUSDT Price & Equity",
-            strategy.bar_records,
-            strategy,
-        )
         return broker
 
 
