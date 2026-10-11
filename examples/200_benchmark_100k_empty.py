@@ -1,6 +1,8 @@
 import time
 from datetime import datetime, timedelta
 
+import matplotlib.pyplot as plt
+
 from minbt import Exchange, Strategy
 
 N_DT = 10_000
@@ -56,6 +58,15 @@ def run_benchmark():
     print(f"set_bars_seconds={set_bars_seconds:.4f}")
     print(f"run_seconds={run_seconds:.4f}")
     print(f"total_seconds={total_seconds:.4f}")
+    return {
+        "build_data": build_seconds,
+        "set_bars": set_bars_seconds,
+        "run": run_seconds,
+    }
 
 if __name__ == "__main__":
-    run_benchmark()
+    timings = run_benchmark()
+    plt.bar(timings.keys(), timings.values())
+    plt.title("100k Benchmark Runtime")
+    plt.ylabel("Seconds")
+    plt.show()

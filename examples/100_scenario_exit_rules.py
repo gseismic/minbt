@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 from minbt import Broker, Exchange, Strategy
 
 TRAIL_SYMBOL = "TRAILCOIN"
@@ -87,4 +89,9 @@ def run_strategy():
 
 
 if __name__ == "__main__":
-    run_strategy()
+    strategy, _ = run_strategy()
+    plt.plot(strategy.get_hist_equity())
+    plt.title("Exit Rules Equity")
+    plt.xlabel("Bar")
+    plt.ylabel("Equity")
+    plt.show()

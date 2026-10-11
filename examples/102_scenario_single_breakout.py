@@ -2,6 +2,8 @@ import math
 from collections import deque
 from datetime import date, timedelta
 
+import matplotlib.pyplot as plt
+
 from minbt import Broker, Exchange, Strategy
 
 SYMBOL = "BTCUSDT"
@@ -127,4 +129,9 @@ def run_strategy():
 
 
 if __name__ == "__main__":
-    run_strategy()
+    strategy, _ = run_strategy()
+    plt.plot(strategy.get_hist_equity())
+    plt.title("Single Breakout Equity")
+    plt.xlabel("Bar")
+    plt.ylabel("Equity")
+    plt.show()

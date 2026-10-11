@@ -1,4 +1,6 @@
+import ast
 import importlib.util
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -7,6 +9,39 @@ from pathlib import Path
 import pytest
 
 from minbt import Bar
+
+HEADLESS_ENV = {
+    **os.environ,
+    "MPLBACKEND": "Agg",
+    "PYTHONWARNINGS": "ignore:FigureCanvasAgg is non-interactive:UserWarning",
+}
+
+
+def test_every_example_has_inline_plot_and_show():
+    repo_root = Path(__file__).resolve().parents[1]
+    scripts = sorted((repo_root / "examples").glob("*.py"))
+
+    assert scripts
+    for script_path in scripts:
+        tree = ast.parse(script_path.read_text(encoding="utf-8"))
+        has_pyplot_import = any(
+            isinstance(node, ast.Import)
+            and any(
+                alias.name == "matplotlib.pyplot" and alias.asname == "plt"
+                for alias in node.names
+            )
+            for node in ast.walk(tree)
+        )
+        has_show_call = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "plt"
+            and node.func.attr == "show"
+            for node in ast.walk(tree)
+        )
+
+        assert has_pyplot_import and has_show_call, script_path.name
 
 
 @pytest.mark.parametrize(
@@ -32,6 +67,7 @@ def test_examples_run_from_repo_root(script_path):
     result = subprocess.run(
         [sys.executable, script_path],
         cwd=repo_root,
+        env=HEADLESS_ENV,
         text=True,
         capture_output=True,
         timeout=30,
@@ -70,6 +106,7 @@ def test_100k_benchmark_example_runs_without_logs():
     result = subprocess.run(
         [sys.executable, "examples/200_benchmark_100k_empty.py"],
         cwd=repo_root,
+        env=HEADLESS_ENV,
         text=True,
         capture_output=True,
         timeout=30,

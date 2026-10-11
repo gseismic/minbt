@@ -1,6 +1,8 @@
 import csv
 from pathlib import Path
 
+import matplotlib.pyplot as plt
+
 from minbt import Broker, Exchange, Strategy
 
 DATA_PATH = Path(__file__).with_name("data.csv")
@@ -49,4 +51,9 @@ def run_strategy():
 
 
 if __name__ == "__main__":
-    run_strategy()
+    strategy, _ = run_strategy()
+    plt.plot(strategy.get_hist_equity())
+    plt.title("Mini Strategy Equity")
+    plt.xlabel("Bar")
+    plt.ylabel("Equity")
+    plt.show()

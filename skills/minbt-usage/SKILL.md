@@ -61,11 +61,12 @@ pip install -e .
 pip install -e ".[pyta]"
 pip install -e ".[plot]"
 pip install -e ".[dev]"
+pip install -e ".[dev,plot]"  # 运行示例测试
 ```
 
 - `pyta`: 安装 `pyta2`，用于更高效的历史向量存储。
-- `plot`: 安装 Matplotlib，供 minbt 的可选绘图功能使用；示例不依赖该 extra。
-- `dev`: 安装 pytest，用于运行测试。
+- `plot`: 安装 Matplotlib，供 minbt 绘图功能和会显示图表的示例使用。
+- `dev`: 安装 pytest，用于运行测试；测试示例时还需安装 `plot`。
 
 ## 策略开发工作流
 

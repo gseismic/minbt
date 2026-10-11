@@ -48,9 +48,10 @@ loguru
 pip install -e ".[pyta]"
 pip install -e ".[plot]"
 pip install -e ".[dev]"
+pip install -e ".[dev,plot]"  # 运行示例测试
 ```
 
-`pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。`plot` 额外依赖用于 minbt 的绘图功能，示例不依赖它。`dev` 包含运行测试需要的 pytest。
+`pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。运行示例需安装 `plot` 额外依赖；`dev` 包含 pytest，运行示例测试时同时安装 `plot`。
 
 测试配置也放在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中，因此不需要单独维护 `pytest.ini`。
 

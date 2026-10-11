@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 from minbt import Broker, Exchange, Strategy, markets
 
 SYMBOL_A = "600519.SH"
@@ -60,4 +62,9 @@ def run_strategy():
 
 
 if __name__ == "__main__":
-    run_strategy()
+    strategy, _ = run_strategy()
+    plt.plot(strategy.get_hist_equity())
+    plt.title("Cross Market Equity")
+    plt.xlabel("Bar")
+    plt.ylabel("Equity")
+    plt.show()

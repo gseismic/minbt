@@ -2,6 +2,8 @@
 
 import math
 
+import matplotlib.pyplot as plt
+
 from minbt import Broker, Exchange, Strategy
 
 
@@ -144,4 +146,10 @@ def run_scenarios():
 
 
 if __name__ == "__main__":
-    run_scenarios()
+    results = run_scenarios()
+    for result in results:
+        plt.plot(result["pnl"], label=result["label"])
+    plt.title("Scenario PnL")
+    plt.axhline(0, color="black", linewidth=0.8)
+    plt.legend()
+    plt.show()

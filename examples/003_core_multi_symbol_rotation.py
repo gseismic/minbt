@@ -1,5 +1,7 @@
 from collections import defaultdict, deque
 
+import matplotlib.pyplot as plt
+
 from minbt import Broker, Exchange, Strategy
 
 SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
@@ -91,4 +93,9 @@ def run_strategy():
 
 
 if __name__ == "__main__":
-    run_strategy()
+    strategy, _ = run_strategy()
+    plt.plot(strategy.get_hist_equity())
+    plt.title("Multi Symbol Rotation Equity")
+    plt.xlabel("Bar")
+    plt.ylabel("Equity")
+    plt.show()

@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+import matplotlib.pyplot as plt
+
 from minbt import Bar, Broker, Exchange, Strategy
 
 
@@ -87,8 +89,13 @@ def run(mode="auto"):
     strategy = DemoStrategy(strategy_id="bar-demo", broker=broker)
     exchange.add_strategy(strategy)
     exchange.run(load_mode=mode)
-    return broker
+    return strategy, broker
 
 
 if __name__ == "__main__":
-    run()
+    strategy, _ = run()
+    plt.plot(strategy.get_hist_equity())
+    plt.title("Replay Mode Equity")
+    plt.xlabel("Bar")
+    plt.ylabel("Equity")
+    plt.show()

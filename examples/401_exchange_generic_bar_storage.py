@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import matplotlib.pyplot as plt
+
 from minbt import Broker, Exchange, Strategy
 from minbt.data import CsvBarFeed
 
@@ -74,8 +76,13 @@ def run():
         strategy = GenericBarStrategy("generic-bar", broker)
         exchange.add_strategy(strategy)
         exchange.run()
-        return broker
+        return strategy, broker
 
 
 if __name__ == "__main__":
-    run()
+    strategy, _ = run()
+    plt.plot(strategy.get_hist_equity())
+    plt.title("Generic Bar Equity")
+    plt.xlabel("Bar")
+    plt.ylabel("Equity")
+    plt.show()
