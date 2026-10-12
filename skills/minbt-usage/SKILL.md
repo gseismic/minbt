@@ -42,8 +42,10 @@ strategy = MyStrategy(strategy_id="demo", broker=broker)
 exchange = Exchange()
 exchange.set_bars(data)
 exchange.add_strategy(strategy)
-exchange.run()
+result = exchange.run()
 ```
+
+每个 Exchange 只启动一次，独立实验或追加数据验证使用新的 Exchange、Strategy 和 Broker。运行结果是数据快照，可查询曲线、订单、持仓、初始资金与盈亏。
 
 ## 安装与测试
 
@@ -103,13 +105,19 @@ exchange.set_news(data, date_key="dt", symbol_key="symbol")
 `exchange.set_bars(data, price_key="price")`。如果数据没有 `close`，当前实现应在 Broker 中配置
 `mark_price`，或在下单时显式传入 `price`；迁移到目标设计后再改用数据入口的 `price_key`。
 
-普通用户只需要 `exchange.run()`。需要控制内存/速度时，再使用 `load_mode`：
+普通用户只需要 `exchange.run()`。需要控制内存/速度时，在唯一一次启动中选择 `load_mode`：
 
 ```python
-exchange.run()                         # auto
-exchange.run(load_mode="preload")      # 全量预加载，速度优先
-exchange.run(load_mode="incremental")  # 渐进回放，内存优先
+result = exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 ```
+
+默认 `auto` 自动选取读取方式；`preload` 适合全量预加载。比较不同方式需要分别构造运行对象。
+
+可在启动时传入 `start/end`，区间为 `[start, end)`，`None` 表示不额外限制该侧。`control()` 无参数，返回当前期望的 `continue/pause/exit`：暂停所有策略行情回调时账户、挂单、退出规则与历史继续；继续不补发暂停期间数据；退出结束整个回测并返回已处理区间。指标重建由业务逻辑处理。
+
+控制回调在每个完整时间批次开始前检查，暂停期间照常检查；它与 `on_finish()` 只读账户。`run()` 阻塞，需要外部指令时由应用组织工作线程和控制状态，不从外部线程直接写运行账户。
+
+`result.meta` 区分 `completed` 与 `exited`，记录结束原因、最终控制状态、请求和实际时间、步数、策略 ID 与控制变化。异常继续抛出，不包装成成功结果。查询 `get_equity_curve()`、`get_position_curve(symbol)`、`get_orders()`、`get_total_pnl()`、`get_position_sizes()` 和 `get_initial_cash()`；多策略指定 `strategy_id`，共享 Broker 的结果不能累加两次。
 
 `stream` 只保留给未来实时模式，不用于历史回放。`load_mode` 是当前实现的高级选项，不要在新
 用户示例中继续传播；目标设计会将回放模式收回内部。
@@ -128,6 +136,7 @@ exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 - `examples/103_scenario_multi_rotation.py`: 多标的轮动。
 - `examples/104_scenario_pairs_mean_reversion.py`: 配对均值回归。
 - `examples/105_scenario_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
+- `examples/106_scenario_run_control.py`: 暂停、继续、退出及含实际时间的结果曲线。
 - `examples/200_benchmark_100k_empty.py`: 10 万行空策略基准。
 - `examples/300_feed_crypto_binance.py`: 自动下载、缓存并回放 Binance futures K 线。
 - `examples/301_feed_csv.py`: 渐进读取月度 CSV K 线。

@@ -60,6 +60,8 @@ class Strategy:
         logger=None,
     ):
         self.strategy_id = strategy_id
+        self._run_consumed = False  # 已启动的实例不能参加另一场实验。
+        self._exchange = None  # 装配归属，用于冻结运行中的账户关联。
         self.set_broker(broker)
         self.params = params if params is not None else {}
         self.logger = logger or default_logger
@@ -78,16 +80,26 @@ class Strategy:
             except ImportError:
                 self._pyta_available = False
 
+    @property
+    def broker(self):
+        return self._broker
+
+    @broker.setter
+    def broker(self, broker):
+        self.set_broker(broker)
+
     def set_broker(self, broker):
+        if self._run_consumed:
+            raise RuntimeError("cannot change Broker after Strategy has started")
         if broker is None:
-            self.broker = None
+            self._broker = None
             return
         if not isinstance(broker, BrokerProtocol):
             raise TypeError(
                 f"broker must implement BrokerProtocol ({', '.join(BROKER_PROTOCOL_METHODS)}), "
                 f"got {type(broker).__name__}"
             )
-        self.broker = broker
+        self._broker = broker
 
     def set_params(self, params: dict):
         self.params = params
@@ -95,8 +107,20 @@ class Strategy:
     def update_params(self, **kwargs):
         self.params.update(kwargs)
 
+    @property
+    def exchange(self):
+        return self._exchange
+
+    @exchange.setter
+    def exchange(self, exchange):
+        self.set_exchange(exchange)
+
     def set_exchange(self, exchange):
-        self.exchange = exchange
+        if self._run_consumed:
+            raise RuntimeError("Strategy has already been used in a run")
+        if self.exchange is not None and exchange is not None and self.exchange is not exchange:
+            raise RuntimeError("Strategy already belongs to another Exchange")
+        self._exchange = exchange
 
     def on_init(self):
         pass

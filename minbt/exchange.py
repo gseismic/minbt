@@ -5,12 +5,15 @@ Exchange 只负责读取、排序、分批和分发市场数据；估值价格�
 
 from collections import OrderedDict
 from collections.abc import Iterable, Mapping
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import heapq
 import sys
 import time
-from typing import Any, Dict, List, Optional, Union
+from threading import Lock, get_ident
+from types import MappingProxyType
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import pandas as pd
 import polars as pl
@@ -18,7 +21,9 @@ import polars as pl
 from .data.feed import MemoryFeed
 from .data.model import Bar, MarketEvent, News, datetime_key, normalize_datetime
 from .data.replay import BatchItem, TimeBatch
+from .broker import Broker
 from .logger import logger as default_logger
+from .result import RunResult, _snapshot_account
 from .strategy import Strategy
 
 
@@ -50,6 +55,7 @@ class _Cursor:
         self.supports_incremental = Exchange._feed_capability(feed, "supports_incremental")
         self.ordered = Exchange._feed_capability(feed, "ordered")
         self.replayable = Exchange._feed_capability(feed, "replayable")
+        self._closed = False  # 预加载和运行收尾共用资源，避免重复关闭。
 
     def prepare(self) -> None:
         prepare = getattr(self.source.feed, "prepare", None)
@@ -60,6 +66,9 @@ class _Cursor:
         return self.source.feed.events()
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         close = getattr(self.source.feed, "close", None)
         if callable(close):
             close()
@@ -83,12 +92,18 @@ class Exchange:
     }
 
     def __init__(self, logger=None):
-        self.strategies = OrderedDict()
+        self._strategies = OrderedDict()  # 注册只通过配置接口修改。
+        self._strategies_view = MappingProxyType(self._strategies)  # 防止绕过运行归属校验。
         self.logger = logger or default_logger
         self._sources: Dict[str, _Source] = OrderedDict()
         self._managed_memory_sources = set()
         self._current_dt: Optional[datetime] = None
-        self._run_count = 0
+        self._run_state = "ready"  # 生命周期与策略是否接收行情独立。
+        self._lifecycle_lock = Lock()  # 原子占用启动权，防止并发或递归重跑。
+
+    @property
+    def strategies(self):
+        return self._strategies_view
 
     # --------------------------- public data entry points ---------------------------
 
@@ -154,6 +169,7 @@ class Exchange:
         symbol_key: str = "symbol",
         feed_priority: int = 0,
     ) -> None:
+        self._require_ready()
         rows = self._to_rows(data)
         events = []
         for row_index, row in enumerate(rows):
@@ -177,6 +193,11 @@ class Exchange:
         )
 
     def add_feed(self, feed, *, feed_priority: Optional[int] = None) -> None:
+        with self._lifecycle_lock:
+            self._require_ready()
+            self._add_feed(feed, feed_priority=feed_priority)
+
+    def _add_feed(self, feed, *, feed_priority) -> None:
         name = getattr(feed, "name", None)
         if not isinstance(name, str) or not name.strip():
             raise TypeError("feed.name must be a non-empty string")
@@ -205,72 +226,186 @@ class Exchange:
         )
 
     def add_strategy(self, strategy: Strategy) -> None:
-        if not hasattr(strategy, "strategy_id"):
-            raise TypeError("strategy must have strategy_id")
-        required = ("on_init", "on_bar", "on_bars", "on_books", "on_trades", "on_news", "on_finish")
-        for method in required:
-            if not callable(getattr(strategy, method, None)):
-                raise TypeError(f"strategy must provide {method}()")
-        if strategy.strategy_id in self.strategies:
-            raise ValueError(f"strategy id already exists: {strategy.strategy_id!r}")
-        strategy.set_exchange(self)
-        self.strategies[strategy.strategy_id] = strategy
+        with self._lifecycle_lock:
+            self._require_ready()
+            if not hasattr(strategy, "strategy_id"):
+                raise TypeError("strategy must have strategy_id")
+            required = ("on_init", "on_bar", "on_bars", "on_books", "on_trades", "on_news", "on_finish")
+            for method in required:
+                if not callable(getattr(strategy, method, None)):
+                    raise TypeError(f"strategy must provide {method}()")
+            if strategy.strategy_id in self.strategies:
+                raise ValueError(f"strategy id already exists: {strategy.strategy_id!r}")
+            strategy.set_exchange(self)
+            self._strategies[strategy.strategy_id] = strategy
 
     def remove_strategy(self, strategy_id: str) -> None:
-        del self.strategies[strategy_id]
+        with self._lifecycle_lock:
+            self._require_ready()
+            strategy = self._strategies.pop(strategy_id)
+            strategy.set_exchange(None)
 
     def get_current_dt(self) -> Optional[datetime]:
         return self._current_dt
 
     # --------------------------- run modes ---------------------------
 
-    def run(self, *, load_mode: str = "auto") -> None:
-        if not self._sources:
-            raise ValueError("Exchange data is not set; call set_bars() or add_feed() first")
-        if load_mode not in {"auto", "preload", "incremental"}:
-            raise ValueError("load_mode must be 'auto', 'preload', or 'incremental'")
-        if self._run_count and any(
-            not self._feed_capability(source.feed, "replayable") for source in self._sources.values()
-        ):
-            names = [
-                source.name
-                for source in self._sources.values()
-                if not self._feed_capability(source.feed, "replayable")
-            ]
-            raise RuntimeError(f"non-replayable feeds cannot be run again: {names!r}")
+    def run(
+        self,
+        *,
+        start: Optional[Union[str, datetime]] = None,
+        end: Optional[Union[str, datetime]] = None,
+        control: Optional[Callable[[], str]] = None,
+        load_mode: str = "auto",
+    ) -> RunResult:
+        """启动唯一一次运行；控制回调在完整时间批次前返回 continue/pause/exit。"""
 
-        mode = self._choose_load_mode(load_mode)
-        cursors = [_Cursor(source) for source in self._sources.values()]
+        with self._lifecycle_lock:
+            self._require_ready()
+            if not self._sources:
+                raise ValueError("Exchange data is not set; call set_bars() or add_feed() first")
+            if not self.strategies:
+                raise ValueError("Exchange has no strategies; call add_strategy() first")
+            if control is not None and not callable(control):
+                raise TypeError("control must be callable or None")
+            if load_mode not in {"auto", "preload", "incremental"}:
+                raise ValueError("load_mode must be 'auto', 'preload', or 'incremental'")
+            start_dt = None if start is None else normalize_datetime(start)
+            end_dt = None if end is None else normalize_datetime(end)
+            if start_dt is not None and end_dt is not None and start_dt >= end_dt:
+                raise ValueError("start must be earlier than end")
+            mode = self._choose_load_mode(load_mode)
+            cursors = [_Cursor(source) for source in self._sources.values()]
+            brokers = list(self._unique_brokers())
+            self._claim_run(brokers)
+
         self._current_dt = None
-        self._run_count += 1
-        start_time = time.time()
+        start_time = time.perf_counter()
         step = 0
+        first_dt = last_dt = None
+        control_state = "continue"
+        control_events = []
+        reason = "feed_exhausted"
+        batches = None
         try:
-            for cursor in cursors:
-                cursor.prepare()
-            self.logger.info(
-                f"Start running {len(self.strategies)} strategies "
-                f"(load_mode={mode}, feeds={len(cursors)})..."
-            )
-            for strategy in self.strategies.values():
-                strategy.on_init()
-            batches = self._iter_preload_batches(cursors) if mode == "preload" else self._iter_incremental_batches(cursors)
-            for batch in batches:
-                self._current_dt = batch.dt
-                for broker in self._unique_brokers():
-                    broker.process_market_batch(batch)
-                self._dispatch_batch(batch)
+            try:
+                histories = {}
+                for broker in brokers:
+                    cash = getattr(broker, "initial_cash", None)
+                    histories[id(broker)] = {
+                        "initial_cash": None if cash is None else float(cash),
+                        "equity": [], "positions": [],
+                    }
+                for cursor in cursors:
+                    cursor.prepare()
+                self.logger.info(
+                    f"Start running {len(self.strategies)} strategies "
+                    f"(load_mode={mode}, feeds={len(cursors)})..."
+                )
                 for strategy in self.strategies.values():
-                    strategy._record_broker_history()
-                step += 1
-
-            for strategy in self.strategies.values():
-                strategy.on_finish()
-            elapsed = time.time() - start_time
-            self.logger.info(f"All strategies completed, total time: {elapsed:.2f}s")
+                    strategy.on_init()
+                batches = self._iter_preload_batches(cursors) if mode == "preload" else self._iter_incremental_batches(cursors)
+                for batch in batches:
+                    if start_dt is not None and batch.dt < start_dt:
+                        continue
+                    if end_dt is not None and batch.dt >= end_dt:
+                        reason = "end_reached"
+                        break
+                    with self._read_only_brokers(brokers, "control"):
+                        action = "continue" if control is None else control()
+                    if not isinstance(action, str) or action not in ("continue", "pause", "exit"):
+                        raise ValueError("control must return 'continue', 'pause', or 'exit'")
+                    if action != control_state:
+                        control_events.append((last_dt, step, action))
+                        control_state = action
+                    if action == "exit":
+                        reason = "control_exit"
+                        break
+                    self._current_dt = batch.dt
+                    for broker in brokers:
+                        broker.process_market_batch(batch)
+                    if action == "continue":
+                        self._dispatch_batch(batch)
+                    for strategy in self.strategies.values():
+                        strategy._record_broker_history()
+                    for broker in brokers:
+                        history = histories[id(broker)]
+                        history["equity"].append((batch.dt, broker.get_total_equity()))
+                        history["positions"].append(dict(broker.get_position_sizes()))
+                    step += 1
+                    first_dt = batch.dt if first_dt is None else first_dt
+                    last_dt = batch.dt
+                if not step and reason != "control_exit":
+                    raise ValueError("no data in the requested run window")
+                status = "exited" if reason == "control_exit" else "completed"
+                snapshots = {
+                    id(broker): _snapshot_account(broker, **histories[id(broker)])
+                    for broker in brokers
+                }
+                result = RunResult(
+                    meta=MappingProxyType({
+                        "status": status, "reason": reason, "control_state": control_state,
+                        "start": start_dt, "end": end_dt,
+                        "first_dt": first_dt, "last_dt": last_dt, "step_count": step,
+                        "strategy_ids": tuple(self.strategies),
+                        "control_events": tuple(control_events),
+                    }),
+                    _accounts=MappingProxyType({
+                        name: snapshots.get(id(strategy.broker))
+                        for name, strategy in self.strategies.items()
+                    }),
+                )
+                with self._read_only_brokers(brokers, "on_finish"):
+                    for strategy in self.strategies.values():
+                        strategy.on_finish()
+            finally:
+                self._close_resources([*cursors, batches], label="run resources")
+            self._run_state = status
+            elapsed = time.perf_counter() - start_time
+            self.logger.info(f"Run {status} (reason={reason}), total time: {elapsed:.2f}s")
             self.logger.info(f"{elapsed / step:.2f}s/step" if step else "0 steps")
+            return result
+        except BaseException:
+            self._run_state = "failed"
+            raise
+
+    def _require_ready(self) -> None:
+        if self._run_state != "ready":
+            raise RuntimeError(f"Exchange can only be run once (state={self._run_state})")
+
+    def _claim_run(self, brokers) -> None:
+        """一次性占用实例；共享 Broker 的占用检查跨 Exchange 也保持原子性。"""
+
+        native_brokers = sorted((broker for broker in brokers if isinstance(broker, Broker)), key=id)
+        with ExitStack() as stack:
+            for broker in native_brokers:
+                stack.enter_context(broker._run_lock)
+            for strategy in self.strategies.values():
+                if isinstance(strategy, Strategy) and (strategy._run_consumed or strategy.exchange is not self):
+                    raise RuntimeError("Strategy already belongs to another run")
+            if any(broker._run_consumed for broker in native_brokers):
+                raise RuntimeError("Broker has already been used in another run")
+            for strategy in self.strategies.values():
+                if isinstance(strategy, Strategy):
+                    strategy._run_consumed = True
+            for broker in native_brokers:
+                broker._run_consumed = True
+                broker._run_owner = self
+                broker._run_thread_id = get_ident()
+            self._run_state = "running"
+
+    @contextmanager
+    def _read_only_brokers(self, brokers, phase):
+        """控制与报告阶段只读账户，避免曲线结束点被回调额外交易改变。"""
+
+        native_brokers = [broker for broker in brokers if isinstance(broker, Broker)]
+        for broker in native_brokers:
+            broker._run_readonly = phase
+        try:
+            yield
         finally:
-            self._close_resources(cursors, label="feed")
+            for broker in native_brokers:
+                broker._run_readonly = None
 
     def _choose_load_mode(self, requested: str) -> str:
         sources = list(self._sources.values())
@@ -389,6 +524,8 @@ class Exchange:
         """关闭资源；有业务异常时不让关闭异常覆盖原始异常。"""
 
         active_exception = sys.exc_info()[1]
+        if isinstance(active_exception, GeneratorExit):
+            active_exception = None  # 主动关闭生成器仍须暴露真正的资源关闭失败。
         close_errors = []
         for resource in reversed(resources):
             close = getattr(resource, "close", None)
@@ -396,11 +533,14 @@ class Exchange:
                 continue
             try:
                 close()
-            except Exception as exc:
+            except BaseException as exc:
                 if active_exception is None:
                     close_errors.append(exc)
                 else:
-                    self.logger.exception("failed to close %s", label)
+                    try:
+                        self.logger.exception("failed to close %s", label)
+                    except Exception:
+                        pass  # 日志错误也不能覆盖已有业务异常。
         if close_errors:
             raise close_errors[0]
 
@@ -590,6 +730,7 @@ class Exchange:
         feed_priority: int,
         unique_symbol_at_dt: bool,
     ) -> None:
+        self._require_ready()
         rows = self._to_rows(data)
         events = []
         seen = set()
@@ -627,6 +768,11 @@ class Exchange:
         )
 
     def _replace_source(self, feed) -> None:
+        with self._lifecycle_lock:
+            self._require_ready()
+            self._replace_source_ready(feed)
+
+    def _replace_source_ready(self, feed) -> None:
         name = feed.name
         if name in self._sources and name not in self._managed_memory_sources:
             raise ValueError(f"feed name already exists and cannot be replaced by set_*(): {name!r}")

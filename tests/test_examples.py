@@ -57,6 +57,7 @@ def test_every_example_has_inline_plot_and_show():
         "examples/103_scenario_multi_rotation.py",
         "examples/104_scenario_pairs_mean_reversion.py",
         "examples/105_scenario_cross_market.py",
+        "examples/106_scenario_run_control.py",
         "examples/400_exchange_replay_modes.py",
         "examples/401_exchange_generic_bar_storage.py",
     ],

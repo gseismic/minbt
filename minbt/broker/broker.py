@@ -1,6 +1,7 @@
 from collections import Counter, OrderedDict
 import copy
 import math
+from threading import Lock, get_ident
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from .exit import ExitConfig, ExitContext, ExitRule, _ExitState
@@ -100,6 +101,20 @@ class Broker:
         self._exit_states: Dict[str, _ExitState] = {}
         self._active_exit_order_by_position: Dict[Tuple[str, str], str] = {}
         self._position_order_ids: Dict[Tuple[str, str], set] = {}
+        self._run_lock = Lock()  # 跨 Exchange 原子占用账户，允许同次共享。
+        self._run_consumed = False  # 运行过的账户不再参加独立实验。
+        self._run_owner = None  # 仅用于约束运行期间的账户写入线程。
+        self._run_thread_id = None  # 所属运行线程；外部控制只修改自身状态。
+        self._run_readonly = None  # 控制与结束通知阶段禁止修改账户。
+
+    def _assert_writable(self) -> None:
+        """阻止控制、报告或外部线程改变运行账户，保证历史采样边界。"""
+
+        if self._run_readonly is not None:
+            raise RuntimeError(f"Broker is read-only during {self._run_readonly}")
+        if self._run_owner is not None and self._run_owner._run_state == "running":
+            if get_ident() != self._run_thread_id:
+                raise RuntimeError("Broker can only be changed by its run thread")
 
     @staticmethod
     def _validate_mark_price(source):
@@ -540,6 +555,7 @@ class Broker:
 
     def add_portfolio(self, name: str, cash: float) -> None:
         """从主组合划拨现金创建新组合。"""
+        self._assert_writable()
         if name in self.portfolios:
             raise ValueError(f"portfolio already exists: {name}")
         _require(cash > 0, f"cash must be greater than 0, cash: {cash}")
@@ -553,6 +569,7 @@ class Broker:
 
     def add_market(self, name: str, market: Market, symbols: Sequence[str]) -> None:
         """为一组 symbol 添加市场规则路由。"""
+        self._assert_writable()
         if not isinstance(name, str) or not name:
             raise ValueError("market name must be a non-empty string")
         if self._has_market_route_state():
@@ -604,6 +621,7 @@ class Broker:
     def update_market_batch(self, batch: TimeBatch) -> Dict[str, float]:
         """从 TimeBatch 选出估值价格，并批量推进所有 Portfolio。"""
 
+        self._assert_writable()
         prices = self._select_mark_prices(batch)
         if batch.dt != self._last_market_dt:
             self._on_new_dt(batch.dt)
@@ -732,6 +750,7 @@ class Broker:
         return repr(f"{source[0]}:{source[1]}.{source[2]}")
 
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
+        self._assert_writable()
         _require(price > 0, f"price must be positive, price: {price}")
         if dt is not None and dt != self._last_market_dt:
             self._on_new_dt(dt)
@@ -795,6 +814,7 @@ class Broker:
         trailing_stop_amount: Optional[float] = None,
         source: OrderSource = "submit_market_order",
     ) -> Order:
+        self._assert_writable()
         if qty == 0:
             raise ValueError(f"qty must be non-zero, got {qty}")
         portfolio = self._resolve_portfolio(portfolio)
@@ -862,6 +882,7 @@ class Broker:
         trailing_stop_pct: Optional[float] = None,
         trailing_stop_amount: Optional[float] = None,
     ) -> Order:
+        self._assert_writable()
         if qty == 0:
             raise ValueError(f"qty must be non-zero, got {qty}")
         if limit_price <= 0:
@@ -925,6 +946,7 @@ class Broker:
         return order
 
     def cancel_order(self, order_id: str) -> Order:
+        self._assert_writable()
         if order_id not in self.orders:
             raise ValueError(f"order not found: {order_id}")
         order = self.orders[order_id]
@@ -959,6 +981,7 @@ class Broker:
             self._cancel_pending_order(order, reason=f"portfolio closed: {portfolio}")
 
     def process_pending_orders(self, dt=None, *, symbols=None) -> None:
+        self._assert_writable()
         updated_symbols = None if symbols is None else set(symbols)
         for order_id in list(self._pending_order_ids):
             order = self.orders.get(order_id)
@@ -1052,6 +1075,7 @@ class Broker:
         trailing_stop_amount: Optional[float] = None,
         source: OrderSource = "target_size",
     ) -> Order:
+        self._assert_writable()
         portfolio = self._resolve_portfolio(portfolio)
         current_size = self.get_position_size(symbol, portfolio=portfolio)
         qty = target_size - current_size
@@ -1125,6 +1149,7 @@ class Broker:
         trailing_stop_amount: Optional[float] = None,
         source: OrderSource = "target_value",
     ) -> Order:
+        self._assert_writable()
         portfolio = self._resolve_portfolio(portfolio)
         exec_price, resolved_dt = self._resolve_market_price(symbol, price, price_dt)
         target_size = target_value / exec_price
@@ -1156,6 +1181,7 @@ class Broker:
         trailing_stop_pct: Optional[float] = None,
         trailing_stop_amount: Optional[float] = None,
     ) -> Order:
+        self._assert_writable()
         portfolio = self._resolve_portfolio(portfolio)
         exec_price, resolved_dt = self._resolve_market_price(symbol, price, price_dt)
         equity = self.get_equity(portfolio=portfolio)
@@ -1182,6 +1208,7 @@ class Broker:
         price_dt: Optional[DateType] = None,
         portfolio: Optional[str] = None,
     ) -> Order:
+        self._assert_writable()
         portfolio = self._resolve_portfolio(portfolio)
         position = self.get_position(symbol, portfolio=portfolio)
         if position is None or position.is_empty():
@@ -1206,6 +1233,7 @@ class Broker:
         )
 
     def close_portfolio(self, portfolio: str) -> List[Order]:
+        self._assert_writable()
         portfolio = self._resolve_portfolio(portfolio)
         close_plan = []
         for symbol, position in list(self.portfolios[portfolio].positions.items()):
@@ -1323,6 +1351,7 @@ class Broker:
         trailing_stop_pct: Optional[float] = None,
         trailing_stop_amount: Optional[float] = None,
     ) -> ExitConfig:
+        self._assert_writable()
         if not self._exit_params_provided(
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
@@ -1373,6 +1402,7 @@ class Broker:
         trailing_stop: bool = True,
         custom: bool = True,
     ) -> ExitConfig:
+        self._assert_writable()
         if not any((stop_loss_price, take_profit_price, trailing_stop, custom)):
             raise ValueError("at least one clear flag must be true")
         if order_id not in self.orders:
@@ -1409,6 +1439,7 @@ class Broker:
         condition,
         state=None,
     ) -> ExitRule:
+        self._assert_writable()
         if order_id not in self.orders:
             raise ValueError(f"order not found: {order_id}")
         order = self.orders[order_id]
@@ -1431,6 +1462,7 @@ class Broker:
         return rule
 
     def check_exit_rules(self, dt=None, data=None) -> None:
+        self._assert_writable()
         for order_id, state in list(self._exit_states.items()):
             if not state.active:
                 continue

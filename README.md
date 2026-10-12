@@ -22,6 +22,7 @@ minbt 是一个最简回测框架。目标不是模拟完整交易所，而是�
 - 支持订单级止损、止盈、追踪止损和函数式退出条件。
 - 支持市场特征配置和按 symbol 路由：默认 T+0、加密资产、A 股 T+1 预设。
 - 自动记录策略权益和持仓历史。
+- 支持运行时间窗口、暂停策略回调、受控退出，以及独立的结果快照和状态元信息。
 
 ## 安装
 
@@ -124,7 +125,7 @@ strategy = DemoStrategy(strategy_id="demo", broker=broker)
 exchange = Exchange()
 exchange.set_bars(data)
 exchange.add_strategy(strategy)
-exchange.run()
+result = exchange.run()
 ```
 
 这个例子展示了 minbt 的稳定用户模型：
@@ -133,6 +134,64 @@ exchange.run()
 - `Strategy` 负责读当前时间截面的数据并产生交易意图。
 - `Broker` 是唯一交易入口。
 - `Order` 是下单返回的结果和退出条件句柄。
+
+## 运行区间与控制
+
+一个 Exchange 只启动一次 `run()`。独立实验或追加历史数据验证后续表现时，创建新的 Exchange、Strategy 和 Broker，从原起点完整重放，再评估新增区间。
+
+在已注册数据与策略、尚未启动的 Exchange 上，可以指定 `[start, end)` 窗口：
+
+```python
+result = exchange.run(start="2026-01-01", end="2026-02-01")
+print(result.meta["status"], result.meta["last_dt"])
+curve = result.get_equity_curve()  # (UTC 时间, 账户权益)
+```
+
+`start/end=None` 表示不额外限制该侧，由数据自然决定边界。窗口起点是新实验的起点，不会自动恢复此前的指标或持仓。
+
+需要控制执行时，提供返回当前期望状态的回调：
+
+```python
+from threading import Event
+
+
+pause_requested = Event()
+exit_requested = Event()
+
+
+def control():
+    if exit_requested.is_set():
+        return "exit"
+    return "pause" if pause_requested.is_set() else "continue"
+
+
+result = exchange.run(control=control)
+```
+
+| 返回值 | 行为 |
+| --- | --- |
+| `continue` | 行情、账户和策略继续执行 |
+| `pause` | 停止所有策略行情回调，账户、挂单、退出规则和曲线继续更新 |
+| `exit` | 结束整个回测，返回截至最后完整处理时间的结果 |
+
+控制检查在每个完整时间批次开始前进行，暂停期间照常检查。继续时不补发暂停期间的数据，指标重建或预热由业务逻辑负责。
+
+`run()` 阻塞调用线程；需要界面或外部控制时，将它放到工作线程，控制线程只通过 `Event.set()/clear()` 更新状态。控制回调和结束通知只读账户，交易仍由策略行情回调与已有账户规则完成。
+
+结果的 `meta` 包含 `status`、`reason`、最终 `control_state`、请求及实际时间、`step_count`、策略 ID 和控制变化记录。自然完成为 `completed`，主动退出为 `exited`；完成只说明可用数据处理完毕，不代表盈利或策略通过验证。程序异常仍抛出。
+
+结果快照可直接查询和绘图，不受原账户后续变化影响：
+
+```python
+equity = result.get_equity_curve()
+sizes = result.get_position_curve("BTCUSDT")
+orders = result.get_orders()
+pnl = result.get_total_pnl()
+positions = result.get_position_sizes()
+initial_cash = result.get_initial_cash()
+```
+
+多策略结果需要指定 `strategy_id`；共享 Broker 的策略 ID 查询同一账户，不能重复累加。退出后的曲线只覆盖已处理区间。完整示例见 [106_scenario_run_control.py](examples/106_scenario_run_control.py)。
 
 ## 策略开发流程
 
@@ -306,10 +365,10 @@ exchange.add_feed(BinanceKlineIosqlFeed(
     batch_size=10_000,
 ))
 
-exchange.run()  # auto：有序来源优先使用渐进回放
-exchange.run(load_mode="preload")
-exchange.run(load_mode="incremental")
+result = exchange.run()  # auto：有序来源优先使用渐进回放
 ```
+
+需要显式选择读取方式时，在这一次启动中指定 `load_mode="preload"` 或 `load_mode="incremental"`。比较不同模式需分别创建新的运行对象。
 
 iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序查询，
 需要安装 iosql v0.3.x 或更新版本。`start/end` 在 minbt 中是半开区间 `[start, end)`；

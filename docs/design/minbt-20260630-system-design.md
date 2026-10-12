@@ -236,7 +236,7 @@ exchange.set_news(
 ) -> None
 
 exchange.add_strategy(strategy: Strategy) -> None
-exchange.run() -> None
+exchange.run(*, start=None, end=None, control=None, load_mode="auto") -> RunResult
 ```
 
 参数语义：
@@ -260,8 +260,8 @@ exchange.run() -> None
 策略管理：
 
 - `add_strategy(strategy)` 是主路径用户接口；没有策略时，Exchange 没有可执行对象。
-- `remove_strategy(strategy_id)` 是高级管理接口，用于复用同一个 Exchange 时移除策略，不属于入门主路径。
-- `reset_market_state()` 是运行时内部/测试辅助接口，不作为推荐用户接口。
+- `remove_strategy(strategy_id)` 仅用于启动前调整注册，不属于入门主路径；`strategies` 提供只读注册视图。
+- 一个 Exchange 只能启动一次，独立实验使用新的策略和账户。运行窗口、控制回调和结果快照以 [运行控制设计](run-20261012-control.md) 为准。
 
 ### 数据切片结构
 
@@ -445,12 +445,12 @@ on_bars -> on_books -> on_trades -> on_news
 
 同一个 `dt` 下，Exchange 按以下流程执行：
 
-1. Exchange 进入下一个 `dt`。
-2. Exchange 收集该 `dt` 下所有已注册数据源的数据切片。
-3. 对所有配置了 `price_key` 的数据源，按调度顺序更新 broker 最新价。
+1. Exchange 收集下一个 `dt` 下所有已注册数据源的数据切片。
+2. 过滤 `[start, end)` 窗口，再检查统一控制状态；`exit` 结束整次运行。
+3. 设置当前行情时间，对所有配置了 `price_key` 的数据源，按调度顺序更新 broker 最新价。
 4. Broker 基于该 `dt` 的完整可见价格检查 pending order 和退出条件。
-5. Strategy 按固定顺序收到对应 `on_xx(dt, data)` 回调。
-6. 同一 `dt` 的所有回调结束后，记录权益和持仓历史。
+5. 只有 `continue` 状态才向全部策略按固定顺序分发对应 `on_xx(dt, data)` 回调。
+6. 同一 `dt` 完整处理后记录权益和持仓历史；`pause` 同样记录账户变化。
 
 关键约束：
 

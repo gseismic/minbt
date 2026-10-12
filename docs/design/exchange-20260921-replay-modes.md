@@ -62,16 +62,13 @@ exchange.set_news(data, date_key="dt", symbol_key="symbol", feed_priority=0)
 exchange.add_feed(feed, feed_priority=10)
 exchange.add_strategy(strategy)
 
-exchange.run()
-exchange.run(load_mode="auto")
-exchange.run(load_mode="preload")
-exchange.run(load_mode="incremental")
+result = exchange.run()
 ```
 
 `set_*` 是已经在内存中的行数据的最短入口；`add_feed` 用于自定义读取来源。`feed_priority` 的
 默认值为 `0`，数值越大越早进入同一时间批次的分发流程。
 
-普通用户只需要 `exchange.run()`；显式 `load_mode` 用于进阶的内存/速度控制。
+普通用户只需要 `exchange.run()`；启动时可通过 `load_mode="preload"/"incremental"` 选择进阶读取方式。一个 Exchange 只启动一次，运行生命周期、控制和结果以 [运行控制设计](run-20261012-control.md) 为准。
 
 ### 1.3 Strategy 回调
 
@@ -370,7 +367,6 @@ exchange.run(load_mode="auto")
 显式模式不支持时立即报错：
 
 ```python
-exchange.run(load_mode="preload")
 exchange.run(load_mode="incremental")
 ```
 
@@ -463,7 +459,7 @@ Broker 仍然可以独立使用自定义 Bar 作为估值来源；`on_bar` 只�
 - Kline 或完整 OrderBook 同一来源同一时间同一 symbol 重复：报错。
 - 回放能力不满足 `load_mode`：列出来源能力。
 - 估值字段不存在、非有限正数或多候选无法聚合：Broker 报错。
-- 非 `replayable` 来源重复运行：提前报错。
+- 同一 Exchange 重复启动：提前报错；来源可重新读取时，使用新的策略和账户开展另一实验。
 
 ### 9.3 性能边界
 

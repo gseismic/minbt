@@ -9,6 +9,7 @@
 - `exchange-20260921-replay-modes.md`：当前代码的 Exchange 实现背景；其中公开接口、通用 `Bar.kind`、TimeBatch/Cursor 类和回放模式均被 `minbt-20260921-api-refactor.md` 替代；同一 dt 收齐、批量账户更新和异常路径释放资源的正确性要求继续有效。
 - `pnl-20261011-library-api.md`：库级账户、分仓、标的与订单盈亏查询，明确平均成本、手续费、强平、穿仓和已关闭分仓统计契约。
 - `pnl-20260920-examples.md`：多空与手续费场景的库级接口示例、权益历史绘图和测试分工。
+- [Exchange 单次运行与控制回调设计](run-20261012-control.md)：当前已实施的运行生命周期与结果契约。保留实例注册，一个 Exchange 只启动一次；通过 `run(control=...)` 统一继续、暂停和中途退出。暂停期间行情、账户与曲线持续推进，退出返回已处理区间的快照及状态元信息。未来 live 的实际接入与等待轮询尚未实现。
 
 ## 已合并删除的旧设计
 
@@ -55,7 +56,7 @@ class MyStrategy(Strategy):
 12. 跨市场能力优先通过单 broker 内的 `symbol -> Market` 路由设计，不把一个策略多个 broker 作为主路径。
 13. 数据源接入推荐通过 `exchange.add_feed(feed)` 扩展；`set_bars(...)` 继续服务用户已有数据的最短路径，Feed 最终投影到四种具名回调。
 14. `price_key` 负责指定每个来源的参考价格字段，不要求 Kline 必须存在 `close`；一次回测中同一 symbol 只允许一个来源启用价格，其他来源设置 `price_key=None`。
-15. Exchange 只保留 `run()`；内存数据和逐行 Feed 共用一个按时间归并的回放循环，不公开 load mode。
+15. Exchange 的执行入口为单次 `run(start=None, end=None, control=None, load_mode="auto")`，返回独立结果。统一回放与隐藏读取模式仍按接口重构设计推进；运行控制及结果以 `run-20261012-control.md` 为准。
 
 ## 阅读顺序
 

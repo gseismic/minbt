@@ -180,16 +180,19 @@ def test_feed_is_closed_when_event_iteration_fails():
     assert feed.closed_count >= 1
 
 
-def test_feed_is_replayable_and_can_run_twice():
+def test_replayable_feed_can_be_read_by_independent_exchanges():
+    """来源可重复读取不代表运行对象可以复用；两个实验独立构造账户。"""
     feed = _make_feed()
     exchange = Exchange()
     exchange.add_feed(feed)
     first = CaptureStrategy("first", Broker(initial_cash=1000))
     exchange.add_strategy(first)
     exchange.run()
+    another = Exchange()
+    another.add_feed(feed)
     second = CaptureStrategy("second", Broker(initial_cash=1000))
-    exchange.add_strategy(second)
-    exchange.run()
+    another.add_strategy(second)
+    another.run()
 
     assert first.observations == second.observations
 
@@ -204,7 +207,7 @@ def test_non_replayable_feed_rejects_second_run():
     exchange.add_strategy(Strategy("one", Broker(initial_cash=1000)))
     exchange.run()
 
-    with pytest.raises(RuntimeError, match="cannot be run again"):
+    with pytest.raises(RuntimeError, match="only be run once"):
         exchange.run()
 
 

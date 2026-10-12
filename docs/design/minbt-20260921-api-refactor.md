@@ -436,11 +436,13 @@ exchange.add_feed(feed) -> None
 exchange.add_strategy(strategy) -> None
 exchange.remove_strategy(strategy_id) -> None
 
-exchange.run() -> None
+exchange.run(*, start=None, end=None, control=None) -> RunResult
 ```
 
 历史回测只保留 `run()`。`set_*` 接收的数据本来就在内存中；`add_feed` 注册的 Feed 逐行读取。
 是否使用缓存、数据库分页或文件块是具体 Feed 的实现细节，不应成为 Exchange 的公开模式。
+
+单次生命周期、时间窗口、统一控制回调和结果快照按 [运行控制设计](run-20261012-control.md)执行，该部分已落地。当前实现仍保留 `load_mode` 参数，统一内核完成后再隐藏读取模式；策略注册与来源替换只允许在启动前进行。
 
 `add_feed` 不允许静默覆盖同名 Feed，本次也不增加使用率不明的 `replace_feed`。需要替换自定义来源时，
 在 `run()` 前构建正确的 Exchange。

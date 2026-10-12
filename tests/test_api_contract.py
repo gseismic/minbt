@@ -44,7 +44,7 @@ def test_exchange_public_signatures_match_design():
     )
     _assert_parameter_contract(Exchange.set_news, ["data"], ["date_key", "symbol_key", "feed_priority"])
     _assert_parameter_contract(Exchange.add_feed, ["feed"], ["feed_priority"])
-    assert list(_parameters(Exchange.run)) == ["load_mode"]
+    _assert_parameter_contract(Exchange.run, [], ["start", "end", "control", "load_mode"])
     assert not hasattr(Exchange, "set_data")
 
 
