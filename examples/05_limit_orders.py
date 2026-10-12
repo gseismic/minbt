@@ -17,10 +17,11 @@ def build_sample_data():
 
 
 class LimitOrderStrategy(Strategy):
-    """限价单示例：挂单、成交、订单级止盈退出。"""
+    """限价单示例：撤销一个挂单，另一个成交后通过止盈退出。"""
 
     def on_init(self):
         self.limit_order = None
+        self.canceled_order = None
         self.position_log = []
 
     def on_bars(self, dt, bars):
@@ -33,11 +34,16 @@ class LimitOrderStrategy(Strategy):
                 stop_loss_price=90,
                 take_profit_price=104,
             )
+            self.canceled_order = self.broker.submit_limit_order(SYMBOL, qty=1, limit_price=97)
+        elif self.canceled_order.status == "pending":
+            # 在价格跌至 97 前撤单，后续即使到价也不会成交。
+            self.broker.cancel_order(self.canceled_order.id)
         self.position_log.append((dt, price, self.broker.get_position_size(SYMBOL)))
 
     def on_finish(self):
         print(f"final_equity={self.broker.get_total_equity():.2f}")
         print(f"limit_order_status={self.limit_order.status}")
+        print(f"canceled_order_status={self.canceled_order.status}")
         print(f"final_position={self.broker.get_position_size(SYMBOL):.6f}")
         print(f"position_log={self.position_log}")
 

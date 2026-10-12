@@ -3,7 +3,7 @@
 ## 数据结构与时间
 
 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol")` 支持 pandas、polars 和 `list[dict]`。
-不要求完整 OHLCV；默认估值需要 `close`。同一 `(dt, symbol)` 的重复 K 线会报错。
+不要求完整 OHLCV；默认估值需要 `close`。同一来源内 `(dt, symbol)` 的重复 K 线会报错。
 不要用行号代替时间，`date_key` 必须存在。
 
 单标的 CSV 没有标的列时可先补列：
@@ -32,8 +32,11 @@ exchange.set_bars(data, date_key="date", symbol_key="symbol")
 逐笔成交在同一时间可以有多条，保留在标的对应列表中；News 可不指定标的。
 同一 dt 先收齐完整批次，由 Broker 选择估值价格、更新账户、处理挂单及退出条件，随后按
 `bars → books → trades → bar → news` 分发策略行情回调。
+截面按来源分别分发：同一时间有多个 Kline Feed 时，`on_bars` 会调用多次，每次只包含
+该来源的标的。跨标的选股需要统一截面时，将这些标的放在同一个 Feed；不能假设每次
+回调都包含已注册的全部标的。同族内 Feed 优先级越高越先回调，同优先级按注册顺序。
 
-默认 `Broker(mark_price="kline.close")` 用 K 线 close 估值。字段不同应在 Broker 配置：
+默认 Broker 用 `mark_price="kline.close"` 估值。字段不同应在 Broker 配置：
 
 ```python
 broker = Broker(initial_cash=100_000, mark_price="kline.price")
@@ -43,7 +46,8 @@ exchange.set_bars(data)  # 数据包含 dt、symbol、price
 Exchange 不根据 Feed 优先级选择盈亏价格。多来源提供同一标的价格时应明确消除歧义；
 高级的 `(feed_name, kind, field)` 可精确指定来源，也支持元组与 callable 价格选择方式。
 `mark_price_aggregation` 默认 `error`，`mark_price_missing` 默认 `keep`。
-一次下单显式传入的 `price` 用于该次成交，不替代持续估值来源。
+一次市价下单显式传入的 `price` 用于成交，并更新该标的当前最新价；后续市场批次仍按
+`mark_price` 重新估值，不改变持续估值来源。
 
 通用事件可使用 `Bar(dt=..., symbol=..., kind=..., data=...)`，策略实现 `on_bar(dt, bar)`，
 按单条事件接收，不聚合成多标的截面。普通 K 线策略优先 `on_bars`。
@@ -91,14 +95,17 @@ print(f"final_equity={result.get_equity_curve()[-1][1]:.2f}")
 
 输出 `final_equity=1020.00`。可将参数字典改成 JSON 文件路径；入口读取参数并复制配置，
 数据内容和相对路径由你的工厂解释。工厂收到 `data` 字典，可以从自己维护的文件或数据库读取，
-返回 Feed 列表或生成器。缺省策略 ID 为类名；策略仍用原 ID/broker/params/logger 参数构造。
+返回 Feed 列表或生成器。配置中省略 `strategy.id` 时使用策略类名；手工构造 Strategy 时
+ID 必填。自定义策略构造函数需接受 `strategy_id`、`broker`、`params` 和 `logger`。
 
 默认账户使用 `Broker(**broker_config)`。自定义账户时，`broker_factory(broker_config)` 返回
 新的 `ReplayBrokerProtocol` 实现；`broker: null` 运行纯信号策略，不创建账户。
 窗口/读取方式放入 `run` 字典，控制回调显式传 `control=`。
 工厂创建的资源由默认入口和 Exchange 在结束或失败时关闭；不要复用已运行的账户或读取器。
 
-标准协议位于 `minbt.protocols`：Feed 只需 name/events；回放账户在原 BrokerProtocol 上补充
+标准协议位于 `minbt.protocols`：Feed 只需唯一的非空 name 和 events 方法；默认 Exchange
+要求产出 Bar/News 实例。可选 prepare/close 管理资源。只提供 name/events 的 Feed 默认走全量预加载。
+回放账户在原 BrokerProtocol 上补充
 process_market_batch。订单查询提供原 Order 字段，累计盈亏查询提供 realized_pnl、unrealized_pnl、
 fees、settlement_adjustment、net_pnl；缺少可选查询时明确报错，不伪造空订单或零盈亏。
 
@@ -153,6 +160,8 @@ iosql table/interval 和时间范围；缺数据或配置错误直接报错。
 
 通用 `CsvBarFeed` 和 `IosqlBarFeed` 读取 OrderBook、Trade、Price 等 Bar 存储，
 数据至少有 `dt,symbol,kind,data`，其中 `data` 是 JSON。
+两者从 `minbt.plugins.storage` 导入；iosql 的 `dt` 使用 UTC 毫秒时间戳，两个来源都要求
+行数据按时间非递减排列。`IosqlBarFeed` 同样需要另行安装 iosql。
 不要将这种格式与 Binance Kline 专用文件或表混用。
 
 ## 运行窗口与回放
@@ -168,6 +177,9 @@ result = exchange.run(start="2026-01-01", end="2026-02-01")
 
 需要控制资源时，可在唯一一次启动中传 `load_mode="incremental"` 渐进读取，
 `preload` 为全量预加载，默认 `auto` 自动选择。`stream` 不用于历史回放。
+`auto` 仅在所有来源都声明 `supports_incremental=True` 和 `ordered=True` 时选择渐进回放，
+否则尝试所有来源的预加载能力；两条路径都不满足时直接报错。自定义渐进 Feed 需保证
+events 按时间非递减排列，不能仅设置能力属性而忽略排序。
 
 ## 暂停与退出
 
@@ -212,5 +224,8 @@ print(result.meta["status"], result.meta["last_dt"])
 
 快照不受原账户后续变化影响。多策略需要指定 `strategy_id`；共享 Broker 的策略查询
 同一账户，不能重复累加。`meta` 记录请求与实际时间、步数、策略 ID、控制状态与变化。
+权益曲线和总盈亏覆盖整个 Broker；`get_position_curve(symbol)` 只记录 main 分仓。
+其他分仓的最终持仓用 `result.get_position_sizes(portfolio="trend")` 查询；自定义账户缺少
+初始资金、订单、盈亏或具名分仓查询时，对应结果方法抛 NotImplementedError。
 自然完成为 `completed`，主动退出为 `exited`；异常继续抛出。
 完成表示处理完可用数据，退出后的曲线仅覆盖已处理区间。

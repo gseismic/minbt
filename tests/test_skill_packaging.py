@@ -37,11 +37,10 @@ def skill_distributions(tmp_path_factory):
     root = tmp_path_factory.mktemp("skill-distributions")
     source = root / "source"
     source.mkdir()
-    for directory in ("minbt", "skills"):
-        shutil.copytree(
-            REPO_ROOT / directory, source / directory,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-        )
+    shutil.copytree(
+        REPO_ROOT / "minbt", source / "minbt",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
     for filename in ("pyproject.toml", "README.md", "LICENSE"):
         shutil.copy2(REPO_ROOT / filename, source / filename)
 

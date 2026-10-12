@@ -126,6 +126,46 @@ def test_100k_benchmark_example_runs_without_logs():
     assert result.stderr == ""
 
 
+def test_limit_order_example_cancels_before_price_reaches_limit():
+    """独立核对撤单后不再成交，另一订单按限价成交、按最新价止盈。"""
+    repo_root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "example_05_limit_orders", repo_root / "examples" / "05_limit_orders.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    strategy, broker = module.run_strategy()
+
+    assert strategy.canceled_order.status == "canceled"
+    assert strategy.canceled_order.filled_qty == 0
+    assert strategy.position_log[2][1:] == (96, 0)
+    assert strategy.limit_order.status == "filled"
+    assert strategy.limit_order.avg_price == 95
+    assert broker.get_position_size(module.SYMBOL) == 0
+    assert broker.get_total_equity() == pytest.approx(1010)
+    assert broker.get_total_pnl().net_pnl == pytest.approx(10)
+
+
+@pytest.mark.parametrize("mode", ["auto", "preload", "incremental"])
+def test_replay_mode_example_matches_price_source_and_callback_order(mode):
+    """三种读取方式遵守相同的数据族回调顺序，盈亏由自定义估值源更新。"""
+    repo_root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "example_16_replay_modes", repo_root / "examples" / "16_replay_modes.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    strategy, broker = module.run(mode)
+
+    assert strategy.callbacks == ["bars", "books", "price"] * 2
+    assert strategy.get_hist_equity() == pytest.approx([10_000, 10_000.12])
+    assert broker.get_last_price(module.SYMBOL) == pytest.approx(101.2)
+    assert broker.get_position_size(module.SYMBOL) == pytest.approx(0.1)
+    assert broker.get_total_pnl().net_pnl == pytest.approx(0.12)
+
+
 def test_crypto_binance_feed_example_runs_with_fake_feed(monkeypatch, capsys):
     repo_root = Path(__file__).resolve().parents[1]
     script_path = repo_root / "examples" / "13_binance_feed.py"

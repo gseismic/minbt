@@ -10,7 +10,8 @@ self.broker.order_target_value(symbol, target_value=10_000, price=price)
 self.broker.order_target_percent(symbol, target_percent=0.8, price=price)
 ```
 
-省略 `price` 时使用当前估值价格。精确增量、市价平仓和限价单：
+省略 `price` 时使用当前估值价格；显式传入时也更新该标的当前最新价，后续市场批次仍按
+Broker 的 `mark_price` 估值。精确增量、市价平仓和限价单：
 
 ```python
 self.broker.submit_market_order(symbol, qty=1, price=price)
@@ -36,6 +37,7 @@ elif order.status == "rejected":
 可通过 `get_order(order_id)`、`get_orders(portfolio=..., symbol=...)` 查询订单。
 
 买入限价单在最新价小于等于限价时触发，卖出在最新价大于等于限价时触发。
+成交价为提交的限价，不做价格改善：买入限价 95，即使触发时最新价为 94，也以 95 成交。
 提交与触发时都检查资金和市场规则；pending 不预留资金，不模拟队列或部分成交。
 回放时只有该批次更新了标的估值价格才尝试触发，其他事件不会使用旧价触发。
 
@@ -56,8 +58,17 @@ order = self.broker.order_target_percent(
 
 ```python
 self.broker.set_exit(order.id, stop_loss_price=price * 0.98)
-self.broker.clear_exit(order.id, trailing_stop=True)
+self.broker.clear_exit(
+    order.id,
+    stop_loss_price=False,
+    take_profit_price=False,
+    trailing_stop=True,
+    custom=False,
+)
 ```
+
+上例只清除追踪止损，保留其他条件。`clear_exit(order.id)` 的开关默认全部为 True，
+会清除固定止损、止盈、追踪止损和自定义规则。
 
 复杂条件使用独立函数式退出：
 
@@ -96,6 +107,7 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 `markets.A_STOCK` 具有交易时间、100 股一手、价格 tick、不可做空和 T+1 锁定规则。
 直接调用 Broker 下单时传 `price_dt`；Exchange 回放会提供时间。
 默认 Market 为 UTC，A 股为 Asia/Shanghai；带时区时间转换到市场时区，无时区时间先按 UTC 解释。
+该 A 股预设允许工作日午夜时间的日线 Bar，不检查节假日；日内数据仍按交易时段校验。
 自定义 `lot_size/tick_size/min_qty/min_notional` 必须使用有限正数。
 
 跨市场可在一个 Broker 中分仓交易：

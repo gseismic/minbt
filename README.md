@@ -151,7 +151,9 @@ print(result.get_total_pnl().net_pnl)  # 20.0
 
 第二个参数也可以是 JSON 文件路径。完整可运行示例与配置见
 [18_config_run.py](examples/18_config_run.py) 和 [18_config_run.json](examples/18_config_run.json)。
-策略构造仍是 `Strategy(strategy_id, broker=..., params=..., logger=...)`，省略 ID 时使用策略类名。
+手工构造仍是 `Strategy(strategy_id, broker=..., params=..., logger=...)`，`strategy_id` 必填。
+配置运行省略 `strategy.id` 时使用策略类名；自定义策略构造函数需接受入口传入的
+`strategy_id`、`broker`、`params` 和 `logger`。
 `run` 字典接受原有 `start/end/load_mode`；实时控制用函数参数 `control=` 传入。
 
 默认用现有 `Broker(**配置中的 broker)`，必须提供必要构造参数；特殊交易或记账模型可传
@@ -240,6 +242,9 @@ initial_cash = result.get_initial_cash()
 
 多策略结果需要指定 `strategy_id`；共享 Broker 的策略 ID 查询同一账户，不能重复累加。退出后的曲线只覆盖已处理区间。完整示例见 [10_run_control.py](examples/10_run_control.py)。
 
+权益曲线和总盈亏覆盖整个 Broker；持仓曲线 `get_position_curve(symbol)` 只记录 `main` 分仓。
+其他分仓的最终持仓用 `result.get_position_sizes(portfolio="trend")` 查询。
+
 ## 策略开发流程
 
 推荐按下面步骤写策略：
@@ -321,7 +326,8 @@ Kline 不强制完整 OHLCV。`close` 只是常见字段；如果用户只需要
 关键规则：
 
 - Kline 和完整 OrderBook 在同一来源同一 `(dt, symbol)` 只能有一条 Bar；Trade 和自定义 Bar 可以有多条。
-- Exchange 会按时间排序并在每个 `dt` 聚合完整截面。
+- Exchange 会按时间聚合全部来源，策略截面按来源分别分发。同一 `dt` 有多个 Kline Feed 时，
+  `on_bars` 会调用多次，每次只含该来源的标的；需要统一选股截面时，将标的放在同一个 Feed。
 - 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
 - 数字时间戳按数量级推断秒、毫秒、微秒或纳秒；有歧义时先用
   `minbt.data.model.normalize_datetime(value, unit="ms")` 显式转换，再传入数据。
@@ -455,7 +461,15 @@ on_bars -> on_books -> on_trades -> on_bar -> on_news
 ```
 
 Feed 注册时可以指定 `feed_priority`。它只决定同一时间点的分发顺序，不决定 Broker 的估值
-价格；同优先级来源在同一时间、同一数据族、同一 symbol 真正重叠时会 Warning。
+价格；先按数据族排序，同族内优先级较高的 Feed 先回调，相同优先级按注册顺序。
+同优先级来源在同一时间、同一数据族、同一 symbol 真正重叠时会记录 warning 日志；需要
+诊断时启用 minbt 日志。
+
+自定义 Feed 的最小要求是唯一的非空 `name` 和产出 `Bar`/`News` 实例的 `events()`。
+只实现这两项时，默认允许全量预加载；若事件已按时间非递减排列，且可以逐条读取，可声明
+`supports_incremental=True` 和 `ordered=True`，让 `auto` 优先选择渐进回放。
+`auto` 要求所有来源都支持有序渐进回放，否则尝试所有来源的预加载能力；不满足时直接报错。
+`prepare()` 和 `close()` 为可选资源钩子。模式比较见 [16_replay_modes.py](examples/16_replay_modes.py)。
 
 例如使用交易所 mark price 计算盈亏：
 
@@ -466,7 +480,7 @@ broker = Broker(
 )
 ```
 
-普通 Kline 回测不需要配置 `mark_price`，`Broker()` 默认使用 `kline.close`。推荐使用字符串形式，
+普通 Kline 回测不需要配置 `mark_price`，`Broker(initial_cash=...)` 默认使用 `kline.close`。推荐使用字符串形式，
 例如 `mark_price="orderbook.mid"` 或 `mark_price="trade.price"`。`(kind, field)` 元组、
 `(feed_name, kind, field)` 三元组和 callable 属于高级用法；三元组会把 Broker 配置耦合到 Feed 名称，
 Feed 重命名后需要同步修改，只有在需要精确路由时使用。`mark_price=None` 表示关闭自动估值。
@@ -488,6 +502,7 @@ order = self.broker.submit_market_order("BTCUSDT", qty=1, price=100)
 - `qty < 0` 表示卖出或增加空头。
 - `qty == 0` 会抛 `ValueError`。
 - `price=None` 时使用 broker 当前最新价；没有最新价时抛 `ValueError`。
+- 显式 `price` 同时更新该标的的当前最新价；后续市场批次仍按 Broker 的 `mark_price` 重新估值。
 
 ### 目标仓位
 
@@ -562,6 +577,7 @@ self.broker.cancel_order(order.id)
 
 - 买入限价单在最新价小于等于 `limit_price` 时成交。
 - 卖出限价单在最新价大于等于 `limit_price` 时成交。
+- 成交价使用提交的 `limit_price`，不因最新价更有利而改善。例如买入限价 95，最新价跌至 94 时仍以 95 成交。
 - 提交时预检资金，但不为 pending 订单预留资金。
 - 触发时再次检查资金和市场规则。
 - 回放中只有当前批次更新了该标的估值价格时才会尝试触发；其他标的或其他事件不会用旧价格触发挂单。
@@ -604,10 +620,17 @@ self.broker.set_exit(
 )
 ```
 
-清除退出条件：
+`clear_exit(order.id)` 默认清除全部退出条件。只清除追踪止损、保留其他条件时，显式关闭
+其余清除开关：
 
 ```python
-self.broker.clear_exit(order.id, trailing_stop=True)
+self.broker.clear_exit(
+    order.id,
+    stop_loss_price=False,
+    take_profit_price=False,
+    trailing_stop=True,
+    custom=False,
+)
 ```
 
 ### 函数式退出
@@ -673,6 +696,7 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 `Market` 默认使用 UTC 时区，`markets.A_STOCK` 使用 `Asia/Shanghai`。带时区的交易时间会转换到市场时区；无时区时间按 UTC 解释后再转换。设置 `lot_size`、`tick_size`、`min_qty` 或 `min_notional` 时必须使用有限正数。
 
 `markets.A_STOCK` 是最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
+该预设允许工作日午夜时间的日线 Bar，不检查节假日；日内数据仍按交易时段校验。
 
 跨市场分仓：
 
@@ -789,7 +813,7 @@ python examples/18_config_run.py
 - [examples/13_binance_feed.py](./examples/13_binance_feed.py)：自动下载、缓存并回放 Binance futures K 线。
 - [examples/14_csv_feed.py](./examples/14_csv_feed.py)：渐进读取 crypto.bn_data_sync 月度 CSV K 线。
 - [examples/15_iosql_feed.py](./examples/15_iosql_feed.py)：使用 iosql 有序查询渐进回放 K 线。
-- [examples/16_replay_modes.py](./examples/16_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
+- [examples/16_replay_modes.py](./examples/16_replay_modes.py)：分别新建实验比较 auto/preload/incremental，展示通用 Bar、Feed 优先级和 Broker 估值来源。
 - [examples/17_bar_storage.py](./examples/17_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
 - [examples/18_config_run.py](./examples/18_config_run.py)：策略类、JSON 配置与自备数据工厂，从结果快照绘图。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
@@ -840,7 +864,7 @@ Use $minbt-usage to write a minbt strategy for my CSV data.
 
 该 skill 帮助 Agent 检查数据结构、生成 `Strategy`、通过 Broker 下单、设置退出条件并核对结果。
 说明只描述该版本已实现的接口，所有必要资料均在 skill 目录内。
-通用库设计 skill `skills/library-design-zh/` 继续用于框架开发。
+框架开发的接口边界见 [设计规范](docs/design/protocols/README.md)。
 
 发布前执行安装包回归测试：
 

@@ -76,7 +76,9 @@ Exchange、Strategy 和 Broker，完整重放所需数据。
 5. 通过 Broker 或运行结果快照查询权益、持仓、订单与盈亏，给出脚本的最小运行命令和结果核对。
 
 默认 K 线数据至少包含 `dt`、`symbol`、`close`，输入支持 pandas、polars 和 `list[dict]`。
-单标的也是 `{symbol: row}`，不要省略标的层。同一 `(dt, symbol)` 只能有一条 K 线。
+单标的也是 `{symbol: row}`，不要省略标的层。同一来源内的 `(dt, symbol)` 只能有一条 K 线。
+多个 Kline Feed 在同一时间分别触发 `on_bars`，每次只含该来源的标的；需要完整选股截面时
+将标的放在同一个 Feed。
 列名不同时指定 `date_key` 和 `symbol_key`；单标的缺少标的列时先补列。
 
 ```python
@@ -110,8 +112,9 @@ python /path/to/minbt-usage/scripts/quickstart.py
 
 ## 结果解释
 
-需要解释成交或盈亏时，说明与当前场景相关的限制：成交及退出条件使用当前最新价，不由
-K 线 high/low 推断路径；不模拟滑点、队列位置或部分成交。账户是保证金账户，
+需要解释成交或盈亏时，说明与当前场景相关的限制：市价单省略 price 时使用当前最新价，
+退出条件按最新价判断并市价平仓；限价单按最新价触发，以提交限价成交。均不由 K 线
+high/low 推断路径，不模拟滑点、队列位置或部分成交。账户是保证金账户，
 `Position.equity` 不能当作现货市值。持仓未平时，权益和净盈亏包含浮动盈亏及已扣手续费。
 
 交易与账户变化通过 Broker 完成；不要直接修改查询到的 Position，也不要在用户策略中

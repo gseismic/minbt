@@ -18,7 +18,6 @@ class PriceFeed:
     supports_preload = True
     supports_incremental = True
     ordered = True
-    replayable = True
 
     def events(self):
         for minute, value in ((0, 100.2), (1, 101.2)):
@@ -29,18 +28,14 @@ class PriceFeed:
                 data={"value": value, "source": "exchange_mark"},
             )
 
-    def prepare(self):
-        return None
-
-    def close(self):
-        return None
-
 
 class DemoStrategy(Strategy):
     def on_init(self):
         self.steps = 0
+        self.callbacks = []
 
     def on_bars(self, dt, bars):
+        self.callbacks.append("bars")
         if self.steps == 0:
             self.broker.submit_market_order(
                 SYMBOL,
@@ -49,9 +44,16 @@ class DemoStrategy(Strategy):
             )
         self.steps += 1
 
+    def on_books(self, dt, books):
+        self.callbacks.append("books")
+
+    def on_bar(self, dt, bar):
+        self.callbacks.append(bar.kind)
+
     def on_finish(self):
         print(f"final_equity={self.broker.get_total_equity():.2f}")
         print(f"mark_price={self.broker.get_last_price(SYMBOL):.2f}")
+        print(f"callbacks={','.join(self.callbacks)}")
 
 
 def run(mode="auto"):
@@ -93,9 +95,13 @@ def run(mode="auto"):
 
 
 if __name__ == "__main__":
-    strategy, _ = run()
-    plt.plot(strategy.get_hist_equity())
+    for mode, style in (("auto", "-"), ("preload", "--"), ("incremental", ":")):
+        print(f"load_mode={mode}")
+        # 每次 run 都重新创建 Feed、Exchange、Strategy 和 Broker。
+        strategy, _ = run(mode)
+        plt.plot(strategy.get_hist_equity(), linestyle=style, label=mode)
     plt.title("Replay Mode Equity")
     plt.xlabel("Bar")
     plt.ylabel("Equity")
+    plt.legend()
     plt.show()

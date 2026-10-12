@@ -11,3 +11,4 @@
 | 2026-10-12 | [PLAN-063：mini 内核、协议集中与自备数据设计](PLAN-063-protocol-plugin-design.md) | 设计完成，实施见 PLAN-064 | [结果](PLAN-063-protocol-plugin-design-OUTCOME.md)：设计阶段无代码改动；复用 Exchange、自定义 Feed/Broker 直接注入，移除必需管理框架 |
 | 2026-10-12 | [PLAN-064：实施 mini 协议、插件与自备数据入口](PLAN-064-mini-plugins-implementation.md) | 已完成 | [结果](PLAN-064-mini-plugins-implementation-OUTCOME.md)：13 模块迁入插件、标准协议与自备数据薄入口，整个包净增 399 行，全量 385 项通过，原示例/签名保留，仓库外安装验证通过 |
 | 2026-10-12 | [PLAN-065：默认 Broker 归回核心，删除兼容层](PLAN-065-core-broker-no-compatibility.md) | 已完成 | [结果](PLAN-065-core-broker-no-compatibility-OUTCOME.md)：默认 Broker 回归核心、删除全部转发层，包减少 109 行，全量 373 项通过，默认回测不加载插件 |
+| 2026-10-12 | [PLAN-066：示例、README 与使用 Skill 对齐](PLAN-066-examples-readme-skill-sync.md) | 已完成 | [结果](PLAN-066-examples-readme-skill-sync-OUTCOME.md)：修正交易/回调/结果语义，补齐撤单和模式比较，移除发行物测试旧目录依赖，全量 377 项及最终安装包检查通过 |
