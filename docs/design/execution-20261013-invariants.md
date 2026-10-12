@@ -35,6 +35,7 @@ Portfolio.submit_order 的 price/price_dt 为成交价和成交时间，内部�
 为当前市场价和报价时间。独立 Portfolio 省略 mark_price 时沿用成交价估值。
 Broker 使用已有报价传入 mark 参数，限价不覆盖 Broker/Portfolio/Position 的当前市场价。
 成本、已实现盈亏和手续费按成交价计算；未实现盈亏及风险按市场价计算。
+独立 Portfolio 的零数量请求返回 False，并且不推进报价、风险、资金或盈亏记账。
 关闭分仓的预检和实际执行都表达全平目标：前一笔平仓手续费若触发其余持仓强平，
 后续标的返回 skipped，不按旧数量下单；完成后照常撤销挂单、归还资金并归档分仓。
 

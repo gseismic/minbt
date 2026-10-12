@@ -91,6 +91,28 @@ def test_standalone_portfolio_close_also_rechecks_position_after_risk():
     assert portfolio.get_equity() == 5
 
 
+@pytest.mark.parametrize("use_mark_price", [False, True])
+def test_zero_quantity_portfolio_order_cannot_advance_price_or_liquidate(use_mark_price):
+    """R8-06：独立 Portfolio 的零数量请求先拒绝，不能用其价格推进风险或写账。"""
+    portfolio = Portfolio(100, 0)
+    assert portfolio.submit_order("A", 1, 100)
+    position = portfolio.get_position("A")
+    before = (
+        portfolio.last_prices.copy(), portfolio.last_prices_dt.copy(),
+        portfolio.get_cash(), portfolio.get_equity(), portfolio.get_position_sizes(),
+        portfolio.get_pnl(), portfolio.get_pnl_records(),
+    )
+    options = {"price": 100, "mark_price": 5} if use_mark_price else {"price": 5}
+    assert portfolio.submit_order("A", 0, **options) is False
+    assert portfolio.get_position("A") is position
+    assert position.last_price == 100
+    assert (
+        portfolio.last_prices, portfolio.last_prices_dt,
+        portfolio.get_cash(), portfolio.get_equity(), portfolio.get_position_sizes(),
+        portfolio.get_pnl(), portfolio.get_pnl_records(),
+    ) == before
+
+
 @pytest.mark.parametrize("load_mode", ["preload", "incremental"])
 def test_limit_fill_keeps_current_mark_in_final_result(load_mode):
     """R8-03：成本按限价，浮亏及最终结果按同批当前行情计算。"""

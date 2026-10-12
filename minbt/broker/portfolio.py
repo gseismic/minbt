@@ -370,6 +370,9 @@ class Portfolio:
             mark_price, mark_dt = price, price_dt
         else:
             mark_price = positive_number(mark_price, "mark_price")
+        if qty == 0:
+            self.logger.warning(f'Submit order with qty=0, symbol: {symbol}, leverage: {leverage}, qty: {qty}, price: {price}')
+            return False
         if self._bankrupt:
             self.logger.error('Portfolio bankrupt, cannot submit order')
             return False
@@ -377,10 +380,6 @@ class Portfolio:
         # 更新价格并检查保证金（可能触发强平）
         bankrupt, liquidated, _ = self.on_new_price(symbol, mark_price, mark_dt, risk_dt=price_dt)
         if bankrupt or liquidated:
-            return False
-
-        if qty == 0:
-            self.logger.warning(f'Submit order with qty=0, symbol: {symbol}, leverage: {leverage}, qty: {qty}, price: {price}')
             return False
 
         # 检查保证金是否充足。新标的先使用临时仓位，避免失败订单污染 positions。
