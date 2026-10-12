@@ -19,7 +19,7 @@ description: This skill should be used when the user asks to "write a minbt stra
 | 其他数据 | `on_books`、`on_trades`、`on_news` | 保持这些按数据类型的入口 |
 | 价格字段 | Broker 的 `mark_price`（默认 `kline.close`） | 数据入口的 `price_key`，默认值为 `close` |
 | 回放配置 | `run(load_mode=...)` 可用 | 隐藏回放模式，用户只需 `run()` |
-| 通用 Bar | 当前实现和 `examples/400_exchange_replay_modes.py`、`examples/401_exchange_generic_bar_storage.py` 仍使用 `Bar.kind` | 移除通用 `Bar` 概念，保留按类型的数据入口 |
+| 通用 Bar | 当前实现和 `examples/16_replay_modes.py`、`examples/17_bar_storage.py` 仍使用 `Bar.kind` | 移除通用 `Bar` 概念，保留按类型的数据入口 |
 
 因此，写**当前可执行代码**时遵循下文的“当前实现”说明；讨论或编写新设计时遵循目标设计，
 不要继续扩大 `on_bar`、`Bar.kind`、`mark_price`、`load_mode` 这些兼容接口的使用面。
@@ -124,27 +124,27 @@ result = exchange.run(load_mode="incremental")  # 渐进回放，内存优先
 
 如果用户要求写示例，优先参考：
 
-示例只导入 minbt 和标准库，不依赖其他示例文件。Feed 示例仍需要各自的数据源；iosql 示例还需要安装 iosql。
+示例按 `两位序号_用途.py` 命名，每个脚本独立使用 minbt、Matplotlib 和按需使用的标准库。入门优先参考 `01_quickstart.py`，只用两条内联行情和一行目标持仓逻辑；Feed 示例需要各自的数据源，iosql 示例还需要安装 iosql。
 
-- `examples/000_core_pnl_sanity_check.py`: 库级多空盈亏、手续费和订单记账查询。
-- `examples/001_core_demo_mini.py`: 最小单标的。
-- `examples/002_core_single_symbol_sma.py`: 单标的均线。
-- `examples/003_core_multi_symbol_rotation.py`: 多标的横截面轮动。
-- `examples/100_scenario_exit_rules.py`: 订单级退出条件。
-- `examples/101_scenario_limit_order.py`: 限价单。
-- `examples/102_scenario_single_breakout.py`: 单标的真实场景。
-- `examples/103_scenario_multi_rotation.py`: 多标的轮动。
-- `examples/104_scenario_pairs_mean_reversion.py`: 配对均值回归。
-- `examples/105_scenario_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
-- `examples/106_scenario_run_control.py`: 暂停、继续、退出及含实际时间的结果曲线。
-- `examples/200_benchmark_100k_empty.py`: 10 万行空策略基准。
-- `examples/300_feed_crypto_binance.py`: 自动下载、缓存并回放 Binance futures K 线。
-- `examples/301_feed_csv.py`: 渐进读取月度 CSV K 线。
-- `examples/302_feed_iosql.py`: 渐进读取 iosql K 线。
-- `examples/400_exchange_replay_modes.py`: 当前兼容 API 的通用 Bar、Feed 优先级和 Broker 估值来源。
-- `examples/401_exchange_generic_bar_storage.py`: 当前兼容 API 的通用 Bar CSV 存储和自定义 Bar 回调。
+- `examples/01_quickstart.py`: 最小回测，买入一个单位并持有。
+- `examples/02_moving_average.py`: 单标的均线。
+- `examples/03_rotation.py`: 多标的横截面轮动。
+- `examples/04_exit_rules.py`: 订单级退出条件。
+- `examples/05_limit_orders.py`: 限价单。
+- `examples/06_breakout.py`: 单标的真实场景。
+- `examples/07_rebalance.py`: 多标的轮动。
+- `examples/08_pairs_trading.py`: 配对均值回归。
+- `examples/09_cross_market.py`: 一个 Broker 内同时交易 A 股和 crypto。
+- `examples/10_run_control.py`: 暂停、继续、退出及含实际时间的结果曲线。
+- `examples/11_pnl.py`: 库级多空盈亏、手续费和订单记账查询。
+- `examples/12_benchmark.py`: 10 万行空策略基准。
+- `examples/13_binance_feed.py`: 自动下载、缓存并回放 Binance futures K 线。
+- `examples/14_csv_feed.py`: 渐进读取月度 CSV K 线。
+- `examples/15_iosql_feed.py`: 渐进读取 iosql K 线。
+- `examples/16_replay_modes.py`: 当前兼容 API 的通用 Bar、Feed 优先级和 Broker 估值来源。
+- `examples/17_bar_storage.py`: 当前兼容 API 的通用 Bar CSV 存储和自定义 Bar 回调。
 
-`examples/400_exchange_replay_modes.py` 和 `examples/401_exchange_generic_bar_storage.py` 用来验证现有兼容面，不代表目标 API 的推荐写法。
+`examples/16_replay_modes.py` 和 `examples/17_bar_storage.py` 用来验证现有兼容面，不代表目标 API 的推荐写法。
 
 ## 数据契约
 
@@ -392,7 +392,7 @@ pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
 ```
 
 定义为 `pnl(t) = equity(t) - initial_equity`。正值表示盈利，负值表示亏损；持仓未平时包含按最新价
-盯市的未实现盈亏，最终结果包含手续费。`examples/000_core_pnl_sanity_check.py` 展示公开接口结果和曲线；
+盯市的未实现盈亏，最终结果包含手续费。`examples/11_pnl.py` 展示公开接口结果和曲线；
 独立手算核对由 `tests/test_pnl.py` 和 `tests/test_examples.py` 完成。
 
 ## 退出条件
@@ -505,8 +505,8 @@ self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="cry
 给用户生成或修改策略后，优先运行最小相关命令：
 
 ```bash
-python examples/000_core_pnl_sanity_check.py
-python examples/001_core_demo_mini.py
+python examples/01_quickstart.py
+python examples/11_pnl.py
 python -m pytest -q tests/test_pnl.py tests/test_examples.py
 python -m pytest -q
 python -m compileall -q minbt tests examples
@@ -521,11 +521,11 @@ git diff --check
 
 测试时按示例的数据依赖区分，避免把外部数据缺失误判为代码错误：
 
-- `000_core_*`、`100_scenario_*`、`400_exchange_*`：`tests/test_examples.py` 会在本地临时数据或 fake Feed 上运行。
-- `200_benchmark_100k_empty.py`：单独检查 10 万行性能示例的输出。
-- `300_feed_crypto_binance.py`：测试使用 fake Binance Feed；真实运行需要网络或已有缓存，不要求把
+- `01_*` 至 `11_*`、`16_replay_modes.py`、`17_bar_storage.py`：`tests/test_examples.py` 使用脚本内联行情、仓库样本或本地临时数据运行。
+- `12_benchmark.py`：单独检查 10 万行性能示例的输出。
+- `13_binance_feed.py`：测试使用 fake Binance Feed；真实运行需要网络或已有缓存，不要求把
   远端服务作为单元测试前置条件。
-- `301_feed_csv.py`、`302_feed_iosql.py`：需要通过 `MINBT_CSV_ROOT`、`MINBT_IOSQL_URI` 指定
+- `14_csv_feed.py`、`15_iosql_feed.py`：需要通过 `MINBT_CSV_ROOT`、`MINBT_IOSQL_URI` 指定
   本地 fixture 或真实数据；Feed 在读取时报告数据或配置错误。
 
 推荐的完整检查顺序：
@@ -534,8 +534,8 @@ git diff --check
 python -m pytest -q tests/test_examples.py
 python -m compileall -q examples
 # 准备 CSV/iosql 数据后再运行：
-MINBT_CSV_ROOT=/path/to/kline.csv/1m python examples/301_feed_csv.py
-MINBT_IOSQL_URI=sqlite:///path/to/kline.iosql python examples/302_feed_iosql.py
+MINBT_CSV_ROOT=/path/to/kline.csv/1m python examples/14_csv_feed.py
+MINBT_IOSQL_URI=sqlite:///path/to/kline.iosql python examples/15_iosql_feed.py
 ```
 
 本仓库的 `tests/test_examples.py` 使用 fake Binance Feed，避免要求网络服务和用户数据目录；CSV 与 iosql Feed

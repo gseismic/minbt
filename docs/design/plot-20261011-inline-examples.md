@@ -18,11 +18,11 @@
 
 | 示例 | 图表 |
 |---|---|
-| `000_core_pnl_sanity_check.py` | 多空及手续费场景的净盈亏曲线 |
-| `001_core_demo_mini.py` 至 `105_scenario_cross_market.py` | 回测权益曲线 |
-| `200_benchmark_100k_empty.py` | 各阶段耗时 |
-| `300_feed_crypto_binance.py` 至 `302_feed_iosql.py` | Feed 回测权益曲线 |
-| `400_exchange_replay_modes.py`、`401_exchange_generic_bar_storage.py` | 通用 Bar 回测权益曲线 |
+| `01_quickstart.py` 至 `10_run_control.py` | 回测权益曲线；首例只调用 `plt.plot()` 和 `plt.show()` |
+| `11_pnl.py` | 多空及手续费场景的净盈亏曲线 |
+| `12_benchmark.py` | 各阶段耗时 |
+| `13_binance_feed.py` 至 `15_iosql_feed.py` | Feed 回测权益曲线 |
+| `16_replay_modes.py`、`17_bar_storage.py` | 通用 Bar 回测权益曲线 |
 
 ## 约束
 

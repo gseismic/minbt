@@ -272,4 +272,4 @@ live 的本地退出只结束本地执行，不能证明外部订单已撤销或
 11. 追加数据采用新对象完整重放，固定旧段输入和暂停/继续过程时旧段一致，新增收益使用正确的切点权益。
 12. 各阶段异常及主动退出都释放读取资源，原始异常优先传播，失败对象不能续跑。
 
-实施记录见 [PLAN-058](../dev/PLAN-058-run-control.md)，使用说明见仓库 README，运行示例见 `examples/106_scenario_run_control.py`。
+实施记录见 [PLAN-058](../dev/PLAN-058-run-control.md)，使用说明见仓库 README，运行示例见 `examples/10_run_control.py`。

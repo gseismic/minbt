@@ -83,57 +83,40 @@ logger.enable("minbt")
 
 ## 快速开始
 
-下面是一个完整可运行的最小回测：
+下面是一个完整可运行的最小回测，与 [01_quickstart.py](examples/01_quickstart.py) 相同：
 
 ```python
-import pandas as pd
+import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
 
 
-class DemoStrategy(Strategy):
-    def on_init(self):
-        self.step = 0
-        self.symbol = "BTCUSDT"
-
+class BuyAndHold(Strategy):
     def on_bars(self, dt, bars):
-        price = bars[self.symbol]["close"]
-
-        if self.step == 0:
-            self.broker.order_target_percent(self.symbol, 0.8, price=price)
-        elif self.step == 2:
-            self.broker.close_position(self.symbol, price=price)
-
-        self.step += 1
-
-    def on_finish(self):
-        print("equity:", self.broker.get_total_equity())
-        print("position:", self.broker.get_position_size(self.symbol))
+        self.broker.order_target_size("TEST", 1)
 
 
-data = pd.DataFrame(
-    [
-        {"dt": "2026-01-01", "symbol": "BTCUSDT", "close": 100.0},
-        {"dt": "2026-01-02", "symbol": "BTCUSDT", "close": 110.0},
-        {"dt": "2026-01-03", "symbol": "BTCUSDT", "close": 120.0},
-    ]
-)
-
-broker = Broker(initial_cash=10_000, fee_rate=0.001)
-strategy = DemoStrategy(strategy_id="demo", broker=broker)
-
+broker = Broker(initial_cash=1_000)
+strategy = BuyAndHold("demo", broker=broker)
 exchange = Exchange()
-exchange.set_bars(data)
+exchange.set_bars([
+    {"dt": "2026-01-01", "symbol": "TEST", "close": 100},
+    {"dt": "2026-01-02", "symbol": "TEST", "close": 120},
+])
 exchange.add_strategy(strategy)
-result = exchange.run()
+exchange.run()
+print(f"final_equity={broker.get_total_equity():.2f}")
+plt.plot(strategy.get_hist_equity())
+plt.show()
 ```
 
-这个例子展示了 minbt 的稳定用户模型：
+`order_target_size("TEST", 1)` 表示持有一个单位：第一条行情买入，后续目标不变时继续持有。默认使用当前 `close` 成交，手续费默认为零。价格从 100 涨到 120，输出 `final_equity=1020.00`，其中 20 是未平仓的浮动盈亏。
+
+最小例子只需理解三个对象：
 
 - `Exchange` 负责喂数据和推进时间。
 - `Strategy` 负责读当前时间截面的数据并产生交易意图。
 - `Broker` 是唯一交易入口。
-- `Order` 是下单返回的结果和退出条件句柄。
 
 ## 运行区间与控制
 
@@ -191,7 +174,7 @@ positions = result.get_position_sizes()
 initial_cash = result.get_initial_cash()
 ```
 
-多策略结果需要指定 `strategy_id`；共享 Broker 的策略 ID 查询同一账户，不能重复累加。退出后的曲线只覆盖已处理区间。完整示例见 [106_scenario_run_control.py](examples/106_scenario_run_control.py)。
+多策略结果需要指定 `strategy_id`；共享 Broker 的策略 ID 查询同一账户，不能重复累加。退出后的曲线只覆盖已处理区间。完整示例见 [10_run_control.py](examples/10_run_control.py)。
 
 ## 策略开发流程
 
@@ -334,7 +317,7 @@ def on_bars(self, dt, bars):
     self.broker.order_target_percent("BTCUSDT", 0.8, price=price)
 ```
 
-完整示例见 `examples/300_feed_crypto_binance.py`。
+完整示例见 `examples/13_binance_feed.py`。
 
 默认 `closed_only=True`，只回放准备时已确认收盘的 K 线；缓存无法证明 K 线是在收盘后抓取时会重新下载，
 离线模式下则报告缓存不完整。设为 `closed_only=False` 可包含尚未收盘的 K 线。
@@ -372,8 +355,8 @@ result = exchange.run()  # auto：有序来源优先使用渐进回放
 
 iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序查询，
 需要安装 iosql v0.3.x 或更新版本。`start/end` 在 minbt 中是半开区间 `[start, end)`；
-iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/301_feed_csv.py` 和
-`examples/302_feed_iosql.py`。
+iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/14_csv_feed.py` 和
+`examples/15_iosql_feed.py`。
 
 两个 Feed 默认进行数据完整性预检：显式请求的 symbol 必须在指定区间内有数据；
 CSV 请求月份不能缺文件；iosql 的 interval/table 必须存在且表契约可查询。检查失败会
@@ -683,7 +666,7 @@ pnl_curve = [equity - initial_equity for equity in strategy.get_hist_equity()]
 ```
 
 曲线中的正值表示盈利，负值表示亏损；持仓未平时是按最新价计算的未实现盈亏，最终平仓后还包含手续费影响。
-可直接运行 `examples/000_core_pnl_sanity_check.py` 查看多头、空头和手续费场景的库级查询结果与曲线。
+可直接运行 `examples/11_pnl.py` 查看多头、空头和手续费场景的库级查询结果与曲线。
 
 两个历史查询都返回 Python `list`。从未交易过的 symbol 返回与权益历史等长的全零列表；
 安装 pyta2 只改变内部存储方式，不改变查询结果类型和缺失值语义。
@@ -699,48 +682,50 @@ broker.get_orders()
 
 ## 示例
 
-示例按分级编号法命名：首位是大类编号，接下来两位是类内序号，随后是类别标识和名称。类别依次为 `core`、`scenario`、`benchmark`、`feed`、`exchange`。
-每个示例都直接使用 minbt 和标准库，不导入其他示例文件。内存数据示例可直接运行；Feed 示例需要对应的数据源，其中 Binance 示例需要网络，CSV 示例需要配置数据目录，iosql 示例还需要安装 iosql 并配置数据库 URI。
+示例文件名采用 `两位序号_用途.py`，编号表示推荐阅读顺序，例如 `01_quickstart.py`、`02_moving_average.py`、`03_rotation.py`。
+每个示例可独立运行，直接使用 minbt 和 Matplotlib，按需使用标准库读取或生成数据。`01_quickstart.py` 使用两条内联行情；Feed 示例需要对应的数据源，其中 Binance 示例需要网络，CSV 示例需要配置数据目录，iosql 示例还需要安装 iosql 并配置数据库 URI。
 
 推荐按顺序阅读：
 
 ```bash
-python examples/000_core_pnl_sanity_check.py
-python examples/001_core_demo_mini.py
-python examples/002_core_single_symbol_sma.py
-python examples/003_core_multi_symbol_rotation.py
-python examples/100_scenario_exit_rules.py
-python examples/101_scenario_limit_order.py
-python examples/102_scenario_single_breakout.py
-python examples/103_scenario_multi_rotation.py
-python examples/104_scenario_pairs_mean_reversion.py
-python examples/105_scenario_cross_market.py
-python examples/200_benchmark_100k_empty.py
-python examples/300_feed_crypto_binance.py
-python examples/301_feed_csv.py
-python examples/302_feed_iosql.py
-python examples/400_exchange_replay_modes.py
-python examples/401_exchange_generic_bar_storage.py
+python examples/01_quickstart.py
+python examples/02_moving_average.py
+python examples/03_rotation.py
+python examples/04_exit_rules.py
+python examples/05_limit_orders.py
+python examples/06_breakout.py
+python examples/07_rebalance.py
+python examples/08_pairs_trading.py
+python examples/09_cross_market.py
+python examples/10_run_control.py
+python examples/11_pnl.py
+python examples/12_benchmark.py
+python examples/13_binance_feed.py
+python examples/14_csv_feed.py
+python examples/15_iosql_feed.py
+python examples/16_replay_modes.py
+python examples/17_bar_storage.py
 ```
 
 示例文件：
 
-- [examples/000_core_pnl_sanity_check.py](./examples/000_core_pnl_sanity_check.py)：展示多空盈亏、手续费和订单记账明细。
-- [examples/001_core_demo_mini.py](./examples/001_core_demo_mini.py)：最小单标的示例。
-- [examples/002_core_single_symbol_sma.py](./examples/002_core_single_symbol_sma.py)：单标的双均线趋势跟随。
-- [examples/003_core_multi_symbol_rotation.py](./examples/003_core_multi_symbol_rotation.py)：多标的横截面动量轮动。
-- [examples/100_scenario_exit_rules.py](./examples/100_scenario_exit_rules.py)：订单附带止盈止损和追踪止损。
-- [examples/101_scenario_limit_order.py](./examples/101_scenario_limit_order.py)：限价单、成交和撤单。
-- [examples/102_scenario_single_breakout.py](./examples/102_scenario_single_breakout.py)：单标的趋势突破。
-- [examples/103_scenario_multi_rotation.py](./examples/103_scenario_multi_rotation.py)：多标的轮动和再平衡。
-- [examples/104_scenario_pairs_mean_reversion.py](./examples/104_scenario_pairs_mean_reversion.py)：配对均值回归。
-- [examples/105_scenario_cross_market.py](./examples/105_scenario_cross_market.py)：一个 Broker 内同时交易 A 股和 crypto。
-- [examples/200_benchmark_100k_empty.py](./examples/200_benchmark_100k_empty.py)：10 万行空策略基准。
-- [examples/300_feed_crypto_binance.py](./examples/300_feed_crypto_binance.py)：自动下载、缓存并回放 Binance futures K 线。
-- [examples/301_feed_csv.py](./examples/301_feed_csv.py)：渐进读取 crypto.bn_data_sync 月度 CSV K 线。
-- [examples/302_feed_iosql.py](./examples/302_feed_iosql.py)：使用 iosql 有序查询渐进回放 K 线。
-- [examples/400_exchange_replay_modes.py](./examples/400_exchange_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
-- [examples/401_exchange_generic_bar_storage.py](./examples/401_exchange_generic_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
+- [examples/01_quickstart.py](./examples/01_quickstart.py)：最小回测，使用两条行情买入并持有。
+- [examples/02_moving_average.py](./examples/02_moving_average.py)：单标的双均线趋势跟随。
+- [examples/03_rotation.py](./examples/03_rotation.py)：多标的横截面动量轮动。
+- [examples/04_exit_rules.py](./examples/04_exit_rules.py)：订单附带止盈止损和追踪止损。
+- [examples/05_limit_orders.py](./examples/05_limit_orders.py)：限价单、成交和撤单。
+- [examples/06_breakout.py](./examples/06_breakout.py)：单标的趋势突破。
+- [examples/07_rebalance.py](./examples/07_rebalance.py)：多标的轮动和再平衡。
+- [examples/08_pairs_trading.py](./examples/08_pairs_trading.py)：配对均值回归。
+- [examples/09_cross_market.py](./examples/09_cross_market.py)：一个 Broker 内同时交易 A 股和 crypto。
+- [examples/10_run_control.py](./examples/10_run_control.py)：暂停、继续和退出回测，查询结果快照。
+- [examples/11_pnl.py](./examples/11_pnl.py)：展示多空盈亏、手续费和订单记账明细。
+- [examples/12_benchmark.py](./examples/12_benchmark.py)：10 万行空策略基准。
+- [examples/13_binance_feed.py](./examples/13_binance_feed.py)：自动下载、缓存并回放 Binance futures K 线。
+- [examples/14_csv_feed.py](./examples/14_csv_feed.py)：渐进读取 crypto.bn_data_sync 月度 CSV K 线。
+- [examples/15_iosql_feed.py](./examples/15_iosql_feed.py)：使用 iosql 有序查询渐进回放 K 线。
+- [examples/16_replay_modes.py](./examples/16_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
+- [examples/17_bar_storage.py](./examples/17_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
 ## Codex Skill

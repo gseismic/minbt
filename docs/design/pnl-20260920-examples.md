@@ -2,7 +2,7 @@
 
 ## 目标
 
-`examples/000_core_pnl_sanity_check.py` 通过离线小行情展示多头、空头和手续费场景。
+`examples/11_pnl.py` 通过离线小行情展示多头、空头和手续费场景。
 盈亏口径和查询接口以 [库级盈亏设计](pnl-20261011-library-api.md) 为准。
 
 1. 示例直接调用 `Broker.get_total_pnl()` 和 `get_pnl_records()`，展示已实现、未实现、手续费和净盈亏。
@@ -23,7 +23,7 @@
 
 ## 文件与验证
 
-- `examples/000_core_pnl_sanity_check.py`：直接展示公开结果，独立使用 Matplotlib 绘制曲线。
+- `examples/11_pnl.py`：直接展示公开结果，独立使用 Matplotlib 绘制曲线。
 - `tests/test_examples.py`：验证示例运行、库级快照、明细合计和权益曲线的独立预期值。
 - `tests/test_pnl.py`：手算多空、手续费、加仓均价、部分平仓、反手和分仓结果，并核对实际权益。
 - 风险结算测试覆盖全仓和逐仓强平、穿仓调整、重复行情与预检隔离。
