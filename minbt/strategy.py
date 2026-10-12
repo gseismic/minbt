@@ -1,7 +1,7 @@
 from typing import Optional
 
 from .broker import Broker
-from .data.model import Bar
+from .data.model import Bar, normalize_symbol
 from .logger import logger as default_logger
 from .protocols.broker import BROKER_PROTOCOL_METHODS, BrokerProtocol
 
@@ -153,6 +153,7 @@ class Strategy:
         return self._equity_history.to_numpy().tolist()
 
     def get_hist_position_sizes(self, symbol: str):
+        symbol = normalize_symbol(symbol)
         if self._position_size_history is None:
             return []
         if isinstance(self._position_size_history, list):

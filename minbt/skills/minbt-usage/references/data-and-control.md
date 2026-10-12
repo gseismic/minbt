@@ -16,6 +16,8 @@ exchange.set_bars(data, date_key="date", symbol_key="symbol")
 回调的 `dt` 统一为 UTC datetime，无时区时间按 UTC 解释。数字时间戳按数量级推断
 秒、毫秒、微秒或纳秒；有歧义时先调用
 `minbt.data.model.normalize_datetime(value, unit="ms")` 显式转换，再传给 Feed。
+标的必须为非空字符串；数据、交易、查询和市场路由统一去空白并转大写。
+自备数据的 dt 应是真实可见时间，完整区间数据应在完成时发布。
 
 ## 数据回调与价格
 
@@ -25,11 +27,12 @@ exchange.set_bars(data, date_key="date", symbol_key="symbol")
 | --- | --- | --- |
 | `set_bars(data)` | `on_bars(dt, bars)` | `{symbol: row}` |
 | `set_books(data)` | `on_books(dt, books)` | `{symbol: row}` |
-| `set_trades(data)` | `on_trades(dt, trades)` | `{symbol: [row, ...]}` |
+| `set_trades(data)` | `on_trades(dt, trades)` | 只读 `{symbol: (row, ...)}` |
 | `set_news(data)` | `on_news(dt, news)` | News 元组 |
 
 这些入口都可指定 `date_key`、`symbol_key` 和 `feed_priority`。
-逐笔成交在同一时间可以有多条，保留在标的对应列表中；News 可不指定标的。
+逐笔成交在同一时间可以有多条，保留在标的对应元组中；News 可不指定标的。
+三个截面回调的外层映射和常见行载荷容器只读；本地处理需先复制容器。
 同一 dt 先收齐完整批次，由 Broker 选择估值价格、更新账户、处理挂单及退出条件，随后按
 `bars → books → trades → bar → news` 分发策略行情回调。
 截面按来源分别分发：同一时间有多个 Kline Feed 时，`on_bars` 会调用多次，每次只包含
@@ -135,6 +138,8 @@ exchange.add_feed(binance.BinanceKlineFeed(
 `cache_only=True` 用于离线运行，缓存缺失或覆盖不完整时会报错，不创建空缓存。
 默认 `closed_only=True`，只回放准备时已确认收盘的 K 线；缓存不能证明收盘后抓取时重新下载，
 离线模式报告缓存不完整。`closed_only=False` 可包含未收盘 K 线。
+下载及缓存读取检查首尾和中间连续性；前缀缺失或上市前无数据也会报错。
+旧错误缓存可用 `refresh=True` 重新下载。SQLite 每次操作确定性关闭连接。
 此 Feed 在准备阶段读取缓存查询结果，适合预加载；大数据渐进回放可使用 CSV 或 iosql Feed。
 
 ## CSV 与 iosql
@@ -154,7 +159,10 @@ exchange.add_feed(BinanceKlineCsvFeed(
 # 数据库存储时可替换为 BinanceKlineIosqlFeed("sqlite:///path/to/data.iosql", "1m", ...)
 ```
 
-`start/end` 为半开区间 `[start, end)`。Feed 在启动前检查请求 symbol、CSV 月份、
+三个 Binance Feed 用 `close_time` 作为事件 dt，载荷保留整数毫秒的 `open_time/close_time`，
+完整小时 K 线不会在开盘时暴露最终数据。缺收盘时间会报错；未收盘快照也在其 close_time 调度。
+`start/end` 按 open_time 筛选半开区间 `[start, end)`，运行窗口按事件可见时间筛选。
+Feed 在启动前检查请求 symbol、CSV 月份、
 iosql table/interval 和时间范围；缺数据或配置错误直接报错。
 `BinanceKlineIosqlFeed` 需要另行安装 iosql 0.3.x 或更新版本，`batch_size` 调整读取缓冲。
 
@@ -162,6 +170,7 @@ iosql table/interval 和时间范围；缺数据或配置错误直接报错。
 数据至少有 `dt,symbol,kind,data`，其中 `data` 是 JSON。
 两者从 `minbt.plugins.storage` 导入；iosql 的 `dt` 使用 UTC 毫秒时间戳，两个来源都要求
 行数据按时间非递减排列。`IosqlBarFeed` 同样需要另行安装 iosql。
+通用 Feed 的 symbols 只筛选，可部分命中；Binance Feed 则要求每个请求标的有数据。
 不要将这种格式与 Binance Kline 专用文件或表混用。
 
 ## 运行窗口与回放

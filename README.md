@@ -317,8 +317,8 @@ exchange.set_bars(data, date_key="dt", symbol_key="symbol")
 
 所有 Bar 入口必需字段：
 
-- `dt`: 回测时间，字段名可用 `date_key` 改。
-- `symbol`: 标的代码，字段名可用 `symbol_key` 改。
+- `dt`: 数据真实可见的回放时间，字段名可用 `date_key` 改；自备完整 K 线应使用完成时间。
+- `symbol`: 非空字符串标的代码，去除首尾空白并转大写；交易、查询和市场路由使用相同规则。
 
 Kline 不强制完整 OHLCV。`close` 只是常见字段；如果用户只需要 `value`、`signal` 或其他字段，
 也可以直接放入 Bar 的 `data`。
@@ -329,6 +329,8 @@ Kline 不强制完整 OHLCV。`close` 只是常见字段；如果用户只需要
 - Exchange 会按时间聚合全部来源，策略截面按来源分别分发。同一 `dt` 有多个 Kline Feed 时，
   `on_bars` 会调用多次，每次只含该来源的标的；需要统一选股截面时，将标的放在同一个 Feed。
 - 策略回调收到的 `dt` 会统一为 UTC `datetime.datetime`。
+- `on_bars/on_books/on_trades` 的外层映射只读；Trade 序列是元组，常见行载荷容器也只读。
+  策略需要本地增删时先用 `dict(...)` 或 `list(...)` 创建自己的容器。
 - 数字时间戳按数量级推断秒、毫秒、微秒或纳秒；有歧义时先用
   `minbt.data.model.normalize_datetime(value, unit="ms")` 显式转换，再传入数据。
 - 同一 `dt` 下，Exchange 先收齐全部市场事件；Broker 按 `mark_price` 选择估值价格，
@@ -390,7 +392,14 @@ def on_bars(self, dt, bars):
 完整示例见 `examples/13_binance_feed.py`。
 
 默认 `closed_only=True`，只回放准备时已确认收盘的 K 线；缓存无法证明 K 线是在收盘后抓取时会重新下载，
-离线模式下则报告缓存不完整。设为 `closed_only=False` 可包含尚未收盘的 K 线。
+离线模式下则报告缓存不完整。下载和缓存都检查区间首尾及中间连续性；上市前或其他原因造成
+数据缺失时会报错，不把缺失前缀登记为完整缓存。旧错误缓存可用 `refresh=True` 重新获取。
+设为 `closed_only=False` 可包含尚未收盘的快照，其事件仍安排在该根 K 线的 `close_time`。
+
+三个 Binance Kline Feed 均按 `close_time` 发布事件，载荷保留整数毫秒的 `open_time` 和 `close_time`。
+例如 00:00 开始的一小时 K 线在 00:59:59.999 发布完整数据，避免混合分钟行情或 News 时提前使用最终结果。
+缺少或无效的收盘时间会报错；`start/end` 按 `open_time` 筛选 `[start, end)`，Exchange 的运行窗口
+则按事件的可见时间筛选。
 
 ## CSV / iosql K 线回放
 
@@ -444,6 +453,7 @@ exchange.add_feed(CsvBarFeed("/path/to/bars.csv"))
 ```
 
 通用 CSV/iosql Feed 只要求 `dt`、`symbol`、`kind`、`data`，不会把数据强制解释成 OHLCV。
+其中 `symbols` 是筛选条件，允许部分标的没有命中；Binance 专用 Feed 会检查每个请求标的。
 
 `price` 或其他自定义 kind 会通过 `on_bar(dt, bar)` 回调给策略。`on_bar` 按事件逐条调用；同一
 `dt` 下的多个自定义 Bar 不会合并成 `symbol -> data` 的截面。
@@ -503,6 +513,9 @@ order = self.broker.submit_market_order("BTCUSDT", qty=1, price=100)
 - `qty == 0` 会抛 `ValueError`。
 - `price=None` 时使用 broker 当前最新价；没有最新价时抛 `ValueError`。
 - 显式 `price` 同时更新该标的的当前最新价；后续市场批次仍按 Broker 的 `mark_price` 重新估值。
+- 价格、数量、目标、资金、杠杆及退出数值必须为有限实数，非法类型或范围在账户修改前抛出异常。
+- 回放中沿用旧报价成交时，市场规则、成交记录和 T+1 均使用当前回放时间；
+  `get_last_price(..., return_dt=True)` 返回报价时间，显式 `price_dt` 也不能倒退运行中的交易时钟。
 
 ### 目标仓位
 
@@ -521,6 +534,7 @@ self.broker.order_target_percent("BTCUSDT", target_percent=0.8, price=100)
 - `target_percent`: 目标 portfolio 权益比例。
 
 目标不变时返回 `Order(status="skipped", qty=0)`，不会返回 `None`。
+显式价格先推进风险，再按最新持仓计算目标差额；目标比例使用风险结算后的权益。
 
 ### 平仓
 
@@ -530,6 +544,7 @@ self.broker.close_portfolio("trend")
 ```
 
 - `close_position()` 全平指定标的净持仓。
+- 如果显式价格先触发强平，清仓或目标归零返回 skipped，最终保持零敞口。
 - `close_portfolio()` 原子关闭指定 portfolio；任一仓位不能关闭时，不执行任何平仓。
 - `close_portfolio()` 成功后同时取消该 portfolio 的 pending 限价单；预检失败时订单保持
   pending，避免出现活动订单指向已删除 portfolio。
@@ -608,7 +623,9 @@ order = self.broker.order_target_percent(
 - `trailing_stop_amount`: 固定金额追踪止损。
 
 `trailing_stop_pct` 和 `trailing_stop_amount` 互斥；固定止损/止盈可以和追踪止损同时存在。
-同一净持仓生命周期内，同方向成交只更新传入的退出字段，未传字段沿用已有配置；调用 `clear_exit()` 可显式清除条件。
+同一净持仓生命周期只有一份有效保护。加仓附带条件，以及用任一当前订单调用 `set_exit/add_exit`，
+都保留未修改的标准条件、函数规则和函数 state；`clear_exit()` 才显式删除条件。
+全平、反转或强平结束旧生命周期，旧订单不能修改新仓保护。
 
 ### 持仓中修改
 

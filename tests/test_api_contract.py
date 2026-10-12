@@ -1,4 +1,5 @@
 import inspect
+from importlib.util import find_spec
 
 import minbt
 import minbt.broker as broker_package
@@ -10,6 +11,12 @@ from minbt import Broker, Exchange, ExitConfig, Strategy
 
 POSITIONAL = inspect.Parameter.POSITIONAL_OR_KEYWORD
 KEYWORD_ONLY = inspect.Parameter.KEYWORD_ONLY
+
+
+def test_retired_data_bars_module_is_removed():
+    """R8-13：具体读取器只保留插件入口，不再分发失效的旧转发模块。"""
+    assert find_spec("minbt.data.bars") is None
+    assert storage_package.CsvBarFeed.__module__ == "minbt.plugins.storage.bar_feed"
 
 
 def _parameters(callable_obj):

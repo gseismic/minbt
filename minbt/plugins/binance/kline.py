@@ -3,10 +3,10 @@
 Kline 是一种 Bar。这里的解析逻辑只服务 Binance Kline 行格式，不定义通用 Bar 的字段集合。
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Mapping
 
-from ...data.model import Bar, normalize_datetime
+from ...data.model import Bar, datetime_key, normalize_datetime, normalize_symbol
 
 
 OPTIONAL_BAR_FIELDS = (
@@ -24,7 +24,7 @@ def normalize_symbols(symbols, *, allow_none=False):
     if isinstance(symbols, (str, bytes)):
         symbols = [symbols]
     try:
-        normalized = [str(symbol).strip().upper() for symbol in symbols]
+        normalized = [normalize_symbol(symbol) for symbol in symbols]
     except TypeError as exc:
         raise TypeError("symbols must be a symbol string or an iterable of symbols") from exc
     if not normalized or any(not symbol for symbol in normalized):
@@ -39,12 +39,11 @@ def to_utc_datetime(value) -> datetime:
 
 
 def datetime_to_ms(value: datetime) -> int:
-    normalized = normalize_datetime(value)
-    return int(normalized.timestamp() * 1000)
+    return datetime_key(value)
 
 
 def ms_to_datetime(value: int) -> datetime:
-    return datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc)
+    return datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(milliseconds=int(value))
 
 
 def optional_float(value):
@@ -60,7 +59,7 @@ def optional_int(value):
 
 
 class _KlineRowFeed:
-    """把有序 Kline 行转换为逐条 `Bar(kind="kline")`。"""
+    """按收盘时间发布完整 Kline，防止混合回放提前看到区间最终数据。"""
 
     supports_preload = True
     supports_incremental = True
@@ -78,7 +77,8 @@ class _KlineRowFeed:
         try:
             for raw_row in row_stream:
                 row = self._normalize_row(raw_row)
-                dt_ms = row.pop("dt_ms")
+                row.pop("dt_ms")
+                dt_ms = row["close_time"]
                 symbol = row.pop("symbol")
                 if previous_dt_ms is not None and dt_ms < previous_dt_ms:
                     raise ValueError(
@@ -118,9 +118,7 @@ class _KlineRowFeed:
             dt_ms = int(raw_row["dt_ms"])
             if raw_row["symbol"] is None:
                 raise ValueError("symbol must not be None")
-            symbol = str(raw_row["symbol"]).strip().upper()
-            if not symbol:
-                raise ValueError("symbol must not be empty")
+            symbol = normalize_symbol(raw_row["symbol"])
             row = {
                 key: value
                 for key, value in raw_row.items()
@@ -132,6 +130,9 @@ class _KlineRowFeed:
             for field in ("close_time", "num_trades"):
                 if field in row and row[field] is not None:
                     row[field] = int(float(row[field]))
+            if row.get("close_time") is None or row["close_time"] <= dt_ms:
+                raise ValueError("close_time must be present and greater than open_time")
+            row["open_time"] = dt_ms
             return {"dt_ms": dt_ms, "symbol": symbol, **row}
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError(f"{self.name} row contains invalid bar values: {raw_row!r}") from exc

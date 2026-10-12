@@ -4,6 +4,7 @@ import pytest
 
 from minbt import Bar, Broker, Exchange, Strategy
 from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
+from minbt.data.model import normalize_datetime
 
 
 def _csv_row(open_time, close):
@@ -61,6 +62,13 @@ def test_binance_kline_csv_feed_yields_individual_bars(tmp_path):
         ("BTCUSDT", 101.0),
     ]
     assert all(event.kind == "kline" for event in events)
+    # R8-05：请求按开盘区间筛选，但完整行情只能在对应收盘时进入回放。
+    assert [event.dt for event in events] == [
+        normalize_datetime("2023-01-01T00:00:59.999Z"),
+        normalize_datetime("2023-01-01T00:00:59.999Z"),
+        normalize_datetime("2023-01-01T00:01:59.999Z"),
+    ]
+    assert [event.data["open_time"] for event in events] == [start_ms, start_ms, start_ms + 60_000]
 
 
 def test_binance_kline_csv_feed_rejects_out_of_order_rows(tmp_path):
@@ -223,3 +231,55 @@ def test_binance_kline_iosql_feed_reads_rows_as_bars(tmp_path):
         ("BTCUSDT", "kline", 100.0),
         ("BTCUSDT", "kline", 101.0),
     ]
+    # R8-05：真实 iosql 读取也遵守同一个完成时间契约。
+    assert [event.dt for event in events] == [
+        normalize_datetime("2023-01-01T00:00:59.999Z"),
+        normalize_datetime("2023-01-01T00:01:59.999Z"),
+    ]
+    assert [event.data["open_time"] for event in events] == [row["open_time"] for row in rows]
+
+
+@pytest.mark.parametrize("load_mode", ["preload", "incremental"])
+def test_completed_hourly_kline_is_not_visible_to_earlier_minute_or_news(tmp_path, load_mode):
+    """R8-05：多周期与 News 混合回放中，分钟策略不能提前读到小时最终收盘价。"""
+    start = 1_767_225_600_000
+    row = _csv_row(start, 200)
+    row[6] = str(start + 3_600_000 - 1)
+    _write_csv(tmp_path / "BTCUSDT-1h-2026-01.csv", [row])
+    feed = BinanceKlineCsvFeed(tmp_path, "BTCUSDT", interval="1h")
+
+    class MixedObserver(Strategy):
+        def on_init(self):
+            self.hourly_close = None
+            self.seen = []
+
+        def on_bars(self, dt, bars):
+            if "BTCUSDT" in bars:
+                self.hourly_close = bars["BTCUSDT"]["close"]
+            self.seen.append((dt, self.hourly_close))
+
+        def on_news(self, dt, news):
+            self.seen.append((dt, self.hourly_close))
+
+    exchange = Exchange()
+    exchange.add_feed(feed)
+    exchange.set_bars([{"dt": "2026-01-01T00:01:00Z", "symbol": "MINUTE", "close": 10}])
+    exchange.set_news([{"dt": "2026-01-01T00:30:00Z", "headline": "mid-hour"}])
+    observer = MixedObserver("mixed")
+    exchange.add_strategy(observer)
+    exchange.run(load_mode=load_mode)
+
+    assert observer.seen == [
+        (normalize_datetime("2026-01-01T00:01:00Z"), None),
+        (normalize_datetime("2026-01-01T00:30:00Z"), None),
+        (normalize_datetime("2026-01-01T00:59:59.999Z"), 200),
+    ]
+
+
+def test_kline_without_completion_time_is_not_published_at_open(tmp_path):
+    """R8-05：缺收盘时间不能退回开盘时间发布完整行。"""
+    row = _csv_row(1_672_531_200_000, 100)
+    row[6] = ""
+    _write_csv(tmp_path / "BTCUSDT-1m-2023-01.csv", [row])
+    with pytest.raises(ValueError, match="invalid bar values"):
+        list(BinanceKlineCsvFeed(tmp_path).events())

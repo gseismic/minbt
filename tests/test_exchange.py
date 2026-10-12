@@ -89,6 +89,59 @@ def test_bar_payload_is_read_only():
         strategy.calls[0][1]["A"]["close"] = 101.0
 
 
+def test_callback_containers_cannot_pollute_later_strategies():
+    """R8-08：外层映射与 Trade 序列只读，先运行的策略不能删除后续策略的行情。"""
+    class Mutator(Strategy):
+        def attempt_change(self, payload):
+            with pytest.raises(TypeError):
+                payload["A"] = ()
+            with pytest.raises(AttributeError):
+                payload.pop("A")
+
+        def on_bars(self, dt, bars):
+            self.attempt_change(bars)
+
+        def on_books(self, dt, books):
+            self.attempt_change(books)
+
+        def on_trades(self, dt, trades):
+            self.attempt_change(trades)
+            with pytest.raises(AttributeError):
+                trades["A"].append({"price": 999})
+            with pytest.raises(TypeError):
+                trades["A"][0]["price"] = 999
+
+    class Observer(Strategy):
+        def on_init(self):
+            self.seen = []
+
+        def on_bars(self, dt, bars):
+            self.seen.append(("bars", dict(bars["A"])))
+
+        def on_books(self, dt, books):
+            self.seen.append(("books", dict(books["A"])))
+
+        def on_trades(self, dt, trades):
+            self.seen.append(("trades", [dict(row) for row in trades["A"]]))
+
+    exchange = Exchange()
+    exchange.set_bars([{"dt": _dt(), "symbol": "A", "close": 100}])
+    exchange.set_books([{"dt": _dt(), "symbol": "A", "mid": 101}])
+    exchange.set_trades([
+        {"dt": _dt(), "symbol": "A", "price": 102},
+        {"dt": _dt(), "symbol": "A", "price": 103},
+    ])
+    exchange.add_strategy(Mutator("mutator"))
+    observer = Observer("observer")
+    exchange.add_strategy(observer)
+    exchange.run()
+    assert observer.seen == [
+        ("bars", {"close": 100}),
+        ("books", {"mid": 101}),
+        ("trades", [{"price": 102}, {"price": 103}]),
+    ]
+
+
 def test_same_time_callbacks_follow_family_order_and_news_does_not_mark_price():
     class FeedStrategy(Strategy):
         def on_init(self):

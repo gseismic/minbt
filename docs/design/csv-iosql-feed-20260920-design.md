@@ -2,6 +2,9 @@
 
 ## 状态
 
+本稿记录早期读取设计；当前 Bar/Feed 接口以 [数据规范](protocols/data-20261012-contract.md) 为准。
+完整 Binance Kline 按 close_time 调度、open_time 区间筛选，见 [执行不变式](execution-20261013-invariants.md)。
+
 本文是 CSV 与 iosql 渐进（流式）数据接入的设计稿，基于 `data-feed-20260701-design.md`
 预留的 `CsvBarsFeed` 命名与 `add_feed(feed)` 入口，为其补齐"渐进加载"与"iosql 数据源"两个能力。
 

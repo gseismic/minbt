@@ -68,7 +68,20 @@ def datetime_key(value: datetime) -> int:
     """返回用于排序和批次比较的 UTC 毫秒键。"""
 
     normalized = normalize_datetime(value)
-    return int(normalized.timestamp() * 1000)
+    delta = normalized - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return (delta.days * 86400 + delta.seconds) * 1000 + delta.microseconds // 1000
+
+
+def normalize_symbol(value: str) -> str:
+    """数据与账户共用标的身份：去除首尾空白并转大写。"""
+    if value is None:
+        raise ValueError("symbol must not be None")
+    if not isinstance(value, str):
+        raise TypeError("symbol must be a string")
+    result = value.strip().upper()
+    if not result:
+        raise ValueError("symbol must not be empty")
+    return result
 
 
 def _freeze_payload(value: Any) -> Any:
@@ -100,7 +113,7 @@ class Bar:
             raise ValueError("Bar.symbol must not be None")
         if self.kind is None:
             raise ValueError("Bar.kind must not be None")
-        symbol = str(self.symbol).strip().upper()
+        symbol = normalize_symbol(self.symbol)
         kind = str(self.kind).strip().lower()
         if not symbol:
             raise ValueError("Bar.symbol must not be empty")
@@ -123,8 +136,7 @@ class News:
     def __post_init__(self) -> None:
         object.__setattr__(self, "dt", normalize_datetime(self.dt))
         if self.symbol is not None:
-            symbol = str(self.symbol).strip().upper()
-            object.__setattr__(self, "symbol", symbol or None)
+            object.__setattr__(self, "symbol", normalize_symbol(self.symbol))
         object.__setattr__(self, "data", _freeze_payload(self.data))
 
 

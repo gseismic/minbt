@@ -705,13 +705,13 @@ class Exchange:
                         f"duplicate {callback} symbol {event.symbol!r} in feed {item.feed_name!r}"
                     )
                 payload[event.symbol] = event.data
-            return payload
+            return MappingProxyType(payload)
         if callback == "on_trades":
             payload = OrderedDict()
             for item in items:
                 event = item.event
                 payload.setdefault(event.symbol, []).append(event.data)
-            return payload
+            return MappingProxyType({symbol: tuple(rows) for symbol, rows in payload.items()})
         if callback == "on_news":
             return tuple(item.event for item in items)
         raise ValueError(f"unsupported strategy callback: {callback!r}")

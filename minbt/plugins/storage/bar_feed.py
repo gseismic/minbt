@@ -10,7 +10,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from operator import index
 from pathlib import Path
 
-from ...data.model import Bar, datetime_key, normalize_datetime
+from ...data.model import Bar, datetime_key, normalize_datetime, normalize_symbol
 
 
 def _normalize_symbols(symbols):
@@ -19,7 +19,7 @@ def _normalize_symbols(symbols):
     if isinstance(symbols, (str, bytes)):
         symbols = [symbols]
     try:
-        result = [str(symbol).strip().upper() for symbol in symbols]
+        result = [normalize_symbol(symbol) for symbol in symbols]
     except TypeError as exc:
         raise TypeError("symbols must be a symbol string or an iterable of symbols") from exc
     if not result or any(not symbol for symbol in result):

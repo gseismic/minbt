@@ -2,6 +2,8 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Union, List, Any
 import datetime
+from .._validation import finite_number, positive_number
+from ..data.model import normalize_symbol
 
 DateType = Union[datetime.datetime, np.datetime64]
 
@@ -13,6 +15,8 @@ class Cash:
     __slots__ = ['total_cash', 'free_cash', 'locked_cash']
     
     def __init__(self, total_cash: float, free_cash: float):
+        total_cash = finite_number(total_cash, "total_cash")
+        free_cash = finite_number(free_cash, "free_cash")
         _require(total_cash >= 0, f"Cannot initialize total cash with negative value: {total_cash}")
         _require(free_cash >= 0, f"Cannot initialize free cash with negative value: {free_cash}")
         _require(total_cash >= free_cash, f"Total cash must be greater than free cash: {total_cash} < {free_cash}")
@@ -26,6 +30,7 @@ class Cash:
         Args:
             amount: float 要增加的金额
         """
+        amount = finite_number(amount, "amount")
         _require(amount >= 0, f"Cannot add negative cash: {amount}")
         self.free_cash += amount
         self.total_cash += amount
@@ -37,12 +42,14 @@ class Cash:
         Args:
             amount: float 要花费的金额
         """
+        amount = finite_number(amount, "amount")
         _require(amount >= 0, f"Cannot spend negative amount: {amount}")
         _require(amount <= self.free_cash, f"Cannot spend more than free cash: {amount} > {self.free_cash}")
         self.free_cash -= amount
         self.total_cash -= amount
     
     def can_change_cash(self, amount: float) -> bool:
+        amount = finite_number(amount, "amount")
         return self.free_cash + amount >= 0
     
     def change_cash(self, amount: float) -> None:
@@ -51,6 +58,7 @@ class Cash:
         Args:
             amount: float 要改变的金额
         """
+        amount = finite_number(amount, "amount")
         if amount == 0:
             return
         
@@ -69,6 +77,7 @@ class Cash:
         Args:
             amount: float 要锁定的金额
         """
+        amount = finite_number(amount, "amount")
         _require(amount >= 0, f"Cannot lock negative cash: {amount}")
         _require(amount <= self.free_cash, f"Cannot lock more cash than free: {amount} > {self.free_cash}")
         self.locked_cash += amount
@@ -80,6 +89,7 @@ class Cash:
         Args:
             amount: float 要解锁的金额
         """
+        amount = finite_number(amount, "amount")
         _require(amount >= 0, f"Cannot unlock negative cash: {amount}")
         _require(amount <= self.locked_cash, f"Cannot unlock more cash than locked: {amount} > {self.locked_cash}")
         self.locked_cash -= amount
@@ -105,6 +115,9 @@ class Position:
     _equity: float = 0
     _bankrupt: bool = False
     _locked_lots: List[Tuple[float, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.symbol = normalize_symbol(self.symbol)
     
     def mark_bankrupt(self) -> None:
         self._bankrupt = True
@@ -118,7 +131,7 @@ class Position:
     def update_price_and_pnl(self, price: float, dt: Optional[DateType] = None) -> None:
         if price is None:
             return
-        _require(price > 0, f"Price must be positive: {price}")
+        price = positive_number(price, "price")
         self._last_price = price
         self._last_dt = dt
         self._unrealized_pnl = self.size * (price - self._cost_price)
@@ -126,8 +139,9 @@ class Position:
     
     @staticmethod
     def calculate_required_margin(price: float, qty: float, leverage: float) -> float:
-        _require(price > 0, f"Price must be positive: {price}")
-        _require(leverage > 0, f"Leverage must be positive: {leverage}")
+        price = positive_number(price, "price")
+        qty = finite_number(qty, "qty")
+        leverage = positive_number(leverage, "leverage")
         return abs(qty) * price / leverage
 
     def commit_open_new(self, 
@@ -146,6 +160,9 @@ class Position:
             realized_pnl: float 已实现pnl
             总释放现金为: released_margin + realized_pnl
         """
+        price = positive_number(price, "price")
+        qty = finite_number(qty, "qty")
+        leverage = positive_number(leverage, "leverage")
         _require(qty != 0, f"Cannot open zero quantity position: {self.symbol}")
         _require(
             np.sign(self.size * qty) >= 0,
@@ -186,6 +203,8 @@ class Position:
         Note:
             手续费从cash中扣除，不记录于_unrealized_pnl中
         """
+        price = positive_number(price, "price")
+        qty = finite_number(qty, "qty")
         _require(
             np.sign(self.size * qty) <= 0,
             "Cannot close partial position with different sign: "
@@ -219,6 +238,10 @@ class Position:
         return float(released_margin), float(realized_pnl)
 
     def commit_order(self, price: float, qty: float, leverage: float):
+        # 反手会先全平再开仓，必须在两段操作之前校验全部参数。
+        price = positive_number(price, "price")
+        qty = finite_number(qty, "qty")
+        leverage = positive_number(leverage, "leverage")
         order_type = np.sign(qty * self.size)
         released_margin, realized_pnl = 0, 0
         exec_type = None

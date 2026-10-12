@@ -44,6 +44,12 @@ class DataFeedProtocol(Protocol):
 - data 保留当前载荷能力；标准字段由用户策略和所用 Broker 约定。
 - 原 symbol 归一化及回调分组保留，不能在搬迁时悄悄改标识。
 
+2026-10-13 修正：数据、交易、查询和市场路由统一使用非空字符串、去首尾空白并转大写。
+毫秒键用 UTC epoch 差值的整数运算生成。截面回调的映射及 Trade 序列只读，策略自行复制容器后处理。
+三个 Binance Kline reader 按 close_time 调度完整行，保留 open_time；读取 start/end 按开盘时间筛选，
+运行窗口按事件可见时间筛选。缺收盘时间不得回退到开盘时间。
+具体状态、缓存完整性与验证见 [执行不变式](../execution-20261013-invariants.md)。
+
 如果用户需要额外时间或信号，可以放在 data 中供策略/Broker 读取。需要新时间语义时单独增加可选
 能力，不能先对所有 Feed 更改构造参数或调度时点。
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from contextlib import closing, contextmanager
 import json
 from pathlib import Path
 import sqlite3
@@ -7,9 +7,13 @@ from typing import Any, Iterable, List
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-import pandas as pd
-
-from ...data.model import Bar
+from .kline import (
+    _KlineRowFeed,
+    datetime_to_ms as _datetime_to_ms,
+    ms_to_datetime as _ms_to_datetime,
+    normalize_symbols,
+    to_utc_datetime as _to_utc_datetime,
+)
 
 
 SOURCE = "binance"
@@ -104,7 +108,8 @@ class BinanceKlineClient:
             )
 
 
-class BinanceKlineFeed:
+class BinanceKlineFeed(_KlineRowFeed):
+    """下载并缓存 Binance Kline，再以收盘时间发布，避免提前暴露完整区间。"""
     supports_preload = True
     # prepare() 当前会把缓存查询结果读入 _rows；它不是渐进读取来源。
     supports_incremental = False
@@ -180,14 +185,13 @@ class BinanceKlineFeed:
         self._validate_loaded_rows(start_ms, end_ms, now_ms=now_ms)
         self._prepared = True
 
-    def events(self) -> Iterable[Bar]:
+    def _row_stream(self) -> Iterable[dict]:
         if not self._prepared:
             self.prepare()
         for row in self._rows:
-            dt = _ms_to_datetime(row["dt_ms"])
             symbol = row["symbol"]
             payload = {
-                "dt": dt,
+                "dt_ms": row["dt_ms"],
                 "symbol": symbol,
                 "open": row["open"],
                 "high": row["high"],
@@ -198,9 +202,7 @@ class BinanceKlineFeed:
             for key in ("close_time", "volume_quote", "num_trades", "volume_base_buy", "volume_quote_buy"):
                 if row.get(key) is not None:
                     payload[key] = row[key]
-            payload.pop("dt", None)
-            payload.pop("symbol", None)
-            yield Bar(dt=dt, symbol=symbol, kind="kline", data=payload)
+            yield payload
 
     def close(self) -> None:
         return None
@@ -209,17 +211,7 @@ class BinanceKlineFeed:
         return f"binance:bars:{self.market}:{self.interval}:{','.join(self.symbols)}"
 
     def _normalize_symbols(self, symbols) -> List[str]:
-        if isinstance(symbols, (str, bytes)):
-            symbols = [symbols]
-        try:
-            normalized = [str(symbol).upper() for symbol in symbols]
-        except TypeError:
-            raise TypeError("symbols must be a symbol string or an iterable of symbols")
-        if not normalized or any(not symbol for symbol in normalized):
-            raise ValueError("symbols must not be empty")
-        if len(set(normalized)) != len(normalized):
-            raise ValueError("symbols must not contain duplicates")
-        return normalized
+        return normalize_symbols(symbols)
 
     def _validate_interval(self, interval: str) -> str:
         interval = str(interval)
@@ -231,8 +223,15 @@ class BinanceKlineFeed:
         conn.row_factory = sqlite3.Row
         return conn
 
+    @contextmanager
+    def _connection(self):
+        """事务提交或回滚后立即关闭连接，异常路径也不依赖垃圾回收。"""
+        with closing(self._connect()) as conn:
+            with conn:
+                yield conn
+
     def _ensure_schema(self) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS bars (
@@ -301,7 +300,7 @@ class BinanceKlineFeed:
         return [(start, end) for start, end in missing if start < end]
 
     def _coverage_intervals(self, symbol: str):
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 """
                 SELECT start_ms, end_ms
@@ -319,7 +318,7 @@ class BinanceKlineFeed:
         closed_end_ms = min(end_ms, _current_open_time_ms(now_ms, self.interval))
         if closed_end_ms <= start_ms:
             return []
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 """
                 SELECT dt_ms, close_time, downloaded_at_ms
@@ -386,6 +385,13 @@ class BinanceKlineFeed:
                     f"in [{_ms_to_datetime(start_ms).isoformat()}, "
                     f"{_ms_to_datetime(coverage_end_ms).isoformat()})"
                 )
+            expected_first_open = ((start_ms + interval_ms - 1) // interval_ms) * interval_ms
+            if rows[0]["dt_ms"] != expected_first_open:
+                raise RuntimeError(
+                    f"Binance returned an incomplete kline range for {symbol} {self.interval}: "
+                    f"expected first open time {_ms_to_datetime(expected_first_open).isoformat()}, "
+                    f"got {_ms_to_datetime(rows[0]['dt_ms']).isoformat()}"
+                )
             for previous, current in zip(rows, rows[1:]):
                 if current["dt_ms"] - previous["dt_ms"] != interval_ms:
                     raise RuntimeError(
@@ -428,15 +434,13 @@ class BinanceKlineFeed:
         }
 
     def _write_rows_and_coverage(self, symbol: str, rows: List[dict], start_ms: int, end_ms: int) -> None:
-        with self._connect() as conn:
-            with conn:
-                self._write_rows_with_connection(conn, rows)
-                self._replace_coverage(conn, symbol, start_ms, end_ms)
+        with self._connection() as conn:
+            self._write_rows_with_connection(conn, rows)
+            self._replace_coverage(conn, symbol, start_ms, end_ms)
 
     def _write_rows(self, rows: List[dict]) -> None:
-        with self._connect() as conn:
-            with conn:
-                self._write_rows_with_connection(conn, rows)
+        with self._connection() as conn:
+            self._write_rows_with_connection(conn, rows)
 
     def _write_rows_with_connection(self, conn, rows: List[dict]) -> None:
         if not rows:
@@ -513,7 +517,7 @@ class BinanceKlineFeed:
         params = [SOURCE, self.market, self.interval, *self.symbols, start_ms, end_ms]
         if self.closed_only:
             params.append(now_ms)
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
@@ -541,6 +545,13 @@ class BinanceKlineFeed:
                     f"Binance cache contains no usable klines for requested symbol {symbol} "
                     f"{self.interval} in [{self.start_dt.isoformat()}, {self.end_dt.isoformat()})"
                 )
+            expected_first_open = ((start_ms + interval_ms - 1) // interval_ms) * interval_ms
+            if rows[0]["dt_ms"] != expected_first_open:
+                raise RuntimeError(
+                    f"Binance cache is incomplete for {symbol} {self.interval}: "
+                    f"expected first open time {_ms_to_datetime(expected_first_open).isoformat()}, "
+                    f"got {_ms_to_datetime(rows[0]['dt_ms']).isoformat()}"
+                )
             for previous, current in zip(rows, rows[1:]):
                 if current["dt_ms"] - previous["dt_ms"] != interval_ms:
                     raise RuntimeError(
@@ -558,25 +569,6 @@ class BinanceKlineFeed:
                     f"expected last open time {_ms_to_datetime(expected_last_open).isoformat()}, "
                     f"got {_ms_to_datetime(rows[-1]['dt_ms']).isoformat()}"
                 )
-
-
-def _to_utc_datetime(value) -> datetime:
-    timestamp = pd.Timestamp(value)
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.tz_localize("UTC")
-    else:
-        timestamp = timestamp.tz_convert("UTC")
-    return timestamp.to_pydatetime()
-
-
-def _datetime_to_ms(value: datetime) -> int:
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return int(value.timestamp() * 1000)
-
-
-def _ms_to_datetime(value: int) -> datetime:
-    return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
 
 
 def _interval_to_ms(interval: str) -> int:

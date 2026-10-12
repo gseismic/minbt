@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .._validation import positive_number
+
 
 @dataclass
 class ExitContext:
@@ -79,8 +81,7 @@ class _ExitState:
 
 
 def stop_loss_pct(pct: float, name: Optional[str] = None) -> ExitRule:
-    if pct <= 0:
-        raise ValueError(f"pct must be positive, got {pct}")
+    positive_number(pct, "pct")
 
     def condition(ctx: ExitContext) -> bool:
         if ctx.position.size > 0:
@@ -93,8 +94,7 @@ def stop_loss_pct(pct: float, name: Optional[str] = None) -> ExitRule:
 
 
 def take_profit_pct(pct: float, name: Optional[str] = None) -> ExitRule:
-    if pct <= 0:
-        raise ValueError(f"pct must be positive, got {pct}")
+    positive_number(pct, "pct")
 
     def condition(ctx: ExitContext) -> bool:
         if ctx.position.size > 0:
@@ -107,8 +107,7 @@ def take_profit_pct(pct: float, name: Optional[str] = None) -> ExitRule:
 
 
 def stop_loss_price(price: float, name: Optional[str] = None) -> ExitRule:
-    if price <= 0:
-        raise ValueError(f"price must be positive, got {price}")
+    positive_number(price, "price")
 
     def condition(ctx: ExitContext) -> bool:
         if ctx.position.size > 0:
@@ -121,8 +120,7 @@ def stop_loss_price(price: float, name: Optional[str] = None) -> ExitRule:
 
 
 def take_profit_price(price: float, name: Optional[str] = None) -> ExitRule:
-    if price <= 0:
-        raise ValueError(f"price must be positive, got {price}")
+    positive_number(price, "price")
 
     def condition(ctx: ExitContext) -> bool:
         if ctx.position.size > 0:

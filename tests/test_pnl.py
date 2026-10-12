@@ -239,7 +239,8 @@ def test_pending_rejected_canceled_and_skipped_orders_do_not_book_pnl():
     assert record.fees == pytest.approx(0.09)
     for order in (pending, rejected, skipped):
         assert broker.get_pnl_records(order_id=order.id) == []
-    assert_pnl(broker.get_total_pnl(), fees=0.09)
+    # 成本按限价 90，持仓按行情 89 估值，当批浮亏必须计入盈亏。
+    assert_pnl(broker.get_total_pnl(), unrealized=-1, fees=0.09)
     assert_account_reconciles(broker)
 
 

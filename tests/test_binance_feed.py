@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
+import sqlite3
 
 import pytest
 
 from minbt.plugins.binance import cache as binance
+from minbt.plugins.binance.kline import datetime_to_ms, ms_to_datetime
+from minbt.data.model import datetime_key, normalize_datetime
 
 
 def _row(open_time, *, close_time=None):
@@ -126,7 +129,7 @@ def test_closed_only_redownloads_a_candle_cached_before_close(tmp_path, monkeypa
 def test_old_binance_cache_schema_invalidates_coverage(tmp_path):
     start_ms = 1_672_531_200_000
     feed = _feed(tmp_path, start_ms, start_ms + 60_000)
-    with feed._connect() as conn:
+    with feed._connection() as conn:
         conn.executescript(
             """
             CREATE TABLE bars (
@@ -152,7 +155,8 @@ def test_old_binance_cache_schema_invalidates_coverage(tmp_path):
 
     feed._ensure_schema()
 
-    columns = {row["name"] for row in feed._connect().execute("PRAGMA table_info(bars)")}
+    with feed._connection() as conn:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(bars)")}
     assert "downloaded_at_ms" in columns
     assert feed._coverage_intervals("BTCUSDT") == []
 
@@ -162,10 +166,103 @@ def test_binance_cache_with_empty_coverage_is_rejected(tmp_path):
     end_ms = start_ms + 60_000
     feed = _feed(tmp_path, start_ms, end_ms, cache_only=False)
     feed._ensure_schema()
-    with feed._connect() as conn:
+    with feed._connection() as conn:
         feed._replace_coverage(conn, "BTCUSDT", start_ms, end_ms)
 
     cache_feed = _feed(tmp_path, start_ms, end_ms, cache_only=True)
 
     with pytest.raises(RuntimeError, match="no usable klines"):
         cache_feed.prepare()
+
+
+def test_binance_missing_prefix_cannot_be_marked_as_complete(tmp_path):
+    """R8-11：连续尾部也不是完整响应，失败下载不登记 coverage。"""
+    start = 1_672_531_200_000
+    end = start + 180_000
+    feed = _feed(tmp_path, start, end)
+    feed._client = _Client([_row(start + 120_000)])
+    with pytest.raises(RuntimeError, match="expected first open time"):
+        feed.prepare()
+    assert feed._coverage_intervals("BTCUSDT") == []
+    assert feed._missing_ranges("BTCUSDT", start, end) == [(start, end)]
+    with pytest.raises(RuntimeError, match="cache is incomplete"):
+        _feed(tmp_path, start, end, cache_only=True).prepare()
+
+
+def test_binance_legacy_complete_coverage_with_missing_prefix_is_rejected(tmp_path):
+    """R8-11：旧错误 coverage 不能让 cache-only 回测静默遗漏首段。"""
+    start = 1_672_531_200_000
+    end = start + 180_000
+    feed = _feed(tmp_path, start, end)
+    feed._ensure_schema()
+    row = feed._normalize_kline("BTCUSDT", _row(start + 120_000))
+    row["downloaded_at_ms"] = end + 1
+    feed._write_rows_and_coverage("BTCUSDT", [row], start, end)
+    with pytest.raises(RuntimeError, match="expected first open time"):
+        _feed(tmp_path, start, end, cache_only=True).prepare()
+
+
+def test_binance_non_aligned_request_starts_at_first_included_candle(tmp_path):
+    """R8-11：首端检查取第一个开盘时间大于等于 start 的 K 线。"""
+    start = 1_672_531_200_000
+    feed = _feed(tmp_path, start + 1, start + 180_000)
+    feed._client = _Client([_row(start + 60_000), _row(start + 120_000)])
+    feed.prepare()
+    assert len(list(feed.events())) == 2
+
+
+def test_binance_downloaded_kline_is_published_at_close(tmp_path):
+    """R8-05：下载缓存与 CSV/iosql 采用相同的事件时间和开盘字段。"""
+    start = 1_672_531_200_000
+    feed = _feed(tmp_path, start, start + 60_000)
+    feed._client = _Client([_row(start)])
+    event, = feed.events()
+    assert event.dt == normalize_datetime("2023-01-01T00:00:59.999Z")
+    assert event.data["open_time"] == start
+    assert event.data["close_time"] == start + 59_999
+
+
+def test_binance_connections_close_on_success_and_rollback(tmp_path, monkeypatch):
+    """R8-12：正常查询和写入异常都立即关闭连接，且失败事务不写入缓存。"""
+    start = 1_672_531_200_000
+    feed = _feed(tmp_path, start, start + 60_000)
+    connect = feed._connect
+    connections = []
+
+    def track_connect():
+        conn = connect()
+        connections.append(conn)
+        return conn
+
+    monkeypatch.setattr(feed, "_connect", track_connect)
+    feed._ensure_schema()
+    for _ in range(30):
+        feed._coverage_intervals("BTCUSDT")
+
+    def fail_coverage(*args):
+        raise RuntimeError("coverage failed")
+
+    monkeypatch.setattr(feed, "_replace_coverage", fail_coverage)
+    row = feed._normalize_kline("BTCUSDT", _row(start))
+    row["downloaded_at_ms"] = start + 120_000
+    with pytest.raises(RuntimeError, match="coverage failed"):
+        feed._write_rows_and_coverage("BTCUSDT", [row], start, start + 60_000)
+    assert feed._load_rows(start, start + 60_000, now_ms=start + 120_000) == []
+    feed.close()
+    for conn in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            conn.execute("SELECT 1")
+
+
+@pytest.mark.parametrize("timestamp", [
+    "2039-01-01T00:00:00.001Z", "2039-01-01T00:00:00.002Z",
+    "2039-01-01T08:00:00.002+08:00", "1969-12-31T23:59:59.999Z",
+])
+def test_all_feed_millisecond_converters_use_exact_integer_time(timestamp):
+    """R8-14：缓存、Kline 和 Exchange 时间转换一致，含时区与 epoch 前时间。"""
+    dt = normalize_datetime(timestamp)
+    key = datetime_key(dt)
+    assert datetime_to_ms(dt) == key
+    assert binance._datetime_to_ms(dt) == key
+    assert ms_to_datetime(key) == dt
+    assert binance._ms_to_datetime(key) == dt

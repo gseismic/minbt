@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from .broker import Pnl
-from .data.model import _freeze_payload
+from .data.model import _freeze_payload, normalize_symbol
 from .protocols.result import OrderProtocol, OrderSnapshot, PnlProtocol
 
 
@@ -113,6 +113,7 @@ class RunResult:
         return list(self._account(strategy_id).equity)
 
     def get_position_curve(self, symbol: str, *, strategy_id=None) -> List[Tuple[datetime, float]]:
+        symbol = normalize_symbol(symbol)
         account = self._account(strategy_id)
         return [(dt, row.get(symbol, 0.0)) for (dt, _), row in zip(account.equity, account.positions)]
 

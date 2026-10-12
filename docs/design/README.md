@@ -2,6 +2,8 @@
 
 ## 最新有效设计
 
+- [交易、回放与缓存不变式](execution-20261013-invariants.md)：PLAN-067 修复全量 Review 的 14 项缺陷；
+  明确强平提交、成交与估值、当前交易时间、Kline 可见时间、退出合并、统一标的和资源边界。
 - [小内核、内部插件化与标准协议](kernel-20261012-protocol-plugins.md)：按 PLAN-065 修正基础能力归属。
   以 mini 与全部数据由用户准备为约束，复用 Exchange，直接注入自定义 Feed/Broker。
   默认模拟交易属于核心 `minbt.broker`，具体读取位于 `minbt.plugins`，协议集中，使用“策略类 + 配置”便捷入口。
@@ -57,7 +59,7 @@ class MyStrategy(Strategy):
 4. 所有下单类接口统一返回 `Order`，无交易用 `status="skipped"`，业务失败用 `status="rejected"`。
 5. 市场差异通过 `Market(...)` 特征和 `markets.*` 预设表达，不推荐市场子类。
 6. 分仓入口是 `broker.add_portfolio(name, cash)`，用户参数是 `portfolio="..."`。
-7. 退出条件应绑定 `Order`，目标接口使用 `order.id`。
+7. 同一净持仓生命周期只有一份有效退出配置，当前 `Order.id` 作为访问句柄，修改按字段合并。
 8. 标准止盈止损命名为 `stop_loss_price/take_profit_price`，移动止损命名为 `trailing_stop_pct/trailing_stop_amount`。
 9. 函数型退出条件使用独立高级接口，不混进标准止盈止损参数。
 10. 限价单、撤单和最小 pending limit order 已实现；不模拟队列位置、部分成交和 intrabar 路径。

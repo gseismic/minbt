@@ -10,7 +10,8 @@ from .order import Order, OrderSource
 from .portfolio import Portfolio
 from .pnl import Pnl, PnlRecord, _sum_pnl
 from .struct import DateType, Position, _require
-from ..data.model import Bar
+from ..data.model import Bar, normalize_datetime, normalize_symbol
+from .._validation import finite_number, positive_number
 from ..data.replay import TimeBatch
 from ..logger import logger as default_logger
 
@@ -41,7 +42,11 @@ class Broker:
         mark_price_missing: str = "keep",
         logger=None,
     ):
-        _require(initial_cash > 0, f"initial_cash must be greater than 0, initial_cash: {initial_cash}")
+        initial_cash = positive_number(initial_cash, "initial_cash")
+        fee_rate = finite_number(fee_rate, "fee_rate")
+        leverage = finite_number(leverage, "leverage")
+        warning_margin_level = finite_number(warning_margin_level, "warning_margin_level")
+        min_margin_level = finite_number(min_margin_level, "min_margin_level")
         _require(
             0 <= fee_rate < 1.0,
             f"fee_rate must be between 0 (inclusive) and 1.0 (exclusive), fee_rate: {fee_rate}",
@@ -91,7 +96,7 @@ class Broker:
 
         self.last_prices: Dict[str, float] = {}
         self.last_price_dates: Dict[str, DateType] = {}
-        self._last_market_dt = None
+        self._last_market_dt = None  # 当前交易时钟，与各标的的报价时间分开保存。
 
         self.orders: "OrderedDict[str, Order]" = OrderedDict()
         self._order_seq = 0
@@ -184,7 +189,6 @@ class Broker:
     def _known_symbols(self) -> set:
         symbols = set(self.last_prices)
         symbols.update(self.last_price_dates)
-        symbols.update(order.symbol for order in self.orders.values())
         for order_id in self._pending_order_ids:
             order = self.orders.get(order_id)
             if order is not None:
@@ -206,6 +210,7 @@ class Broker:
         return sorted(symbol for symbol in self._known_symbols() if symbol not in mapped_symbols)
 
     def _market_for(self, symbol: str) -> Market:
+        symbol = normalize_symbol(symbol)
         market_name = self._symbol_market_names.get(symbol)
         if market_name is None:
             return self._default_market
@@ -213,8 +218,24 @@ class Broker:
 
     def _on_new_dt(self, dt) -> None:
         for market_name, market in self._markets.items():
-            market.on_new_dt(self, dt, symbols=self._symbols_for_market(market_name))
-        self._default_market.on_new_dt(self, dt, symbols=self._default_market_symbols())
+            symbols = self._symbols_for_market(market_name) if market.t_plus else None
+            market.on_new_dt(self, dt, symbols=symbols)
+        symbols = self._default_market_symbols() if self._default_market.t_plus else None
+        self._default_market.on_new_dt(self, dt, symbols=symbols)
+
+    def _trading_dt(self, dt=None):
+        """沿用旧报价时仍按当前时间交易；运行中的显式报价不能改变回放时钟。"""
+        candidate = normalize_datetime(dt) if dt is not None else None
+        if self._last_market_dt is None:
+            return candidate
+        if candidate is None or (self._run_owner is not None and self._run_owner._run_state == "running"):
+            return self._last_market_dt
+        return max(candidate, self._last_market_dt)
+
+    def _advance_dt(self, dt) -> None:
+        if dt is not None and (self._last_market_dt is None or dt > self._last_market_dt):
+            self._on_new_dt(dt)
+            self._last_market_dt = dt
 
     def _next_order_id(self) -> str:
         self._order_seq += 1
@@ -338,6 +359,12 @@ class Broker:
         trailing_stop_pct: Optional[float] = None,
         trailing_stop_amount: Optional[float] = None,
     ) -> None:
+        for name, value in (
+            ("stop_loss_price", stop_loss_price), ("take_profit_price", take_profit_price),
+            ("trailing_stop_pct", trailing_stop_pct), ("trailing_stop_amount", trailing_stop_amount),
+        ):
+            if value is not None:
+                finite_number(value, name)
         if trailing_stop_pct is not None and trailing_stop_amount is not None:
             raise ValueError("trailing_stop_pct and trailing_stop_amount cannot both be set")
         if stop_loss_price is not None and stop_loss_price <= 0:
@@ -375,20 +402,38 @@ class Broker:
             trailing_stop_amount=trailing_stop_amount,
         )
 
+    def _validate_leverage(self, leverage: Optional[float]) -> None:
+        if leverage is not None:
+            value = finite_number(leverage, "leverage")
+            _require(value >= 1, f"leverage must be greater than or equal to 1, got {value}")
+
     def _resolve_market_price(self, symbol: str, price: Optional[float], price_dt=None):
+        """纯解析报价和交易时间；校验通过后再由准备步骤推进估值与风险。"""
         if price is None:
             if price_dt is not None:
                 raise ValueError("price_dt must be None when price is omitted")
             resolved_price, resolved_dt = self.get_last_price(symbol, return_dt=True)
             if resolved_price is None:
                 raise ValueError(f"market price not found: {symbol}")
-            return resolved_price, resolved_dt
-        if price <= 0:
-            raise ValueError(f"price must be positive, got {price}")
-        if price_dt is None:
-            price_dt = self.last_price_dates.get(symbol)
-        self.on_new_price(symbol, price, price_dt)
-        return price, price_dt
+            return positive_number(resolved_price, "price"), self._trading_dt(resolved_dt)
+        price = positive_number(price, "price")
+        return price, self._trading_dt(price_dt)
+
+    def _prepare_market_price(self, symbol: str, price: Optional[float], price_dt=None):
+        """合法请求先推进风险，目标数量随后按最新持仓计算。"""
+        resolved_price, trade_dt = self._resolve_market_price(symbol, price, price_dt)
+        self._advance_dt(trade_dt)
+        if price is not None:
+            quote_dt = normalize_datetime(price_dt) if price_dt is not None else trade_dt
+            self._apply_price(symbol, resolved_price, quote_dt)
+        return resolved_price, trade_dt
+
+    def _expire_empty_positions(self) -> None:
+        """风险结算立即结束持仓生命周期，旧订单不能控制之后的新仓。"""
+        for portfolio, symbol in list(self._position_order_ids):
+            if self.get_position_size(symbol, portfolio=portfolio) == 0:
+                self._position_order_ids.pop((portfolio, symbol), None)
+                self._clear_position_exit(portfolio, symbol)
 
     def _clear_position_exit(self, portfolio: str, symbol: str) -> None:
         order_id = self._active_exit_order_by_position.pop((portfolio, symbol), None)
@@ -399,14 +444,19 @@ class Broker:
         return self._active_exit_order_by_position.get((portfolio, symbol)) == order_id
 
     def _get_or_create_exit_state(self, order: Order) -> _ExitState:
-        state = self._exit_states.get(order.id)
-        if state is None:
-            state = _ExitState(
-                order_id=order.id,
-                symbol=order.symbol,
-                portfolio=order.portfolio,
-            )
-            self._exit_states[order.id] = state
+        """订单作为当前持仓的访问句柄，切换句柄时继承整份有效配置。"""
+        current_id = self._active_exit_order_by_position.get((order.portfolio, order.symbol))
+        if current_id == order.id:
+            return self._exit_states[order.id]
+        previous = self._exit_states.get(current_id)
+        if previous is None:
+            state = _ExitState(order_id=order.id, symbol=order.symbol, portfolio=order.portfolio)
+        else:
+            state = copy.copy(previous)
+            state.order_id = order.id
+            # 规则列表属于配置，规则及其 state 属于本持仓生命周期，保留对象身份。
+            state.custom_rules = list(previous.custom_rules)
+        self._exit_states[order.id] = state
         return state
 
     def _activate_exit_state(self, order: Order, state: _ExitState) -> None:
@@ -416,8 +466,11 @@ class Broker:
             previous = self._exit_states.get(previous_id)
             if previous is not None:
                 previous.active = False
-        self._active_exit_order_by_position[key] = order.id
         state.refresh_active()
+        if state.active:
+            self._active_exit_order_by_position[key] = order.id
+        else:
+            self._active_exit_order_by_position.pop(key, None)
 
     def _activate_standard_exit(
         self,
@@ -437,19 +490,7 @@ class Broker:
             trailing_stop_amount=trailing_stop_amount,
         ):
             return
-        previous_id = self._active_exit_order_by_position.get((order.portfolio, order.symbol))
-        previous_state = self._exit_states.get(previous_id) if previous_id is not None else None
         state = self._get_or_create_exit_state(order)
-        if previous_state is not None and previous_id != order.id:
-            for field_name in (
-                "stop_loss_price",
-                "take_profit_price",
-                "trailing_stop_pct",
-                "trailing_stop_amount",
-                "trailing_anchor",
-            ):
-                if getattr(state, field_name) is None:
-                    setattr(state, field_name, getattr(previous_state, field_name))
         if stop_loss_price is not None:
             state.stop_loss_price = stop_loss_price
         if take_profit_price is not None:
@@ -534,6 +575,8 @@ class Broker:
             leverage=leverage,
             price_dt=price_dt,
             order_id=order.id,
+            mark_price=self.get_last_price(order.symbol),
+            mark_dt=self.last_price_dates.get(order.symbol),
         )
         if not result:
             return self._update_order(
@@ -550,6 +593,7 @@ class Broker:
             avg_price=price,
             updated_dt=price_dt,
         )
+        self._expire_empty_positions()
         self._after_order_filled(order, old_size=old_size, price=price, dt=price_dt, exit_params=exit_params)
         return order
 
@@ -558,7 +602,7 @@ class Broker:
         self._assert_writable()
         if name in self.portfolios:
             raise ValueError(f"portfolio already exists: {name}")
-        _require(cash > 0, f"cash must be greater than 0, cash: {cash}")
+        cash = positive_number(cash, "cash")
         source = self.portfolios[DEFAULT_PORTFOLIO]
         _require(
             cash <= source.free_cash,
@@ -585,9 +629,8 @@ class Broker:
         symbols = list(symbols)
         if not symbols:
             raise ValueError("symbols must be non-empty")
+        symbols = [normalize_symbol(symbol) for symbol in symbols]
         for symbol in symbols:
-            if not isinstance(symbol, str) or not symbol:
-                raise ValueError(f"symbol must be a non-empty string: {symbol!r}")
             if symbol in self._symbol_market_names:
                 raise ValueError(f"symbol already mapped to market: {symbol}")
         duplicate_symbols = {s for s, count in Counter(symbols).items() if count > 1}
@@ -623,15 +666,14 @@ class Broker:
 
         self._assert_writable()
         prices = self._select_mark_prices(batch)
-        if batch.dt != self._last_market_dt:
-            self._on_new_dt(batch.dt)
-            self._last_market_dt = batch.dt
+        self._advance_dt(batch.dt)
 
         for symbol, price in prices.items():
             self.last_prices[symbol] = price
             self.last_price_dates[symbol] = batch.dt
         for portfolio in self.portfolios.values():
             portfolio.update_market_batch(prices, batch.dt)
+        self._expire_empty_positions()
         return prices
 
     def _select_mark_prices(self, batch: TimeBatch) -> Dict[str, float]:
@@ -751,16 +793,22 @@ class Broker:
 
     def on_new_price(self, symbol: str, price: float, dt: Optional[DateType] = None):
         self._assert_writable()
-        _require(price > 0, f"price must be positive, price: {price}")
-        if dt is not None and dt != self._last_market_dt:
-            self._on_new_dt(dt)
-            self._last_market_dt = dt
+        symbol = normalize_symbol(symbol)
+        price = positive_number(price, "price")
+        dt = normalize_datetime(dt) if dt is not None else None
+        self._advance_dt(self._trading_dt(dt))
+        self._apply_price(symbol, price, dt)
+
+    def _apply_price(self, symbol: str, price: float, dt) -> None:
+        """写入已校验的报价并结算风险，不把报价时间当成交易时钟。"""
         self.last_prices[symbol] = price
         self.last_price_dates[symbol] = dt
         for portfolio in self.portfolios.values():
-            portfolio.on_new_price(symbol, price, dt)
+            portfolio.on_new_price(symbol, price, dt, risk_dt=self._last_market_dt)
+        self._expire_empty_positions()
 
     def get_last_price(self, symbol: str, return_dt: bool = False):
+        symbol = normalize_symbol(symbol)
         price = self.last_prices.get(symbol)
         if return_dt:
             return price, self.last_price_dates.get(symbol)
@@ -815,10 +863,22 @@ class Broker:
         source: OrderSource = "submit_market_order",
     ) -> Order:
         self._assert_writable()
+        symbol = normalize_symbol(symbol)
+        qty = finite_number(qty, "qty")
         if qty == 0:
             raise ValueError(f"qty must be non-zero, got {qty}")
         portfolio = self._resolve_portfolio(portfolio)
+        self._validate_leverage(leverage)
         exec_price, resolved_dt = self._resolve_market_price(symbol, price, price_dt)
+        self._validate_attached_exit_params(
+            position_size=self.get_position_size(symbol, portfolio=portfolio) + qty,
+            reference_price=exec_price,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+            trailing_stop_pct=trailing_stop_pct,
+            trailing_stop_amount=trailing_stop_amount,
+        )
+        exec_price, resolved_dt = self._prepare_market_price(symbol, price, price_dt)
 
         if normalize_qty:
             qty = self._market_for(symbol).normalize_order_qty(self, symbol, qty, price=exec_price, portfolio=portfolio)
@@ -883,19 +943,20 @@ class Broker:
         trailing_stop_amount: Optional[float] = None,
     ) -> Order:
         self._assert_writable()
+        symbol = normalize_symbol(symbol)
+        qty = finite_number(qty, "qty")
         if qty == 0:
             raise ValueError(f"qty must be non-zero, got {qty}")
-        if limit_price <= 0:
-            raise ValueError(f"limit_price must be positive, got {limit_price}")
+        limit_price = positive_number(limit_price, "limit_price")
         portfolio = self._resolve_portfolio(portfolio)
-        if price_dt is None:
-            price_dt = self.last_price_dates.get(symbol)
+        price_dt = self._trading_dt(price_dt)
         self._validate_exit_values(
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
             trailing_stop_pct=trailing_stop_pct,
             trailing_stop_amount=trailing_stop_amount,
         )
+        self._advance_dt(price_dt)
         validation = self._market_for(symbol).validate_order(
             self,
             symbol,
@@ -925,6 +986,8 @@ class Broker:
                     "price": limit_price,
                     "leverage": None,
                     "price_dt": price_dt,
+                    "mark_price": self.get_last_price(symbol),
+                    "mark_dt": self.last_price_dates.get(symbol),
                 }
             ]
         )
@@ -982,7 +1045,7 @@ class Broker:
 
     def process_pending_orders(self, dt=None, *, symbols=None) -> None:
         self._assert_writable()
-        updated_symbols = None if symbols is None else set(symbols)
+        updated_symbols = None if symbols is None else {normalize_symbol(symbol) for symbol in symbols}
         for order_id in list(self._pending_order_ids):
             order = self.orders.get(order_id)
             if order is None or order.status != "pending":
@@ -1023,7 +1086,7 @@ class Broker:
                 continue
             self._pending_order_ids.remove(order_id)
             exit_params = self._pending_exit_params.pop(order_id, None)
-            fill_dt = dt if dt is not None else self.last_price_dates.get(order.symbol)
+            fill_dt = self._trading_dt(dt if dt is not None else self.last_price_dates.get(order.symbol))
             self._execute_existing_order(
                 order,
                 price=order.limit_price,
@@ -1076,7 +1139,27 @@ class Broker:
         source: OrderSource = "target_size",
     ) -> Order:
         self._assert_writable()
+        symbol = normalize_symbol(symbol)
+        target_size = finite_number(target_size, "target_size")
+        self._validate_leverage(leverage)
+        self._validate_exit_values(
+            stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
+            trailing_stop_pct=trailing_stop_pct, trailing_stop_amount=trailing_stop_amount,
+        )
         portfolio = self._resolve_portfolio(portfolio)
+        current_size = self.get_position_size(symbol, portfolio=portfolio)
+        if price is not None or target_size != current_size:
+            exec_price, _ = self._resolve_market_price(symbol, price, price_dt)
+            self._validate_attached_exit_params(
+                position_size=target_size, reference_price=exec_price,
+                stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
+                trailing_stop_pct=trailing_stop_pct, trailing_stop_amount=trailing_stop_amount,
+            )
+            _, resolved_dt = self._prepare_market_price(symbol, price, price_dt)
+        else:
+            if price_dt is not None:
+                raise ValueError("price_dt must be None when price is omitted")
+            resolved_dt = self._trading_dt()
         current_size = self.get_position_size(symbol, portfolio=portfolio)
         qty = target_size - current_size
         if qty == 0:
@@ -1087,16 +1170,16 @@ class Broker:
                 source=source,
                 qty=0,
                 status="skipped",
-                reason="target size unchanged",
-                created_dt=price_dt,
-                updated_dt=price_dt,
+                reason="position is empty" if source == "close_position" else "target size unchanged",
+                created_dt=resolved_dt,
+                updated_dt=resolved_dt,
             )
         return self._submit_market_order(
             symbol,
             qty=qty,
-            price=price,
+            price=None,
             leverage=leverage,
-            price_dt=price_dt,
+            price_dt=None,
             normalize_qty=True,
             portfolio=portfolio,
             stop_loss_price=stop_loss_price,
@@ -1150,15 +1233,25 @@ class Broker:
         source: OrderSource = "target_value",
     ) -> Order:
         self._assert_writable()
+        symbol = normalize_symbol(symbol)
+        target_value = finite_number(target_value, "target_value")
+        self._validate_leverage(leverage)
         portfolio = self._resolve_portfolio(portfolio)
-        exec_price, resolved_dt = self._resolve_market_price(symbol, price, price_dt)
+        exec_price, _ = self._resolve_market_price(symbol, price, price_dt)
         target_size = target_value / exec_price
+        finite_number(target_size, "target_size")
+        self._validate_attached_exit_params(
+            position_size=target_size, reference_price=exec_price,
+            stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
+            trailing_stop_pct=trailing_stop_pct, trailing_stop_amount=trailing_stop_amount,
+        )
+        self._prepare_market_price(symbol, price, price_dt)
         return self._order_target_size(
             symbol,
             target_size=target_size,
-            price=exec_price,
+            price=None,
             leverage=leverage,
-            price_dt=resolved_dt,
+            price_dt=None,
             portfolio=portfolio,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
@@ -1182,16 +1275,26 @@ class Broker:
         trailing_stop_amount: Optional[float] = None,
     ) -> Order:
         self._assert_writable()
+        symbol = normalize_symbol(symbol)
+        target_percent = finite_number(target_percent, "target_percent")
+        self._validate_leverage(leverage)
         portfolio = self._resolve_portfolio(portfolio)
-        exec_price, resolved_dt = self._resolve_market_price(symbol, price, price_dt)
+        exec_price, _ = self._resolve_market_price(symbol, price, price_dt)
+        self._validate_attached_exit_params(
+            position_size=self.get_equity(portfolio=portfolio) * target_percent / exec_price,
+            reference_price=exec_price,
+            stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
+            trailing_stop_pct=trailing_stop_pct, trailing_stop_amount=trailing_stop_amount,
+        )
+        self._prepare_market_price(symbol, price, price_dt)
         equity = self.get_equity(portfolio=portfolio)
         target_value = equity * target_percent
         return self._order_target_value(
             symbol,
             target_value=target_value,
-            price=exec_price,
+            price=None,
             leverage=leverage,
-            price_dt=resolved_dt,
+            price_dt=None,
             portfolio=portfolio,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
@@ -1208,24 +1311,9 @@ class Broker:
         price_dt: Optional[DateType] = None,
         portfolio: Optional[str] = None,
     ) -> Order:
-        self._assert_writable()
-        portfolio = self._resolve_portfolio(portfolio)
-        position = self.get_position(symbol, portfolio=portfolio)
-        if position is None or position.is_empty():
-            return self._create_order(
-                symbol=symbol,
-                portfolio=portfolio,
-                order_type="market",
-                source="close_position",
-                qty=0,
-                status="skipped",
-                reason="position is empty",
-                created_dt=price_dt,
-                updated_dt=price_dt,
-            )
-        return self._submit_market_order(
+        return self._order_target_size(
             symbol,
-            qty=-position.size,
+            target_size=0,
             price=price,
             price_dt=price_dt,
             portfolio=portfolio,
@@ -1239,7 +1327,8 @@ class Broker:
         for symbol, position in list(self.portfolios[portfolio].positions.items()):
             if position is None or position.is_empty():
                 continue
-            price, price_dt = self.get_last_price(symbol, return_dt=True)
+            price, quote_dt = self.get_last_price(symbol, return_dt=True)
+            price_dt = self._trading_dt(quote_dt)
             if price is None:
                 return [
                     self._create_order(
@@ -1303,9 +1392,11 @@ class Broker:
                     "price": price,
                     "leverage": None,
                     "price_dt": price_dt,
+                    "mark_price": price,
+                    "mark_dt": self.last_price_dates.get(symbol),
                 }
             )
-        can_close_all, failed_index = self.portfolios[portfolio].can_submit_orders(preview_orders)
+        can_close_all, failed_index = self.portfolios[portfolio].can_submit_orders(preview_orders, close_positions=True)
         if not can_close_all:
             failed = preview_orders[failed_index]
             return [
@@ -1325,18 +1416,16 @@ class Broker:
 
         orders = []
         for symbol, price, price_dt in close_plan:
-            position = self.get_position(symbol, portfolio=portfolio)
-            order = self._submit_market_order(
+            order = self._order_target_size(
                 symbol,
-                qty=-position.size,
-                price=price,
-                price_dt=price_dt,
+                target_size=0,
+                price=None,
                 portfolio=portfolio,
                 source="close_portfolio",
             )
             orders.append(order)
 
-        if all(order.status == "filled" for order in orders):
+        if all(order.status in ("filled", "skipped") for order in orders):
             self._cancel_pending_orders_for_portfolio(portfolio)
             if portfolio != DEFAULT_PORTFOLIO:
                 self._close_portfolio_account(portfolio)
@@ -1377,21 +1466,12 @@ class Broker:
             trailing_stop_pct=trailing_stop_pct,
             trailing_stop_amount=trailing_stop_amount,
         )
-        state = self._get_or_create_exit_state(order)
-        if stop_loss_price is not None:
-            state.stop_loss_price = stop_loss_price
-        if take_profit_price is not None:
-            state.take_profit_price = take_profit_price
-        if trailing_stop_pct is not None:
-            state.trailing_stop_pct = trailing_stop_pct
-            state.trailing_stop_amount = None
-            state.trailing_anchor = reference_price
-        if trailing_stop_amount is not None:
-            state.trailing_stop_amount = trailing_stop_amount
-            state.trailing_stop_pct = None
-            state.trailing_anchor = reference_price
-        self._activate_exit_state(order, state)
-        return state.to_config()
+        self._activate_standard_exit(
+            order, reference_price=reference_price,
+            stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
+            trailing_stop_pct=trailing_stop_pct, trailing_stop_amount=trailing_stop_amount,
+        )
+        return self._exit_states[order.id].to_config()
 
     def clear_exit(
         self,
@@ -1408,10 +1488,8 @@ class Broker:
         if order_id not in self.orders:
             raise ValueError(f"order not found: {order_id}")
         order = self.orders[order_id]
-        state = self._exit_states.get(order_id)
-        if state is None:
-            state = self._get_or_create_exit_state(order)
-            return state.to_config()
+        self._require_current_exit_order(order)
+        state = self._get_or_create_exit_state(order)
         if stop_loss_price:
             state.stop_loss_price = None
         if take_profit_price:
@@ -1422,9 +1500,7 @@ class Broker:
             state.trailing_anchor = None
         if custom:
             state.custom_rules.clear()
-        state.refresh_active()
-        if not state.active and self._position_has_active_exit(order.portfolio, order.symbol, order_id):
-            self._active_exit_order_by_position.pop((order.portfolio, order.symbol), None)
+        self._activate_exit_state(order, state)
         return state.to_config()
 
     def get_exit(self, order_id: str) -> Optional[ExitConfig]:
@@ -1446,6 +1522,8 @@ class Broker:
         if order.status != "filled":
             raise ValueError(f"exit can only be set for a filled order, got {order.status}")
         self._require_current_exit_order(order)
+        if not callable(condition):
+            raise TypeError("condition must be callable")
         resolved_state = state() if callable(state) else state
         if resolved_state is None:
             resolved_state = {}
@@ -1463,7 +1541,8 @@ class Broker:
 
     def check_exit_rules(self, dt=None, data=None) -> None:
         self._assert_writable()
-        for order_id, state in list(self._exit_states.items()):
+        for order_id in list(self._active_exit_order_by_position.values()):
+            state = self._exit_states[order_id]
             if not state.active:
                 continue
             order = self.orders.get(order_id)
@@ -1557,6 +1636,8 @@ class Broker:
         portfolio: Optional[str] = None,
         symbol: Optional[str] = None,
     ) -> List[Order]:
+        if symbol is not None:
+            symbol = normalize_symbol(symbol)
         if portfolio is not None:
             self._require_portfolio(portfolio)
         return [
@@ -1568,6 +1649,7 @@ class Broker:
         ]
 
     def get_active_order(self, symbol: str, *, portfolio: Optional[str] = None) -> Optional[Order]:
+        symbol = normalize_symbol(symbol)
         portfolio = self._resolve_portfolio(portfolio)
         order_id = self._active_exit_order_by_position.get((portfolio, symbol))
         if order_id is None:
@@ -1585,6 +1667,8 @@ class Broker:
 
         指定 symbol 时只汇总该标的，全仓穿仓的账户结算调整不归属任何标的。
         """
+        if symbol is not None:
+            symbol = normalize_symbol(symbol)
         results = [portfolio.get_pnl(symbol) for portfolio in self.portfolios.values()]
         for archived in self._closed_pnl.values():
             results.extend(archived.values() if symbol is None else (archived.get(symbol, Pnl()),))
@@ -1596,6 +1680,8 @@ class Broker:
         未知标的返回零值。内部资金划拨不计入盈亏，因此分仓净盈亏不能直接用
         分仓当前权益减初始资金计算。
         """
+        if symbol is not None:
+            symbol = normalize_symbol(symbol)
         name = DEFAULT_PORTFOLIO if portfolio is None else portfolio
         self._require_pnl_portfolio(name)
         archived = self._closed_pnl.get(name, {})
@@ -1616,6 +1702,8 @@ class Broker:
 
         未成交订单没有明细，系统结算的 order_id 为 None。返回新列表和不可变记录。
         """
+        if symbol is not None:
+            symbol = normalize_symbol(symbol)
         if portfolio is not None:
             self._require_pnl_portfolio(portfolio)
         return [

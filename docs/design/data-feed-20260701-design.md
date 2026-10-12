@@ -3,6 +3,8 @@
 ## 状态
 
 本文是数据接入层目标设计稿。
+当前读取协议以 [数据规范](protocols/data-20261012-contract.md) 为准；Binance Kline 可见时间
+按 [执行不变式](execution-20261013-invariants.md) 修正为 close_time，open_time 仅保留为数据与缓存键。
 
 核心入口：
 
