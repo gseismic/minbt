@@ -1,0 +1,4 @@
+interface:
+  display_name: "minbt Usage"
+  short_description: "根据当前安装的 minbt 版本编写、运行和验证回测策略"
+  default_prompt: "使用 $minbt-usage，先确认项目的 minbt 安装版本，再编写并验证可运行的回测策略。"

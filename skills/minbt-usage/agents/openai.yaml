@@ -1,4 +1,0 @@
-interface:
-  display_name: "minbt Usage"
-  short_description: "Use and validate minbt's current strategy API"
-  default_prompt: "Use $minbt-usage to write and validate a runnable minbt Strategy against the current implementation, and distinguish pending target-API design notes."

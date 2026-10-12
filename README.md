@@ -52,7 +52,7 @@ pip install -e ".[dev]"
 pip install -e ".[dev,plot]"  # 运行示例测试
 ```
 
-`pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。运行示例需安装 `plot` 额外依赖；`dev` 包含 pytest，运行示例测试时同时安装 `plot`。
+`pyta2` 用于更高效的内部历史向量存储；未安装时会自动回退为 Python list。公开历史查询始终返回 Python list。运行示例需安装 `plot` 额外依赖；`dev` 包含 pytest 和发行物验证所需的 build、pip，运行示例测试时同时安装 `plot`。
 
 测试配置也放在 `pyproject.toml` 的 `[tool.pytest.ini_options]` 中，因此不需要单独维护 `pytest.ini`。
 
@@ -730,19 +730,60 @@ python examples/17_bar_storage.py
 
 ## Codex Skill
 
-仓库包含一个面向策略开发的本地 skill：
+minbt 安装包包含面向策略开发的 `minbt-usage` skill，源码位于
+[minbt/skills/minbt-usage](./minbt/skills/minbt-usage/SKILL.md)。skill、参考资料和最小脚本随
+wheel 与 sdist 一起发布，安装、升级或降级时使用对应版本的内容。
 
-```text
-./skills/minbt-usage
+用项目实际运行策略的 Python 查询安装版本和 skill 的绝对目录：
+
+```bash
+python -m minbt.skills
+python -m minbt.skills --path  # 只输出 minbt-usage 目录
 ```
 
-在支持本地 skills 的 Codex 环境中，可以使用：
+普通安装的目录位于当前环境的 `site-packages/minbt/skills/minbt-usage/`；editable 开发安装
+指向源码中的同一目录。Python 中也可调用 `from minbt.skills import get_skill_path`。
+源码开发先执行 `pip install -e .`，让安装元数据与当前源码一致。
+
+Codex 从项目或用户的 `.agents/skills/` 等位置发现本地 skill，并支持符号链接。
+在消费项目中，可将项目级链接指向当前 Python 环境的资源：
+
+```bash
+mkdir -p .agents/skills
+ln -s "$(python -m minbt.skills --path)" .agents/skills/minbt-usage
+```
+
+使用项目的虚拟环境执行上面的命令。已有同名目录或链接时，先确认它的用途再调整；
+更换虚拟环境或切换普通/editable 安装后重新建立链接。同一环境中普通安装的版本升级或降级时，
+链接继续指向该环境的安装资源。
+minbt 仓库自身的 `.agents/skills/minbt-usage` 使用相对链接指向包内源码。
+发现机制见 [OpenAI 文档](https://learn.chatgpt.com/docs/build-skills)。
+
+安装包中还包含不依赖绘图、网络或外部数据的最小验证脚本。
+将目录替换为 `--path` 输出，即可从任意工作目录运行：
+
+```bash
+python /path/to/minbt-usage/scripts/quickstart.py
+```
+
+结果为 `final_equity=1020.00`。接入本地发现后，可以使用：
 
 ```text
 Use $minbt-usage to write a minbt strategy for my CSV data.
 ```
 
-该 skill 面向用户策略开发：帮助 Agent 读取用户数据结构、选择合适示例、生成 `Strategy`、使用 `self.broker` 下单、设置退出条件，并给出最小验证命令。
+该 skill 帮助 Agent 检查数据结构、生成 `Strategy`、通过 Broker 下单、设置退出条件并核对结果。
+说明只描述该版本已实现的接口，所有必要资料均在 skill 目录内。
+通用库设计 skill `skills/library-design-zh/` 继续用于框架开发。
+
+发布前执行安装包回归测试：
+
+```bash
+python -m pytest -q tests/test_skill_packaging.py
+```
+
+测试从干净副本构建 wheel、sdist 和 sdist 派生的 wheel，比对全部 skill 资源，并在仓库外
+安装及运行定位入口与最小策略。公开接口变化时，同时维护 skill 与可执行示例。
 
 ## 测试
 
@@ -766,6 +807,23 @@ python -m compileall -q minbt tests examples
 
 当前环境可能出现 `Polars binary is missing!` warning；只要测试未失败，就按环境依赖警告处理。
 
+## 发布到 PyPI
+
+发布流程位于 [`.github/workflows/release.yml`](./.github/workflows/release.yml)。发布新版本前，先更新
+`pyproject.toml` 的 `[project].version` 并推送代码，然后在 GitHub 创建对应的 Release，标签格式为
+`vX.Y.Z`，且必须和项目版本完全一致。发布 Release 后，Actions 会运行全量测试、构建 wheel 和 sdist、
+检查发行包，再上传到 PyPI。
+
+首次启用时配置一次 Trusted Publishing：
+
+1. 在 GitHub 仓库的 Settings → Environments 中创建名为 `pypi` 的环境；可按需配置审批人，并将允许部署的
+   tag 限制为 `v*`。
+2. 在 PyPI 项目的 Publishing 设置中新增 GitHub Publisher：owner 为 `gseismic`，repository 为 `minbt`，
+   workflow 为 `release.yml`，environment 为 `pypi`。如果 PyPI 上还没有该项目，则添加 pending publisher。
+
+工作流使用 OIDC 短期凭据，不需要创建或保存 PyPI API Token。构建和发布分属不同 job，只有发布 job 获得
+`id-token: write` 权限。
+
 ## 设计边界
 
 minbt 当前明确不做：
@@ -781,6 +839,7 @@ minbt 当前明确不做：
 
 ## ChangeLog
 
+- [@2026-10-12] v0.1.1：随安装包发布 `minbt-usage` skill，新增资源定位入口和发行物回归测试；配置 GitHub Release 触发的 PyPI Trusted Publishing 发布流程。
 - [@2026-10-02] v0.1.0：修复逐仓风控、市场时区与交易单位校验、持仓查询副作用、挂单触发、退出条件继承和数据 Feed/缓存边界；支持显式时间戳单位。
 - [@2026-06-24] v0.0.4：修复全仓保证金、总权益统计、日志参数和 Python 3.8 注解兼容问题。
 - [@2024-11-16] v0.0.3 release。
