@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
-from minbt.data import BinanceKlineIosqlFeed
+from minbt.plugins.binance import BinanceKlineIosqlFeed
 
 
 SYMBOL = "BTCUSDT"

@@ -62,6 +62,11 @@ print(f"final_equity={broker.get_total_equity():.2f}")
 一个 Exchange 只启动一次 `run()`。独立实验、比较运行方式或追加历史区间时，新建
 Exchange、Strategy 和 Broker，完整重放所需数据。
 
+需要“策略类 + 参数文件”时，可调用 `from minbt import run`，传入策略类、JSON 路径或 Mapping，
+以及自己实现的 `feed_factory=`。数据准备属于用户，工厂每次返回新的 Feed；可选
+`broker_factory=` 替换账户。默认复用核心 Exchange/Broker 并返回 RunResult，手工装配也可直接使用。
+具体写法及协议/插件路径见 [references/data-and-control.md](references/data-and-control.md)。
+
 ## 策略工作流
 
 1. 检查用户数据的时间列、标的列和价格字段。有现成数据时优先 `set_bars()`，需要数据源接入时用 `add_feed()`。
@@ -83,7 +88,7 @@ exchange.set_bars(data, date_key="date", symbol_key="ticker")
 
 ## 按需读取
 
-- 行情格式、非默认价格、Binance/CSV/iosql Feed、多类数据、运行窗口、暂停与退出：读取
+- 自备数据、配置运行、协议/插件、行情格式、非默认价格、Binance/CSV/iosql Feed、多类数据、运行窗口、暂停与退出：读取
   [references/data-and-control.md](references/data-and-control.md)。
 - 目标持仓、市价与限价单、退出规则、分仓、市场差异、订单查询与盈亏：读取
   [references/trading.md](references/trading.md)。

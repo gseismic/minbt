@@ -1,12 +1,20 @@
 # minbt 设计文档索引
 
+## 最新有效设计
+
+- [小内核、内部插件化与标准协议](kernel-20261012-protocol-plugins.md)：按 PLAN-065 修正基础能力归属。
+  以 mini 与全部数据由用户准备为约束，复用 Exchange，直接注入自定义 Feed/Broker。
+  默认模拟交易属于核心 `minbt.broker`，具体读取位于 `minbt.plugins`，协议集中，使用“策略类 + 配置”便捷入口。
+  不保留历史导入转发。细则见 [协议目录](protocols/README.md)，规模与验收见 [实施结果](../dev/PLAN-065-core-broker-no-compatibility-OUTCOME.md)。
+  本稿优先于旧接口重构中删除 `on_bar`、隐藏读取模式等冲突方向；旧金融模型的有效契约继续保留。
+
 ## 当前有效设计
 
-- `minbt-20260921-api-refactor.md`：当前最高优先级目标设计，先固定 v0 风格的用户接口，再反推最小内部架构；定义 `on_bars/on_books/on_trades/on_news`、`price_key`、唯一价格来源规则、单一回放循环和迁移边界。当前代码尚未完成该设计的全部迁移。
+- `minbt-20260921-api-refactor.md`：历史接口重构目标设计；其中删除回调、引入 `price_key`、隐藏读取模式的安排不是本轮实施内容，现有用户接口以最新小内核设计和代码为准。
 - `minbt-20260630-system-design.md`：账户、Strategy、Order、Portfolio、Position、Market、退出条件和限价单边界；其中 Exchange 数据回放部分以本索引下的新稿为准。
 - `broker-market-routing-20260701-design.md`：Strategy-Broker 关系和 broker 内多市场路由设计稿，明确保留 `Strategy(..., broker=broker)` 主路径，并通过 `broker.add_market(...)` 支持跨市场规则。
-- `data-feed-20260701-design.md`：历史数据接入背景稿；其中用户接口、FeedEvent、价格和回放契约已被 `minbt-20260921-api-refactor.md` 替代。
-- `exchange-20260921-replay-modes.md`：当前代码的 Exchange 实现背景；其中公开接口、通用 `Bar.kind`、TimeBatch/Cursor 类和回放模式均被 `minbt-20260921-api-refactor.md` 替代；同一 dt 收齐、批量账户更新和异常路径释放资源的正确性要求继续有效。
+- `data-feed-20260701-design.md`：历史数据接入背景稿；当前自备数据契约以 protocols/data 规范为准。
+- `exchange-20260921-replay-modes.md`：Exchange 实现背景；通用 `Bar.kind`、TimeBatch 和读取模式继续保留，同一 dt 收齐、批量账户更新和异常路径释放资源的正确性要求继续有效。
 - `pnl-20261011-library-api.md`：库级账户、分仓、标的与订单盈亏查询，明确平均成本、手续费、强平、穿仓和已关闭分仓统计契约。
 - `pnl-20260920-examples.md`：多空与手续费场景的库级接口示例、权益历史绘图和测试分工。
 - [Exchange 单次运行与控制回调设计](run-20261012-control.md)：当前已实施的运行生命周期与结果契约。保留实例注册，一个 Exchange 只启动一次；通过 `run(control=...)` 统一继续、暂停和中途退出。暂停期间行情、账户与曲线持续推进，退出返回已处理区间的快照及状态元信息。未来 live 的实际接入与等待轮询尚未实现。
@@ -43,8 +51,8 @@ class MyStrategy(Strategy):
 
 ## 当前文档结论
 
-1. 目标用户回调使用 `on_bars/on_books/on_trades/on_news`；删除 `on_bar`，不引入 `on_data/on_tick`。
-2. Exchange 用户入口一次性定义为 `set_bars/set_books/set_trades/set_news`，目标设计不保留 `set_data`。
+1. 用户回调使用 `on_bars/on_books/on_trades/on_bar/on_news`，生命周期和历史查询直接服务当前运行。
+2. Exchange 继续使用 `set_bars/set_books/set_trades/set_news/add_feed`；新增薄 run 不替换原入口。
 3. 用户交易统一通过 `self.broker`。
 4. 所有下单类接口统一返回 `Order`，无交易用 `status="skipped"`，业务失败用 `status="rejected"`。
 5. 市场差异通过 `Market(...)` 特征和 `markets.*` 预设表达，不推荐市场子类。
@@ -55,13 +63,13 @@ class MyStrategy(Strategy):
 10. 限价单、撤单和最小 pending limit order 已实现；不模拟队列位置、部分成交和 intrabar 路径。
 11. 当前实现仍以 `set_bars/on_bars` 为主路径，同时已定义并实现 `set_books/set_trades/set_news` 的同一时间截面契约。
 12. 跨市场能力优先通过单 broker 内的 `symbol -> Market` 路由设计，不把一个策略多个 broker 作为主路径。
-13. 数据源接入推荐通过 `exchange.add_feed(feed)` 扩展；`set_bars(...)` 继续服务用户已有数据的最短路径，Feed 最终投影到四种具名回调。
-14. `price_key` 负责指定每个来源的参考价格字段，不要求 Kline 必须存在 `close`；一次回测中同一 symbol 只允许一个来源启用价格，其他来源设置 `price_key=None`。
-15. Exchange 的执行入口为单次 `run(start=None, end=None, control=None, load_mode="auto")`，返回独立结果。统一回放与隐藏读取模式仍按接口重构设计推进；运行控制及结果以 `run-20261012-control.md` 为准。
+13. 数据由用户准备，通过 `exchange.add_feed(feed)` 或 `feed_factory=` 接入；`set_bars(...)` 继续服务用户已有数据的最短路径。
+14. 当前估值由 Broker 的 `mark_price` 指定，默认 `kline.close`；Feed 优先级不代替价格选择，来源歧义按当前规则失败。
+15. Exchange 的执行入口为单次 `run(start=None, end=None, control=None, load_mode="auto")`，返回独立结果；读取模式保留，运行控制以 `run-20261012-control.md` 为准，配置与输出边界见最新协议规范。
 
 ## 阅读顺序
 
-1. 先读 `minbt-20260921-api-refactor.md`，确认目标用户接口、价格语义和内部重构边界。
+1. 先读最新小内核设计与协议目录，确认已经实施的接口和扩展边界。
 2. 再读 `minbt-20260630-system-design.md` 的 Broker、Order、Portfolio、Market 和退出条件章节。
 3. 再读 `broker-market-routing-20260701-design.md`，确认 Strategy-Broker 和多市场边界。
-4. 需要理解当前代码来源时，再读 DataFeed 和 Exchange 历史设计；冲突处以前述重构设计为准。
+4. 需要理解当前代码来源时，再读 DataFeed、Exchange 和接口重构历史设计；冲突处以最新小内核设计为准。

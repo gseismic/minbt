@@ -1,24 +1,8 @@
 """历史数据 Feed 的最小契约。"""
 
-from collections.abc import Iterable
-from typing import Protocol, runtime_checkable
+from typing import Iterable
 
 from .model import MarketEvent
-
-
-@runtime_checkable
-class DataFeedProtocol(Protocol):
-    """Exchange 接受的有限历史 Feed。
-
-    Feed 只负责读取数据，不负责解释估值价格。最小实现只需要 `name` 和 `events()`；
-    回放能力属性是可选的优化声明，缺省由 Exchange 采用安全值。`events()` 每次运行都应
-    返回一条新的、最终会结束的事件序列。
-    """
-
-    name: str
-
-    def events(self) -> Iterable[MarketEvent]:
-        ...
 
 
 class SimpleFeed:
@@ -67,4 +51,4 @@ class MemoryFeed(SimpleFeed):
         return iter(self._events)
 
 
-__all__ = ["DataFeedProtocol", "SimpleFeed", "MemoryFeed"]
+__all__ = ["SimpleFeed", "MemoryFeed"]

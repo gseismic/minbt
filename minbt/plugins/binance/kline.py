@@ -6,7 +6,7 @@ Kline 是一种 Bar。这里的解析逻辑只服务 Binance Kline 行格式，�
 from datetime import datetime, timezone
 from typing import Iterable, Mapping
 
-from .model import Bar, normalize_datetime
+from ...data.model import Bar, normalize_datetime
 
 
 OPTIONAL_BAR_FIELDS = (

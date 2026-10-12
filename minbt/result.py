@@ -3,32 +3,13 @@
 from dataclasses import dataclass, fields
 from datetime import datetime
 import copy
+import math
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from .broker import Order, Pnl
+from .broker import Pnl
 from .data.model import _freeze_payload
-
-
-@dataclass(frozen=True)
-class OrderSnapshot:
-    """字段与 Order 同义；只保存数据，避免旧结果随账户变化或被修改。"""
-
-    id: str  # 原订单 ID。
-    symbol: str  # 交易标的。
-    portfolio: str  # 所属分仓。
-    order_type: str  # 市价或限价订单。
-    source: str  # 创建订单的交易接口。
-    side: str  # 买入、卖出或无交易方向。
-    qty: float  # 有符号的请求数量。
-    status: str  # 实际结束点的订单状态。
-    requested_price: Optional[float] = None  # 请求成交价。
-    limit_price: Optional[float] = None  # 限价阈值。
-    filled_qty: float = 0.0  # 已实际成交数量。
-    avg_price: Optional[float] = None  # 平均成交价。
-    reason: Optional[str] = None  # 业务原因说明。
-    created_dt: Any = None  # 订单创建时间，不暴露活订单引用。
-    updated_dt: Any = None  # 最后一次状态更新时间。
+from .protocols.result import OrderProtocol, OrderSnapshot, PnlProtocol
 
 
 @dataclass(frozen=True)
@@ -73,16 +54,25 @@ def _snapshot_account(broker, initial_cash, equity, positions) -> _AccountSnapsh
     if has_orders:
         copied_orders = []
         for order in raw_orders:
-            if not isinstance(order, Order):
-                raise TypeError("get_orders() must return Order instances")
+            if not isinstance(order, OrderProtocol):
+                raise TypeError("get_orders() must return records with the standard Order fields")
             copied_orders.append(OrderSnapshot(**{
                 field.name: _freeze_payload(copy.deepcopy(getattr(order, field.name)))
                 for field in fields(OrderSnapshot)
             }))
         orders = tuple(copied_orders)
     has_pnl, pnl = _optional_query(broker, "get_total_pnl")
-    if has_pnl and not isinstance(pnl, Pnl):
-        raise TypeError("get_total_pnl() must return Pnl")
+    if has_pnl:
+        if not isinstance(pnl, PnlProtocol):
+            raise TypeError("get_total_pnl() must provide the standard Pnl fields and net_pnl")
+        # 自定义记录可能可变；转换为原公共 Pnl，结果不持有插件的活引用。
+        raw_pnl = pnl
+        pnl = Pnl(**{
+            field.name: copy.deepcopy(getattr(pnl, field.name))
+            for field in fields(Pnl)
+        })
+        if not math.isfinite(pnl.net_pnl) or not math.isclose(pnl.net_pnl, raw_pnl.net_pnl):
+            raise ValueError("get_total_pnl() must agree with the finite standard Pnl components")
     return _AccountSnapshot(
         initial_cash=initial_cash,
         equity=tuple(equity),
@@ -148,4 +138,4 @@ class RunResult:
         return dict(account.final_positions[name])
 
 
-__all__ = ["RunResult", "OrderSnapshot"]
+__all__ = ["RunResult"]

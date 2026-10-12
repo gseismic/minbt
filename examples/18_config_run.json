@@ -1,0 +1,9 @@
+{
+  "strategy": {
+    "id": "demo",
+    "params": {"symbol": "TEST", "size": 1}
+  },
+  "data": {"symbol": "TEST"},
+  "broker": {"initial_cash": 1000, "fee_rate": 0},
+  "run": {"load_mode": "auto"}
+}

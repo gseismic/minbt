@@ -3,7 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
-from minbt.data import binance
+from minbt.plugins import binance
 
 SYMBOL = "BTCUSDT"
 

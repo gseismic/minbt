@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
-from minbt.data import CsvBarFeed
+from minbt.plugins.storage import CsvBarFeed
 
 
 SYMBOL = "BTCUSDT"

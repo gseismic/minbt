@@ -60,6 +60,7 @@ def test_every_example_has_inline_plot_and_show():
         "examples/11_pnl.py",
         "examples/16_replay_modes.py",
         "examples/17_bar_storage.py",
+        "examples/18_config_run.py",
     ],
 )
 def test_examples_run_from_repo_root(script_path):

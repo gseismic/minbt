@@ -4,7 +4,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
-from minbt.data import BinanceKlineCsvFeed
+from minbt.plugins.binance import BinanceKlineCsvFeed
 
 
 SYMBOL = "BTCUSDT"

@@ -49,11 +49,70 @@ Exchange 不根据 Feed 优先级选择盈亏价格。多来源提供同一标�
 按单条事件接收，不聚合成多标的截面。普通 K 线策略优先 `on_bars`。
 Feed 通过 `exchange.add_feed(feed)` 注册。
 
+## 策略类、配置与自备数据
+
+用 `run` 每次装配新的实验，继续复用当前 Exchange 的执行语义。下面是完整的自备数据示例：
+
+```python
+from minbt import Bar, Strategy, run
+
+
+prepared_rows = [
+    {"dt": "2026-01-01", "symbol": "TEST", "close": 100},
+    {"dt": "2026-01-02", "symbol": "TEST", "close": 120},
+]
+
+
+class MyFeed:
+    name = "prepared-data"
+
+    def events(self):
+        for row in prepared_rows:
+            yield Bar(row["dt"], row["symbol"], "kline", row)
+
+
+def build_my_feeds(options):
+    return [MyFeed()]
+
+
+class BuyAndHold(Strategy):
+    def on_bars(self, dt, bars):
+        self.broker.order_target_size(self.params["symbol"], 1)
+
+
+result = run(BuyAndHold, {
+    "strategy": {"id": "demo", "params": {"symbol": "TEST"}},
+    "data": {},
+    "broker": {"initial_cash": 1_000},
+    "run": {"load_mode": "auto"},
+}, feed_factory=build_my_feeds)
+print(f"final_equity={result.get_equity_curve()[-1][1]:.2f}")
+```
+
+输出 `final_equity=1020.00`。可将参数字典改成 JSON 文件路径；入口读取参数并复制配置，
+数据内容和相对路径由你的工厂解释。工厂收到 `data` 字典，可以从自己维护的文件或数据库读取，
+返回 Feed 列表或生成器。缺省策略 ID 为类名；策略仍用原 ID/broker/params/logger 参数构造。
+
+默认账户使用 `Broker(**broker_config)`。自定义账户时，`broker_factory(broker_config)` 返回
+新的 `ReplayBrokerProtocol` 实现；`broker: null` 运行纯信号策略，不创建账户。
+窗口/读取方式放入 `run` 字典，控制回调显式传 `control=`。
+工厂创建的资源由默认入口和 Exchange 在结束或失败时关闭；不要复用已运行的账户或读取器。
+
+标准协议位于 `minbt.protocols`：Feed 只需 name/events；回放账户在原 BrokerProtocol 上补充
+process_market_batch。订单查询提供原 Order 字段，累计盈亏查询提供 realized_pnl、unrealized_pnl、
+fees、settlement_adjustment、net_pnl；缺少可选查询时明确报错，不伪造空订单或零盈亏。
+
+默认返回独立 RunResult，绘图库可只依赖 ResultProtocol。需要外部引擎时显式传 `engine=适配器`，
+由适配器驱动 Strategy 回调、管理资源并返回已冻结的标准结果；库不会自动加载外部 SDK。
+读取器从 `minbt.plugins.binance`/`minbt.plugins.storage` 导入，默认 Broker 及组件直接位于
+核心 `minbt.broker`。基础 Feed 在 `minbt.data`，协议在 `minbt.protocols`；旧数据读取转发入口已删除。
+自定义实现可以直接保存在用户项目内，默认自备数据回测不会加载插件。
+
 ## Binance 自动下载与缓存
 
 ```python
 from minbt import Exchange
-from minbt.data import binance
+from minbt.plugins import binance
 
 exchange = Exchange()
 exchange.add_feed(binance.BinanceKlineFeed(
@@ -76,7 +135,7 @@ exchange.add_feed(binance.BinanceKlineFeed(
 Binance 月度 K 线文件或 iosql K 线表使用专用 Feed：
 
 ```python
-from minbt.data import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
+from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
 
 exchange.add_feed(BinanceKlineCsvFeed(
     root="/path/to/kline.csv/1m",

@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 import pytest
 
 from minbt import Bar, Broker, Exchange, Strategy
-from minbt.data import CsvBarFeed, IosqlBarFeed, SimpleFeed
+from minbt.data import SimpleFeed
+from minbt.plugins.storage import CsvBarFeed, IosqlBarFeed
 
 
 UTC = timezone.utc

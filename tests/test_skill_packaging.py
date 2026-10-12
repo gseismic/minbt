@@ -70,7 +70,14 @@ def skill_distributions(tmp_path_factory):
         for path in (source / "minbt" / "skills" / "minbt-usage").rglob("*")
         if path.is_file()
     }
-    return {"sdist": sdist, "wheel": wheel, "sdist-wheel": sdist_wheel, "expected": expected}
+    expected_python = {
+        path.relative_to(source).as_posix(): path.read_bytes()
+        for path in (source / "minbt").rglob("*.py")
+    }
+    return {
+        "sdist": sdist, "wheel": wheel, "sdist-wheel": sdist_wheel,
+        "expected": expected, "expected_python": expected_python,
+    }
 
 
 @pytest.mark.parametrize("kind", ["sdist", "wheel", "sdist-wheel"])
@@ -88,6 +95,11 @@ def test_distributions_include_complete_skill_resources(skill_distributions, kin
 
     resources = {name: content for name, content in files.items() if name.startswith("minbt/skills/minbt-usage/")}
     assert resources == skill_distributions["expected"]
+    python_sources = {
+        name: content for name, content in files.items()
+        if name.startswith("minbt/") and name.endswith(".py")
+    }
+    assert python_sources == skill_distributions["expected_python"]
     assert not any("library-design-zh" in name for name in files)
 
 
@@ -129,6 +141,30 @@ def test_installed_skill_works_outside_repository(skill_distributions, kind, tmp
         assert (skill_path / link).is_file(), link
     example = re.findall(r"^```python\n(.*?)^```", content, re.MULTILINE | re.DOTALL)[0]
     assert _run([sys.executable, "-c", example], outside, env) == "final_equity=1020.00"
+
+    reference = (skill_path / "references" / "data-and-control.md").read_text(encoding="utf-8")
+    config_example = next(
+        block for block in re.findall(r"^```python\n(.*?)^```", reference, re.MULTILINE | re.DOTALL)
+        if "from minbt import Bar, Strategy, run" in block
+    )
+    protocol_checks = """
+from minbt import Broker, OrderSnapshot
+import sys
+assert Broker.__module__ == "minbt.broker.broker"
+assert not any(name == "minbt.plugins" or name.startswith("minbt.plugins.") for name in sys.modules)
+from minbt.plugins.storage import CsvBarFeed
+from minbt.protocols import DataFeedProtocol, ResultProtocol
+from minbt.protocols.result import OrderSnapshot as StandardOrderSnapshot
+assert isinstance(MyFeed(), DataFeedProtocol)
+assert CsvBarFeed.__module__ == "minbt.plugins.storage.bar_feed"
+assert OrderSnapshot is StandardOrderSnapshot
+assert isinstance(result, ResultProtocol)
+assert result.get_total_pnl().net_pnl == 20
+assert result.get_position_sizes() == {"TEST": 1}
+"""
+    assert _run([
+        sys.executable, "-c", config_example + protocol_checks,
+    ], outside, env) == "final_equity=1020.00"
 
     # 安装资源被移除时应报错，不回退到工作区或全局旧 skill。
     (skill_path / "SKILL.md").unlink()

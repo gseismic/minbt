@@ -9,7 +9,7 @@ from urllib.request import urlopen
 
 import pandas as pd
 
-from .model import Bar
+from ...data.model import Bar
 
 
 SOURCE = "binance"

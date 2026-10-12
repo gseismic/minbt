@@ -2,7 +2,8 @@ import inspect
 
 import minbt
 import minbt.broker as broker_package
-import minbt.data as data_package
+import minbt.plugins.binance as binance_package
+import minbt.plugins.storage as storage_package
 import pytest
 from minbt import Broker, Exchange, ExitConfig, Strategy
 
@@ -49,14 +50,14 @@ def test_exchange_public_signatures_match_design():
 
 
 def test_bar_feed_names_separate_generic_storage_from_binance_kline_format():
-    assert hasattr(data_package, "CsvBarFeed")
-    assert hasattr(data_package, "IosqlBarFeed")
-    assert hasattr(data_package, "BinanceKlineCsvFeed")
-    assert hasattr(data_package, "BinanceKlineIosqlFeed")
-    assert hasattr(data_package.binance, "BinanceKlineFeed")
-    assert not hasattr(data_package, "CsvBarsFeed")
-    assert not hasattr(data_package, "IosqlBarsFeed")
-    assert not hasattr(data_package.binance, "BarsReplayFeed")
+    assert hasattr(storage_package, "CsvBarFeed")
+    assert hasattr(storage_package, "IosqlBarFeed")
+    assert hasattr(binance_package, "BinanceKlineCsvFeed")
+    assert hasattr(binance_package, "BinanceKlineIosqlFeed")
+    assert hasattr(binance_package, "BinanceKlineFeed")
+    assert not hasattr(storage_package, "CsvBarsFeed")
+    assert not hasattr(storage_package, "IosqlBarsFeed")
+    assert not hasattr(binance_package, "BarsReplayFeed")
 
 
 def test_broker_constructor_signature_matches_design():

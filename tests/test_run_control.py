@@ -8,7 +8,7 @@ from threading import Barrier, Event
 import pytest
 
 from minbt import Bar, Broker, Exchange, RunResult, Strategy
-from minbt.strategy import BROKER_PROTOCOL_METHODS
+from minbt.protocols.broker import BROKER_PROTOCOL_METHODS
 
 
 def dt(minute):

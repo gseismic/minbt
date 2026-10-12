@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from minbt import Bar, Broker, Exchange, Strategy
-from minbt.data import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
+from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
 
 
 def _csv_row(open_time, close):

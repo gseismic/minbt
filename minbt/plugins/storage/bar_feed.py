@@ -10,7 +10,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from operator import index
 from pathlib import Path
 
-from .model import Bar, datetime_key, normalize_datetime
+from ...data.model import Bar, datetime_key, normalize_datetime
 
 
 def _normalize_symbols(symbols):

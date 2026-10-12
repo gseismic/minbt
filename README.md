@@ -7,7 +7,7 @@ minbt 是一个最简回测框架。目标不是模拟完整交易所，而是�
 3. 在策略里调用 `self.broker` 交易。
 4. 查看现金、持仓、订单和权益结果。
 
-当前主路径是多标的 K 线或类似 Bar 数据：已有数据用 `Exchange.set_bars(data)`，需要自动下载和缓存时用 `Exchange.add_feed(feed)`，策略通常写 `Strategy.on_bars(dt, bars)` 并通过 `Broker` 下单。
+当前主路径是多标的 K 线或类似 Bar 数据：自己准备的数据用 `Exchange.set_bars(data)` 或自己的 Feed，策略通常写 `Strategy.on_bars(dt, bars)` 并通过 `Broker` 下单。也可以通过 `run(策略类, 配置, feed_factory=...)` 创建一次独立实验。默认模拟交易属于核心 `minbt.broker`，具体读取实现位于 `minbt.plugins`。
 
 ## 特性
 
@@ -23,6 +23,7 @@ minbt 是一个最简回测框架。目标不是模拟完整交易所，而是�
 - 支持市场特征配置和按 symbol 路由：默认 T+0、加密资产、A 股 T+1 预设。
 - 自动记录策略权益和持仓历史。
 - 支持运行时间窗口、暂停策略回调、受控退出，以及独立的结果快照和状态元信息。
+- 支持 JSON/Mapping 配置运行、自定义 Feed/Broker 注入和标准结果协议。
 
 ## 安装
 
@@ -117,6 +118,69 @@ plt.show()
 - `Exchange` 负责喂数据和推进时间。
 - `Strategy` 负责读当前时间截面的数据并产生交易意图。
 - `Broker` 是唯一交易入口。
+
+## 策略类与配置运行
+
+已有策略可以通过薄入口装配，每次调用创建新的 Exchange、Strategy 和账户。数据完全由你准备，
+`feed_factory` 收到 `data` 参数字典，返回新的 Feed 列表或生成器：
+
+```python
+from minbt import Bar, run
+from minbt.data import MemoryFeed
+
+
+prepared_rows = [
+    {"dt": "2026-01-01", "symbol": "TEST", "close": 100},
+    {"dt": "2026-01-02", "symbol": "TEST", "close": 120},
+]
+
+
+def build_my_feeds(options):
+    events = [Bar(row["dt"], row["symbol"], "kline", row) for row in prepared_rows]
+    return [MemoryFeed(options["name"], events)]
+
+
+result = run(BuyAndHold, {
+    "strategy": {"id": "demo", "params": {}},
+    "data": {"name": "prepared-data"},
+    "broker": {"initial_cash": 1_000},
+    "run": {"load_mode": "auto"},
+}, feed_factory=build_my_feeds)
+print(result.get_total_pnl().net_pnl)  # 20.0
+```
+
+第二个参数也可以是 JSON 文件路径。完整可运行示例与配置见
+[18_config_run.py](examples/18_config_run.py) 和 [18_config_run.json](examples/18_config_run.json)。
+策略构造仍是 `Strategy(strategy_id, broker=..., params=..., logger=...)`，省略 ID 时使用策略类名。
+`run` 字典接受原有 `start/end/load_mode`；实时控制用函数参数 `control=` 传入。
+
+默认用现有 `Broker(**配置中的 broker)`，必须提供必要构造参数；特殊交易或记账模型可传
+`broker_factory=`，它只收到 `broker` 字典并返回新的 `ReplayBrokerProtocol` 实现。
+`broker: null` 可运行纯信号策略，对应账户查询会明确报错。入口复制配置，保持调用方参数不变；
+配置文件按调用工作目录定位，数据路径由你的工厂解释，也可以显式使用绝对路径。
+
+## 协议与插件扩展
+
+协议集中在 `minbt.protocols`。扩展无需注册，直接导入自己的实现并传给 Exchange 或运行工厂：
+
+| 契约 | 用途 |
+| --- | --- |
+| `DataFeedProtocol` | `name` 与 `events()`；默认回放产出原有 Bar/News |
+| `BrokerProtocol` / `ReplayBrokerProtocol` | 原策略交易方法及默认回放的 `process_market_batch()` |
+| `EngineProtocol` | 可选 `engine=适配器`，负责驱动策略、资源和结果映射 |
+| `ResultProtocol` | 元信息、权益/持仓曲线、订单、初始资金与盈亏查询 |
+
+默认返回现有 `RunResult`。外部引擎返回自己的独立 `ResultProtocol` 快照，核心不再次模拟账户。
+适配器负责桥接本库策略回调和外部引擎；具体外部引擎 SDK 由使用者提供。
+自定义 Broker 的可选订单和盈亏查询按标准字段冻结，无需继承内置 `Order` 或 `Pnl`。
+绘图库直接读取结果曲线，缺失能力仍用 `NotImplementedError` 表示。
+
+默认模拟交易属于核心：Broker、订单、分仓、持仓、盈亏、撮合和退出组件直接位于 `minbt.broker`。
+数据模型与基础 Feed 位于 `minbt.data`，数据读取器从 `minbt.plugins.binance` 或
+`minbt.plugins.storage` 导入。原数据读取转发路径已移除；协议直接从 `minbt.protocols` 导入。
+自己的 Feed/Broker 可以保存在自己的项目，特殊市场行为通过协议和工厂扩展。
+核心保留 Exchange 唯一回放循环，新配置入口只读取参数并调用你提供的工厂。
+默认自备数据回测不会加载插件。职责和接口边界详见 [设计规范](docs/design/protocols/README.md)。
 
 ## 运行区间与控制
 
@@ -295,7 +359,7 @@ Bar 时使用 `CsvBarFeed` 或 `IosqlBarFeed`，它们不会解释 `kind` 的字
 
 ```python
 from minbt import Exchange
-from minbt.data import binance
+from minbt.plugins import binance
 
 exchange = Exchange()
 exchange.add_feed(
@@ -328,7 +392,7 @@ def on_bars(self, dt, bars):
 有序 Feed 支持渐进回放，Exchange 只保留当前时间批次和各来源的少量读取缓冲：
 
 ```python
-from minbt.data import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
+from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
 
 exchange.add_feed(BinanceKlineCsvFeed(
     root="/media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv/1m",
@@ -368,7 +432,7 @@ CSV 请求月份不能缺文件；iosql 的 interval/table 必须存在且表契
 如果存储的是 OrderBook、Trade、Price 或自定义 Bar，使用通用信封：
 
 ```python
-from minbt.data import CsvBarFeed
+from minbt.plugins.storage import CsvBarFeed
 
 exchange.add_feed(CsvBarFeed("/path/to/bars.csv"))
 ```
@@ -705,6 +769,7 @@ python examples/14_csv_feed.py
 python examples/15_iosql_feed.py
 python examples/16_replay_modes.py
 python examples/17_bar_storage.py
+python examples/18_config_run.py
 ```
 
 示例文件：
@@ -726,6 +791,7 @@ python examples/17_bar_storage.py
 - [examples/15_iosql_feed.py](./examples/15_iosql_feed.py)：使用 iosql 有序查询渐进回放 K 线。
 - [examples/16_replay_modes.py](./examples/16_replay_modes.py)：通用 Bar、Feed 优先级和 Broker 估值来源。
 - [examples/17_bar_storage.py](./examples/17_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
+- [examples/18_config_run.py](./examples/18_config_run.py)：策略类、JSON 配置与自备数据工厂，从结果快照绘图。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
 ## Codex Skill

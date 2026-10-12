@@ -528,11 +528,10 @@ class Exchange:
             active_exception = None  # 主动关闭生成器仍须暴露真正的资源关闭失败。
         close_errors = []
         for resource in reversed(resources):
-            close = getattr(resource, "close", None)
-            if not callable(close):
-                continue
             try:
-                close()
+                close = getattr(resource, "close", None)
+                if callable(close):
+                    close()
             except BaseException as exc:
                 if active_exception is None:
                     close_errors.append(exc)

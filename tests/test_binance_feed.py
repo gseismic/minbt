@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from minbt.data import binance
+from minbt.plugins.binance import cache as binance
 
 
 def _row(open_time, *, close_time=None):
