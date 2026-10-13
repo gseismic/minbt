@@ -360,6 +360,8 @@ dt,symbol,kind,data
 
 CSV 中 `data` 是 JSON 文本；iosql 中 `dt` 是 UTC 毫秒时间戳、`data` 是 JSON 文本。读取通用
 Bar 时使用 `CsvBarFeed` 或 `IosqlBarFeed`，它们不会解释 `kind` 的字段。
+iosql 的 `dt` 与显式 `dt_ms` 始终按毫秒解析，包括 epoch 附近的小数值；普通 CSV `dt`
+继续允许 ISO 文本和按数量级推断的数字时间戳。
 
 ## 自动下载加密货币 K 线
 
@@ -546,8 +548,17 @@ self.broker.close_portfolio("trend")
 - `close_position()` 全平指定标的净持仓。
 - 如果显式价格先触发强平，清仓或目标归零返回 skipped，最终保持零敞口。
 - `close_portfolio()` 原子关闭指定 portfolio；任一仓位不能关闭时，不执行任何平仓。
+- 普通全平按整组平仓金额和手续费一次结算，不受亏损腿与盈利腿的持仓顺序影响。
 - `close_portfolio()` 成功后同时取消该 portfolio 的 pending 限价单；预检失败时订单保持
   pending，避免出现活动订单指向已删除 portfolio。
+
+全仓模式的纯减仓（不反手）按整个分仓的权益承担亏损。扣费后的权益足够时，减仓可以产生
+负现金余额，`get_cash()` 直接显示这笔已实现欠款。其他持仓的保证金和未实现盈亏继续支撑账户，
+后续风险检查仍会强平或穿仓结算。欠款期间禁止新开仓、加仓、反手和划出资金；盈利腿平仓及
+其他分仓归还的现金可分次偿还欠款。逐仓模式保持独立的风险与现金约束，所有成交仍遵守交易时间、整手和 T+1。
+
+金额预检和提交使用相同的浮点尾差规则；零手续费的满仓目标不会因尾差拒单。输入或派生金额
+溢出时会在成交前拒绝，不留下部分持仓、现金或未完成市价单。
 
 ### 订单结果
 
@@ -569,6 +580,9 @@ elif order.status == "rejected":
 - `canceled`: 已撤销。
 - `rejected`: 业务拒绝，例如资金不足或市场规则拒绝。
 - `skipped`: 合法请求但无需交易。
+
+撤单会更新原订单的状态及 `updated_dt`，并返回独立的 `source="cancel_order"` 动作订单；
+动作的 `created_dt/updated_dt` 使用当前交易时钟，账户没有时钟时为 `None`。
 
 稳定程序判断应依赖 `status`、`qty`、`filled_qty`、`avg_price` 等结构化字段；`reason` 是人读说明文本，不承诺精确字符串。
 
@@ -726,6 +740,8 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH"])
 self.broker.order_target_percent("600519.SH", 0.8, price=a_price, portfolio="ashare")
 self.broker.order_target_percent("BTCUSDT", 0.8, price=btc_price, portfolio="crypto")
 ```
+
+分仓名称必须是非空白字符串，非法名称在资金划拨前抛错。
 
 ## 结果查询
 

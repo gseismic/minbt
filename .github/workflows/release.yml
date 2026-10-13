@@ -9,8 +9,11 @@ permissions:
 
 jobs:
   build:
-    name: 测试并构建发行包
+    name: 测试并构建发行包（Python ${{ matrix.python-version }}）
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.12"]
     steps:
       - name: 检出发布标签
         uses: actions/checkout@v7
@@ -20,7 +23,7 @@ jobs:
       - name: 配置 Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: 安装项目与发布检查依赖
         run: |
@@ -28,6 +31,7 @@ jobs:
           python -m pip install ".[dev,plot]" twine
 
       - name: 校验 Release 标签与项目版本
+        if: matrix.python-version == '3.12'
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
@@ -49,15 +53,20 @@ jobs:
           PY
 
       - name: 运行全量测试
-        run: python -m pytest -q
+        run: |
+          python -c "import minbt; from minbt.plugins.storage import CsvBarFeed, IosqlBarFeed"
+          python -m pytest -q
 
       - name: 构建 wheel 和 sdist
+        if: matrix.python-version == '3.12'
         run: python -m build
 
       - name: 检查发行包
+        if: matrix.python-version == '3.12'
         run: python -m twine check --strict dist/*
 
       - name: 保存发行包
+        if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v7
         with:
           name: python-package-distributions

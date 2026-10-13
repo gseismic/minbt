@@ -1,6 +1,6 @@
 import csv
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -128,20 +128,22 @@ def test_generic_csv_bar_feed_dispatches_custom_bar(tmp_path):
     assert strategy.broker.get_last_price("A") == 123.4
 
 
-def test_generic_iosql_bar_feed_reads_envelope(tmp_path):
+@pytest.mark.parametrize("start_ms", [1_767_225_600_000, 1000])
+def test_generic_iosql_bar_feed_reads_envelope(tmp_path, start_ms):
+    """真实临时数据库验证通用信封及早期毫秒时间，不依赖个人行情库。"""
     iosql = pytest.importorskip("iosql")
     uri = f"sqlite://{tmp_path / 'bars.iosql'}"
     rows = [
         {
             "id": 1,
-            "dt": 1_767_225_600_000,
+            "dt": start_ms,
             "symbol": "A",
             "kind": "orderbook",
             "data": json.dumps({"mid": 100.5}),
         },
         {
             "id": 2,
-            "dt": 1_767_225_660_000,
+            "dt": start_ms + 60_000,
             "symbol": "A",
             "kind": "price",
             "data": json.dumps({"value": 101.0}),
@@ -165,9 +167,11 @@ def test_generic_iosql_bar_feed_reads_envelope(tmp_path):
         )
         table.write(rows)
 
-    feed = IosqlBarFeed(uri, start="2026-01-01", end="2026-01-02")
+    start_dt = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=start_ms)
+    feed = IosqlBarFeed(uri, start=start_dt, end=start_dt + timedelta(days=1))
 
     events = list(feed.events())
+    assert [event.dt for event in events] == [start_dt, start_dt + timedelta(minutes=1)]
 
     assert [(event.symbol, event.kind, dict(event.data)) for event in events] == [
         ("A", "orderbook", {"mid": 100.5}),

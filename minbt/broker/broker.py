@@ -11,7 +11,7 @@ from .portfolio import Portfolio
 from .pnl import Pnl, PnlRecord, _sum_pnl
 from .struct import DateType, Position, _require
 from ..data.model import Bar, normalize_datetime, normalize_symbol
-from .._validation import finite_number, positive_number
+from .._validation import _finite_sum, finite_number, positive_number
 from ..data.replay import TimeBatch
 from ..logger import logger as default_logger
 
@@ -166,12 +166,27 @@ class Broker:
 
     def _close_portfolio_account(self, name: str) -> None:
         """关闭分仓并归还现金，保留原分仓盈亏，划拨不产生交易收益。"""
-        closed = self.portfolios.pop(name)
-        self.portfolios[DEFAULT_PORTFOLIO]._current_cash.change_cash(closed.total_cash)
-        archived = self._closed_pnl.setdefault(name, {})
-        for symbol, pnl in closed._booked_pnl.items():
-            archived[symbol] = _sum_pnl((archived.get(symbol, Pnl()), pnl))
+        closed = self.portfolios[name]
+        archived = self._preview_portfolio_return(name, closed.total_cash, closed._booked_pnl)
+        # 归还非负资金可分次偿还 main 欠款，不要求一次就恢复非负余额。
+        self.portfolios[DEFAULT_PORTFOLIO]._current_cash.add_cash(closed.total_cash)
+        self.portfolios.pop(name)
+        self._closed_pnl[name] = archived
         closed._pnl_record_sink = None
+
+    def _preview_portfolio_return(self, name, cash, booked):
+        """关闭前检查接收现金和归档金额，失败不能先取消订单或删除分仓。"""
+        self.portfolios[DEFAULT_PORTFOLIO]._current_cash._preview_change_cash(cash)
+        archived = self._closed_pnl.get(name, {}).copy()
+        for symbol, pnl in booked.items():
+            try:
+                candidate = _sum_pnl((archived.get(symbol, Pnl()), pnl))
+            except OverflowError as exc:
+                raise ValueError("archived pnl must be finite") from exc
+            for field in ("realized_pnl", "fees", "settlement_adjustment"):
+                finite_number(getattr(candidate, field), f"archived {field}")
+            archived[symbol] = candidate
+        return archived
 
     def _require_pnl_portfolio(self, name: str) -> None:
         if name not in self.portfolios and name not in self._closed_pnl:
@@ -422,6 +437,8 @@ class Broker:
     def _prepare_market_price(self, symbol: str, price: Optional[float], price_dt=None):
         """合法请求先推进风险，目标数量随后按最新持仓计算。"""
         resolved_price, trade_dt = self._resolve_market_price(symbol, price, price_dt)
+        if price is not None:
+            self._validate_mark_prices({symbol: resolved_price})
         self._advance_dt(trade_dt)
         if price is not None:
             quote_dt = normalize_datetime(price_dt) if price_dt is not None else trade_dt
@@ -568,16 +585,20 @@ class Broker:
             return self._update_order(order, status="rejected", reason=validation.message, updated_dt=price_dt)
 
         old_size = self.get_position_size(order.symbol, portfolio=order.portfolio)
-        result = self.portfolios[order.portfolio].submit_order(
-            order.symbol,
-            order.qty,
-            price=price,
-            leverage=leverage,
-            price_dt=price_dt,
-            order_id=order.id,
-            mark_price=self.get_last_price(order.symbol),
-            mark_dt=self.last_price_dates.get(order.symbol),
-        )
+        try:
+            result = self.portfolios[order.portfolio].submit_order(
+                order.symbol,
+                order.qty,
+                price=price,
+                leverage=leverage,
+                price_dt=price_dt,
+                order_id=order.id,
+                mark_price=self.get_last_price(order.symbol),
+                mark_dt=self.last_price_dates.get(order.symbol),
+            )
+        except ValueError as exc:
+            # 已挂订单的账户状态可能变化；派生值预检失败必须终结订单，不能残留 pending。
+            return self._update_order(order, status="rejected", reason=str(exc), updated_dt=price_dt)
         if not result:
             return self._update_order(
                 order,
@@ -600,6 +621,10 @@ class Broker:
     def add_portfolio(self, name: str, cash: float) -> None:
         """从主组合划拨现金创建新组合。"""
         self._assert_writable()
+        if not isinstance(name, str):
+            raise TypeError("portfolio name must be a string")
+        if not name.strip():
+            raise ValueError("portfolio name must not be empty")
         if name in self.portfolios:
             raise ValueError(f"portfolio already exists: {name}")
         cash = positive_number(cash, "cash")
@@ -666,6 +691,7 @@ class Broker:
 
         self._assert_writable()
         prices = self._select_mark_prices(batch)
+        self._validate_mark_prices(prices)
         self._advance_dt(batch.dt)
 
         for symbol, price in prices.items():
@@ -796,8 +822,13 @@ class Broker:
         symbol = normalize_symbol(symbol)
         price = positive_number(price, "price")
         dt = normalize_datetime(dt) if dt is not None else None
+        self._validate_mark_prices({symbol: price})
         self._advance_dt(self._trading_dt(dt))
         self._apply_price(symbol, price, dt)
+
+    def _validate_mark_prices(self, prices):
+        """显式报价和批次行情先检查所有分仓，不能只预检下单分仓。"""
+        _finite_sum((account._preview_mark_prices(prices) for account in self.portfolios.values()), "broker equity")
 
     def _apply_price(self, symbol: str, price: float, dt) -> None:
         """写入已校验的报价并结算风险，不把报价时间当成交易时钟。"""
@@ -870,6 +901,10 @@ class Broker:
         portfolio = self._resolve_portfolio(portfolio)
         self._validate_leverage(leverage)
         exec_price, resolved_dt = self._resolve_market_price(symbol, price, price_dt)
+        self.portfolios[portfolio]._validate_order_values(
+            symbol, qty, exec_price, leverage,
+            exec_price if price is not None else self.get_last_price(symbol),
+        )
         self._validate_attached_exit_params(
             position_size=self.get_position_size(symbol, portfolio=portfolio) + qty,
             reference_price=exec_price,
@@ -956,6 +991,9 @@ class Broker:
             trailing_stop_pct=trailing_stop_pct,
             trailing_stop_amount=trailing_stop_amount,
         )
+        self.portfolios[portfolio]._validate_order_values(
+            symbol, qty, limit_price, mark_price=self.get_last_price(symbol),
+        )
         self._advance_dt(price_dt)
         validation = self._market_for(symbol).validate_order(
             self,
@@ -1025,6 +1063,7 @@ class Broker:
             status="canceled",
             reason=f"order canceled: {order_id}",
             updated_dt=order.updated_dt,
+            created_dt=order.updated_dt,
         )
 
     def _cancel_pending_order(self, order: Order, *, reason: str) -> None:
@@ -1033,7 +1072,7 @@ class Broker:
             pending_id for pending_id in self._pending_order_ids if pending_id != order.id
         ]
         self._pending_exit_params.pop(order.id, None)
-        self._update_order(order, status="canceled", reason=reason)
+        self._update_order(order, status="canceled", reason=reason, updated_dt=self._trading_dt())
 
     def _cancel_pending_orders_for_portfolio(self, portfolio: str) -> None:
         """关闭组合成功后，取消仍指向该组合的全部待成交订单。"""
@@ -1150,6 +1189,8 @@ class Broker:
         current_size = self.get_position_size(symbol, portfolio=portfolio)
         if price is not None or target_size != current_size:
             exec_price, _ = self._resolve_market_price(symbol, price, price_dt)
+            qty = finite_number(target_size - current_size, "qty")
+            self.portfolios[portfolio]._validate_order_values(symbol, qty, exec_price, leverage)
             self._validate_attached_exit_params(
                 position_size=target_size, reference_price=exec_price,
                 stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
@@ -1161,7 +1202,7 @@ class Broker:
                 raise ValueError("price_dt must be None when price is omitted")
             resolved_dt = self._trading_dt()
         current_size = self.get_position_size(symbol, portfolio=portfolio)
-        qty = target_size - current_size
+        qty = finite_number(target_size - current_size, "qty")
         if qty == 0:
             return self._create_order(
                 symbol=symbol,
@@ -1245,13 +1286,12 @@ class Broker:
             stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
             trailing_stop_pct=trailing_stop_pct, trailing_stop_amount=trailing_stop_amount,
         )
-        self._prepare_market_price(symbol, price, price_dt)
         return self._order_target_size(
             symbol,
             target_size=target_size,
-            price=None,
+            price=price,
             leverage=leverage,
-            price_dt=None,
+            price_dt=price_dt,
             portfolio=portfolio,
             stop_loss_price=stop_loss_price,
             take_profit_price=take_profit_price,
@@ -1280,15 +1320,21 @@ class Broker:
         self._validate_leverage(leverage)
         portfolio = self._resolve_portfolio(portfolio)
         exec_price, _ = self._resolve_market_price(symbol, price, price_dt)
+        # 风险结算不增加交易费用；先预测报价后的权益，避免写入行情后才发现目标溢出。
+        equity = self.portfolios[portfolio]._preview_mark_prices({symbol: exec_price}) if price is not None else self.get_equity(portfolio=portfolio)
+        target_value = finite_number(equity * target_percent, "target_value")
+        target_size = finite_number(target_value / exec_price, "target_size")
+        qty = finite_number(target_size - self.get_position_size(symbol, portfolio=portfolio), "qty")
+        self.portfolios[portfolio]._validate_order_values(symbol, qty, exec_price, leverage)
         self._validate_attached_exit_params(
-            position_size=self.get_equity(portfolio=portfolio) * target_percent / exec_price,
+            position_size=target_size,
             reference_price=exec_price,
             stop_loss_price=stop_loss_price, take_profit_price=take_profit_price,
             trailing_stop_pct=trailing_stop_pct, trailing_stop_amount=trailing_stop_amount,
         )
         self._prepare_market_price(symbol, price, price_dt)
         equity = self.get_equity(portfolio=portfolio)
-        target_value = equity * target_percent
+        target_value = finite_number(equity * target_percent, "target_value")
         return self._order_target_value(
             symbol,
             target_value=target_value,
@@ -1367,6 +1413,9 @@ class Broker:
             close_plan.append((symbol, price, price_dt))
 
         if not close_plan:
+            if portfolio != DEFAULT_PORTFOLIO:
+                account = self.portfolios[portfolio]
+                self._preview_portfolio_return(portfolio, account.total_cash, account._booked_pnl)
             self._cancel_pending_orders_for_portfolio(portfolio)
             if portfolio != DEFAULT_PORTFOLIO:
                 self._close_portfolio_account(portfolio)
@@ -1396,9 +1445,10 @@ class Broker:
                     "mark_dt": self.last_price_dates.get(symbol),
                 }
             )
-        can_close_all, failed_index = self.portfolios[portfolio].can_submit_orders(preview_orders, close_positions=True)
-        if not can_close_all:
-            failed = preview_orders[failed_index]
+        account = self.portfolios[portfolio]
+        prepared, released_cash = account._preview_close_orders(preview_orders)
+        if not account._current_cash.can_change_cash(released_cash):
+            failed = preview_orders[0]
             return [
                 self._create_order(
                     symbol=failed["symbol"],
@@ -1414,21 +1464,35 @@ class Broker:
                 )
             ]
 
-        orders = []
-        for symbol, price, price_dt in close_plan:
-            order = self._order_target_size(
-                symbol,
-                target_size=0,
-                price=None,
-                portfolio=portfolio,
-                source="close_portfolio",
-            )
-            orders.append(order)
+        if portfolio != DEFAULT_PORTFOLIO:
+            _, closing_cash = account._current_cash._preview_change_cash(released_cash)
+            booked = account._booked_pnl.copy()
+            for row in prepared:
+                symbol = row["symbol"]
+                booked[symbol] = _sum_pnl((booked.get(symbol, Pnl()), Pnl(realized_pnl=row["realized_pnl"], fees=row["fee"])))
+            self._preview_portfolio_return(portfolio, closing_cash, booked)
 
-        if all(order.status in ("filled", "skipped") for order in orders):
-            self._cancel_pending_orders_for_portfolio(portfolio)
-            if portfolio != DEFAULT_PORTFOLIO:
-                self._close_portfolio_account(portfolio)
+        orders = []
+        for row in prepared:
+            order = self._create_order(
+                symbol=row["symbol"], portfolio=portfolio, order_type="market",
+                source="close_portfolio",
+                qty=row["qty"], status="pending", requested_price=row["price"],
+                created_dt=row["price_dt"],
+            )
+            row["order_id"] = order.id
+            orders.append(order)
+        account._commit_close_orders(prepared, released_cash)
+        for order, row in zip(orders, prepared):
+            self._update_order(
+                order, status="filled", filled_qty=row["qty"],
+                avg_price=row["price"], updated_dt=row["price_dt"],
+            )
+            self._after_order_filled(order, old_size=-row["qty"], price=row["price"], dt=row["price_dt"])
+        self._expire_empty_positions()
+        self._cancel_pending_orders_for_portfolio(portfolio)
+        if portfolio != DEFAULT_PORTFOLIO:
+            self._close_portfolio_account(portfolio)
         return orders
 
     def set_exit(
@@ -1541,6 +1605,7 @@ class Broker:
 
     def check_exit_rules(self, dt=None, data=None) -> None:
         self._assert_writable()
+        self._advance_dt(self._trading_dt(dt))
         for order_id in list(self._active_exit_order_by_position.values()):
             state = self._exit_states[order_id]
             if not state.active:
@@ -1564,7 +1629,7 @@ class Broker:
             reason = self._exit_trigger_reason(state, order, position, price, dt, data)
             if reason is None:
                 continue
-            close_order = self.close_position(order.symbol, price=price, price_dt=dt, portfolio=order.portfolio)
+            close_order = self.close_position(order.symbol, portfolio=order.portfolio)
             if close_order.status == "filled":
                 state.active = False
                 self._active_exit_order_by_position.pop((order.portfolio, order.symbol), None)
@@ -1657,7 +1722,7 @@ class Broker:
         return self.orders.get(order_id)
 
     def get_all_portfolio_equity(self) -> float:
-        return sum(portfolio.get_portfolio_equity() for portfolio in self.portfolios.values())
+        return _finite_sum((portfolio.get_portfolio_equity() for portfolio in self.portfolios.values()), "broker equity")
 
     def get_total_equity(self) -> float:
         return self.get_all_portfolio_equity()

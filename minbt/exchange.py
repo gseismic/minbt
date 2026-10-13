@@ -4,7 +4,7 @@ Exchange 只负责读取、排序、分批和分发市场数据；估值价格�
 """
 
 from collections import OrderedDict
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,7 +13,7 @@ import sys
 import time
 from threading import Lock, get_ident
 from types import MappingProxyType
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 
 import pandas as pd
 import polars as pl

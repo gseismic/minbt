@@ -1,10 +1,11 @@
 import datetime as _dt
 import math
 import numbers
-import sys
 from dataclasses import dataclass
 from datetime import timezone
 from typing import Any, Optional, Tuple
+
+from .._validation import _float_ulp
 
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -62,17 +63,6 @@ def _is_multiple(value: float, step: Optional[float]) -> bool:
         abs(nearest) * _float_ulp(step),
     )
     return abs(value - represented) <= tolerance
-
-
-def _float_ulp(value: float) -> float:
-    """返回浮点数附近的间距，兼容 Python 3.8（math.ulp 从 3.9 才提供）。"""
-    if value == 0:
-        return float.fromhex("0x0.0000000000001p-1022")
-    _, exponent = math.frexp(abs(value))
-    return max(
-        float.fromhex("0x0.0000000000001p-1022"),
-        math.ldexp(1.0, exponent - sys.float_info.mant_dig),
-    )
 
 
 @dataclass

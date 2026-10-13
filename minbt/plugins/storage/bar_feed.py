@@ -6,9 +6,10 @@
 
 import csv
 import json
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Mapping
 from operator import index
 from pathlib import Path
+from typing import Iterable, Iterator
 
 from ...data.model import Bar, datetime_key, normalize_datetime, normalize_symbol
 
@@ -29,7 +30,7 @@ def _normalize_symbols(symbols):
     return result
 
 
-def _normalize_storage_datetime(value):
+def _normalize_storage_datetime(value, *, unit=None):
     """支持 CSV 中常见的数字时间戳文本，同时保留 ISO 时间文本。"""
 
     if isinstance(value, str):
@@ -42,8 +43,8 @@ def _normalize_storage_datetime(value):
             else:
                 if numeric.is_integer():
                     numeric = int(numeric)
-                return normalize_datetime(numeric)
-    return normalize_datetime(value)
+                return normalize_datetime(numeric, unit=unit)
+    return normalize_datetime(value, unit=unit)
 
 
 class _BarRowFeed:
@@ -53,6 +54,7 @@ class _BarRowFeed:
     supports_incremental = True
     ordered = True
     replayable = True
+    _dt_is_milliseconds = False  # 通用 CSV dt 可推断单位，iosql 明确覆盖为毫秒。
 
     def events(self) -> Iterable[Bar]:
         if not getattr(self, "_prepared", False):
@@ -89,7 +91,10 @@ class _BarRowFeed:
 
         value = raw_row.get("dt", raw_row.get("dt_ms"))
         try:
-            dt = _normalize_storage_datetime(value)
+            if self._dt_is_milliseconds or "dt" not in raw_row:
+                dt = _normalize_storage_datetime(value, unit="ms")
+            else:
+                dt = _normalize_storage_datetime(value)
             if raw_row["symbol"] is None:
                 raise ValueError("symbol must not be None")
             symbol = str(raw_row["symbol"]).strip().upper()
@@ -190,6 +195,8 @@ class IosqlBarFeed(_BarRowFeed):
     表必须包含 `dt`、`symbol`、`kind`、`data` 列；`dt` 按 UTC 毫秒时间戳存储，`data` 使用 JSON
     文本表示。表的主键可以由写入方自行设计，允许同一时间点存在多个 Trade Bar。
     """
+
+    _dt_is_milliseconds = True  # 表契约约定 UTC 毫秒，不按数值大小猜单位。
 
     def __init__(
         self,

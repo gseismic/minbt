@@ -59,13 +59,14 @@ def run_strategy():
         data = [
             {
                 "open_time": int(row["open_time"]),
+                "close_time": int(row["close_time"]),
                 "symbol": row["symbol"],
                 "close": float(row["close"]),
             }
             for row in csv.DictReader(handle)
         ]
     exchange = Exchange()
-    exchange.set_bars(data, date_key="open_time")
+    exchange.set_bars(data, date_key="close_time")
 
     broker = Broker(initial_cash=10_000, fee_rate=0.001, leverage=2)
     strategy = SingleSymbolSmaStrategy(strategy_id="single_symbol_sma", broker=broker)

@@ -2,7 +2,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Union, List, Any
 import datetime
-from .._validation import finite_number, positive_number
+from .._validation import _cash_balance, finite_number, positive_number
 from ..data.model import normalize_symbol
 
 DateType = Union[datetime.datetime, np.datetime64]
@@ -32,8 +32,7 @@ class Cash:
         """
         amount = finite_number(amount, "amount")
         _require(amount >= 0, f"Cannot add negative cash: {amount}")
-        self.free_cash += amount
-        self.total_cash += amount
+        self._change_cash(amount, allow_negative=True)
     
     def spend_cash(self, amount: float) -> None:
         """花费现金
@@ -49,8 +48,8 @@ class Cash:
         self.total_cash -= amount
     
     def can_change_cash(self, amount: float) -> bool:
-        amount = finite_number(amount, "amount")
-        return self.free_cash + amount >= 0
+        free_cash, _ = self._preview_change_cash(amount)
+        return free_cash >= 0
     
     def change_cash(self, amount: float) -> None:
         """改变现金
@@ -58,18 +57,27 @@ class Cash:
         Args:
             amount: float 要改变的金额
         """
+        self._change_cash(amount)
+
+    def _preview_change_cash(self, amount: float) -> Tuple[float, float]:
+        """只计算候选余额，预检和提交共用有限性及尾差规则。"""
         amount = finite_number(amount, "amount")
-        if amount == 0:
+        free_cash = _cash_balance(self.free_cash, amount)
+        total_cash = finite_number(free_cash + self.locked_cash, "total cash balance")
+        return free_cash, total_cash
+
+    def _change_cash(self, amount: float, *, allow_negative: bool = False) -> None:
+        """一般现金操作禁止负余额，账户内部可提交有权益支撑的全仓减仓欠款。"""
+        if finite_number(amount, "amount") == 0:
             return
-        
-        new_free_cash = self.free_cash + amount
+        new_free_cash, new_total_cash = self._preview_change_cash(amount)
         _require(
-            new_free_cash >= 0,
+            allow_negative or new_free_cash >= 0,
             f"Cannot change cash to negative: {new_free_cash}"
             f"amount: {amount}, free_cash: {self.free_cash}",
         )
         self.free_cash = new_free_cash
-        self.total_cash += amount
+        self.total_cash = new_total_cash
     
     def lock_cash(self, amount: float) -> None:
         """锁定现金
@@ -132,17 +140,20 @@ class Position:
         if price is None:
             return
         price = positive_number(price, "price")
+        unrealized_pnl = finite_number(self.size * (price - self._cost_price), "unrealized pnl")
+        equity = finite_number(unrealized_pnl + self._margin, "position equity")
         self._last_price = price
         self._last_dt = dt
-        self._unrealized_pnl = self.size * (price - self._cost_price)
-        self._equity = self._unrealized_pnl + self._margin
+        self._unrealized_pnl = unrealized_pnl
+        self._equity = equity
     
     @staticmethod
     def calculate_required_margin(price: float, qty: float, leverage: float) -> float:
         price = positive_number(price, "price")
         qty = finite_number(qty, "qty")
         leverage = positive_number(leverage, "leverage")
-        return abs(qty) * price / leverage
+        notional = finite_number(abs(qty) * price, "order notional")
+        return finite_number(notional / leverage, "required margin")
 
     def commit_open_new(self, 
                         price: float, 
@@ -170,11 +181,16 @@ class Position:
             f"position: {self.symbol}, size: {self.size}, qty: {qty}",
         )
         # 开仓关注cost_price, 不关心unrealized_pnl，所以不用更新价格
-        new_size = self.size + qty
-        self._cost_price = (self._cost_price * self.size + qty * price) / new_size
+        new_size = finite_number(self.size + qty, "position size")
+        cost = finite_number(self._cost_price * self.size + qty * price, "position cost")
+        cost_price = finite_number(cost / new_size, "cost price")
         # 计算保证金占用
         extra_margin = self.calculate_required_margin(price, qty, leverage)
-        self._margin += extra_margin
+        margin = finite_number(self._margin + extra_margin, "position margin")
+        unrealized_pnl = finite_number(new_size * (price - cost_price), "unrealized pnl")
+        finite_number(unrealized_pnl + margin, "position equity")
+        self._cost_price = cost_price
+        self._margin = margin
         self.size = new_size
         
         # 更新价格和pnl

@@ -151,23 +151,25 @@ def test_limit_fill_applies_risk_at_current_mark_in_same_batch():
     assert broker.get_total_pnl().net_pnl == -100
 
 
-def test_close_portfolio_skips_positions_liquidated_by_prior_close_fee():
-    """R8-02/03：平仓手续费触发其余持仓强平后，全平计划不能执行失效旧数量。"""
+@pytest.mark.parametrize("sequence", [("A", "B"), ("B", "A")])
+def test_close_portfolio_settles_all_fees_before_any_intermediate_risk(sequence):
+    """R9-02：全平整体扣费，避免组内强平漏收手续费并改变顺序相关结果。"""
     broker = Broker(1270, fee_rate=0.01, leverage=10, min_margin_level=0.2, warning_margin_level=0.3)
     broker.add_portfolio("risk", 1260)
-    broker.submit_market_order("A", 1000, price=1, portfolio="risk")
-    broker.submit_market_order("B", 100, price=100, portfolio="risk")
+    for symbol in sequence:
+        broker.submit_market_order(symbol, 1000 if symbol == "A" else 100,
+                                   price=1 if symbol == "A" else 100, portfolio="risk")
     broker.process_market_batch(_batch("2026-01-01", {"A": 10, "B": 1}))
     assert broker.get_position_sizes("risk") == {"A": 1000, "B": 100}
     broker.process_market_batch(_batch("2026-01-02", {"OTHER": 100}))
 
     orders = broker.close_portfolio("risk")
-    assert [order.status for order in orders] == ["filled", "skipped"]
+    assert [order.status for order in orders] == ["filled", "filled"]
     assert broker.get_portfolios() == ["main"]
     assert broker.get_position_sizes() == {}
-    assert broker.get_equity() == pytest.approx(160)
-    assert broker.get_total_pnl().net_pnl == pytest.approx(-1110)
-    assert [r.reason for r in broker.get_pnl_records()] == ["trade", "trade", "trade", "liquidation"]
+    assert broker.get_equity() == pytest.approx(159)
+    assert broker.get_total_pnl().net_pnl == pytest.approx(-1111)
+    assert [r.reason for r in broker.get_pnl_records()] == ["trade"] * 4
     # A/B 沿用旧报价，但手续费和风险结算实际发生在新回放批次。
     assert [r.dt for r in broker.get_pnl_records()[-2:]] == [normalize_datetime("2026-01-02")] * 2
 

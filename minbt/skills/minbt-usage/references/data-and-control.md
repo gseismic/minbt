@@ -170,6 +170,8 @@ iosql table/interval 和时间范围；缺数据或配置错误直接报错。
 数据至少有 `dt,symbol,kind,data`，其中 `data` 是 JSON。
 两者从 `minbt.plugins.storage` 导入；iosql 的 `dt` 使用 UTC 毫秒时间戳，两个来源都要求
 行数据按时间非递减排列。`IosqlBarFeed` 同样需要另行安装 iosql。
+iosql `dt` 和显式 `dt_ms` 始终按毫秒解析，epoch 附近的数值也不推断为秒。
+普通 CSV `dt` 继续支持 ISO 时间与数字单位自动推断。
 通用 Feed 的 symbols 只筛选，可部分命中；Binance Feed 则要求每个请求标的有数据。
 不要将这种格式与 Binance Kline 专用文件或表混用。
 

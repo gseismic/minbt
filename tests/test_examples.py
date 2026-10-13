@@ -13,7 +13,11 @@ from minbt import Bar
 HEADLESS_ENV = {
     **os.environ,
     "MPLBACKEND": "Agg",
-    "PYTHONWARNINGS": "ignore:FigureCanvasAgg is non-interactive:UserWarning",
+    # Python 3.8 可安装的 Matplotlib 使用旧警告文本；只屏蔽已知的无 GUI 提示。
+    "PYTHONWARNINGS": (
+        "ignore:FigureCanvasAgg is non-interactive:UserWarning,"
+        "ignore:Matplotlib is currently using agg:UserWarning"
+    ),
 }
 
 

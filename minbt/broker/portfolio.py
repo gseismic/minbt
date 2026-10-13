@@ -5,7 +5,7 @@ import numpy as np
 from ..logger import logger as default_logger
 from .struct import Position, Cash, DateType, _require
 from .pnl import Pnl, PnlReason, PnlRecord, _sum_pnl
-from .._validation import finite_number, positive_number
+from .._validation import _finite_sum, finite_number, positive_number
 from ..data.model import normalize_symbol
 
 
@@ -52,6 +52,10 @@ class Portfolio:
             min_margin_level < warning_margin_level,
             f'min_margin_level must be less than warning_margin_level, got {min_margin_level=} and {warning_margin_level=}',
         )
+        if not isinstance(name, str):
+            raise TypeError("portfolio name must be a string")
+        if not name.strip():
+            raise ValueError("portfolio name must not be empty")
         self.initial_cash = initial_cash
         self.fee_rate = fee_rate
         self.leverage = leverage
@@ -180,10 +184,10 @@ class Portfolio:
         self._current_cash = Cash(0.0, 0.0)
         
     def get_all_positions_total_margin(self) -> float:
-        return sum(position.margin for position in self._positions.values())
+        return _finite_sum((position.margin for position in self._positions.values()), "portfolio margin")
     
     def get_all_positions_total_equity(self) -> float:
-        return sum(position.equity for position in self._positions.values())
+        return _finite_sum((position.equity for position in self._positions.values()), "positions equity")
 
     def get_portfolio_margin_level(self) -> float:
         if self._bankrupt:
@@ -198,7 +202,24 @@ class Portfolio:
         return equity / total_margin
 
     def get_portfolio_equity(self) -> float:
-        return self.get_all_positions_total_equity() + self.total_cash
+        return _finite_sum((self.get_all_positions_total_equity(), self.total_cash), "portfolio equity")
+
+    def _preview_mark_prices(self, prices):
+        """验证一组行情影响的候选持仓与账户金额，不先写行情或推进风险。"""
+        positions = []
+        for symbol, position in self._positions.items():
+            candidate = position
+            if symbol in prices and not position.is_empty():
+                candidate = copy.copy(position)
+                candidate.update_price_and_pnl(prices[symbol])
+            positions.append(candidate)
+        _finite_sum((p.margin for p in positions), "portfolio margin")
+        positions_equity = _finite_sum((p.equity for p in positions), "positions equity")
+        equity = _finite_sum((self.total_cash, positions_equity), "portfolio equity")
+        if self.margin_mode == "isolated":
+            # 逐仓穿仓清掉负权益，不能在此后才发现账户总金额溢出。
+            return _finite_sum((self.total_cash, *(max(0, p.equity) for p in positions)), "portfolio equity")
+        return max(0, equity)
     
     def on_new_price(self, 
                      symbol: str, 
@@ -225,6 +246,8 @@ class Portfolio:
         risk_dt = dt if risk_dt is None else risk_dt
         if self._bankrupt:
             return True, False, 0.0
+
+        self._preview_mark_prices({symbol: price})
         
         liquidated, bankrupt = False, False
         self.last_prices[symbol] = price
@@ -268,6 +291,7 @@ class Portfolio:
         normalized = {normalize_symbol(symbol): positive_number(price, "price") for symbol, price in prices.items()}
         if self._bankrupt:
             return True, False, 0.0
+        self._preview_mark_prices(normalized)
         for symbol, price in normalized.items():
             self.last_prices[symbol] = price
             self.last_prices_dt[symbol] = dt
@@ -344,6 +368,54 @@ class Portfolio:
             margin_level = self.get_portfolio_margin_level()
         return margin_level
 
+    @staticmethod
+    def _validate_pnl_totals(booked, unrealized):
+        """预检完整记账结果，汇总溢出必须发生在成交提交之前。"""
+        totals = [
+            _finite_sum((getattr(pnl, name) for pnl in booked), name)
+            for name in ("realized_pnl", "fees", "settlement_adjustment")
+        ]
+        _finite_sum((totals[0], unrealized, -totals[1], totals[2]), "net pnl")
+
+    def _preview_order(self, symbol, qty, price, leverage, mark_price, mark_dt=None):
+        """完整计算候选成交，不修改行情、现金、持仓或盈亏账本。"""
+        position = self.get_position(symbol, create_if_missing=False)
+        candidate = Position(symbol=symbol) if position is None else copy.deepcopy(position)
+        finite_number(abs(qty) * price, "order notional")
+        fee = finite_number(self.calculate_fee(symbol, leverage, qty, price), "order fee")
+        _, released_margin, realized_pnl = candidate.commit_order(price, qty=qty, leverage=leverage)
+        finite_number(released_margin, "released margin")
+        finite_number(realized_pnl, "realized pnl")
+        candidate.update_price_and_pnl(mark_price, mark_dt)
+        for name in ("size", "cost_price", "margin", "unrealized_pnl", "equity"):
+            finite_number(getattr(candidate, name), f"position {name}")
+        _finite_sum((candidate.margin, *(p.margin for s, p in self._positions.items() if s != symbol)), "portfolio margin")
+        released_cash = _finite_sum((released_margin, realized_pnl, -fee), "released cash")
+        free_cash, total_cash = self._current_cash._preview_change_cash(released_cash)
+        positions_equity = _finite_sum((
+            candidate.equity,
+            *(p.equity for s, p in self._positions.items() if s != symbol),
+        ), "positions equity")
+        equity = _finite_sum((total_cash, positions_equity), "portfolio equity")
+        # 连同累计统计验证，避免成交已经提交后才在记账求和时溢出。
+        booked = list(self._booked_pnl.values())
+        booked.append(Pnl(realized_pnl=realized_pnl, fees=fee))
+        self._validate_pnl_totals((self._booked_pnl.get(symbol, Pnl()), booked[-1]), 0)
+        unrealized = _finite_sum((
+            candidate.unrealized_pnl,
+            *(p.unrealized_pnl for s, p in self._positions.items() if s != symbol),
+        ), "unrealized pnl")
+        self._validate_pnl_totals(booked, unrealized)
+        return candidate, fee, realized_pnl, released_cash, free_cash, equity
+
+    def _validate_order_values(self, symbol, qty, price, leverage=None, mark_price=None):
+        """供 Broker 在报价、订单和时钟副作用之前检查派生值。"""
+        if qty != 0:
+            self._preview_order(
+                symbol, qty, price, self.leverage if leverage is None else leverage,
+                price if mark_price is None else mark_price,
+            )
+
     def submit_order(self, symbol: str, qty: float, price: float, leverage: Optional[float] = None, price_dt: Optional[DateType] = None, *, order_id: Optional[str] = None, mark_price: Optional[float] = None, mark_dt: Optional[DateType] = None) -> bool:
         """提交订单
         
@@ -376,6 +448,8 @@ class Portfolio:
         if self._bankrupt:
             self.logger.error('Portfolio bankrupt, cannot submit order')
             return False
+
+        self._validate_order_values(symbol, qty, price, leverage, mark_price)
         
         # 更新价格并检查保证金（可能触发强平）
         bankrupt, liquidated, _ = self.on_new_price(symbol, mark_price, mark_dt, risk_dt=price_dt)
@@ -387,31 +461,24 @@ class Portfolio:
         is_new_position = position is None
         if position is None:
             position = Position(symbol=symbol)
-        required_fee = self.calculate_fee(symbol, leverage, qty, price)
-        
-        fake_position = copy.deepcopy(position)
-        exec_type, fake_released_margin, fake_realized_pnl = fake_position.commit_order(price, qty=qty, leverage=leverage)
-        fake_released_cash = fake_released_margin + fake_realized_pnl - required_fee # 将释放的free_cash
-        should_remaining_cash = self.free_cash + fake_released_cash # 额外需要的free_cash
-        if should_remaining_cash < 0:
+        candidate, required_fee, realized_pnl, released_cash, remaining_cash, equity = self._preview_order(
+            symbol, qty, price, leverage, mark_price, mark_dt,
+        )
+        reduce_only = position.size != 0 and (position.size > 0) != (qty > 0) and abs(qty) <= abs(position.size)
+        allow_debt = self.margin_mode == 'cross' and reduce_only and equity >= 0
+        if (remaining_cash < 0 and not allow_debt) or (self.free_cash < 0 and not reduce_only):
             self.logger.error(
                 f"Insufficient free cash to open position({symbol}, qty={qty}, price={price}). "
-                f"Required free cash: {-fake_released_cash}, Free cash: {self.free_cash}"
+                f"Required free cash: {-released_cash}, Free cash: {self.free_cash}"
             )
             return False
         
-        # 提交订单
-        new_position_size = position.size + qty
-        exec_type, released_margin, realized_pnl = position.commit_order(price, qty=qty, leverage=leverage)
-        # 成交改变成本和数量，但不能把限价或其他成交价当成当前行情。
-        position.update_price_and_pnl(mark_price, mark_dt)
+        # 候选持仓和现金均已验证；保留 Position 身份，一次提交派生状态。
+        self._current_cash._change_cash(released_cash, allow_negative=allow_debt)
+        position.__dict__.update(candidate.__dict__)
         if is_new_position:
             self._positions[symbol] = position
-        self.logger.info(f'Submit order: {symbol}, qty={qty}, price={price}, exec_type={exec_type}, fee={required_fee}')
-        released_cash = released_margin + realized_pnl - required_fee
-        
-        # 前面已经考虑穿仓了，这里不会报错
-        self._current_cash.change_cash(released_cash)
+        self.logger.info(f'Submit order: {symbol}, qty={qty}, price={price}, fee={required_fee}')
         self._record_pnl(
             symbol=symbol,
             qty=qty,
@@ -423,15 +490,60 @@ class Portfolio:
         )
         
         self.logger.debug(
-            f'Submit order: {symbol}, qty={qty}, price={price}, new_position_size={new_position_size}, '
+            f'Submit order: {symbol}, qty={qty}, price={price}, new_position_size={position.size}, '
             f'released_cash={released_cash}, realized_pnl={realized_pnl}'
         )
         # 成交后的浮亏与手续费可能立即触发风险，必须在本批次内结算。
         self.on_new_price(symbol, mark_price, mark_dt, risk_dt=price_dt)
         return True
 
+    def _preview_close_orders(self, orders):
+        """全平计划汇总所有现金与费用，组内不触发单笔风险或现金约束。"""
+        plan = []
+        candidates = {}
+        booked = list(self._booked_pnl.values())
+        for order in orders:
+            symbol = order["symbol"]
+            if symbol in candidates:
+                raise ValueError(f"duplicate symbol in close plan: {symbol}")
+            qty = -self.get_position_size(symbol)
+            if qty == 0:
+                continue
+            candidate, fee, pnl, released_cash, _, _ = self._preview_order(
+                symbol, qty, order["price"], self.leverage,
+                order.get("mark_price") or order["price"], order.get("mark_dt"),
+            )
+            candidates[symbol] = candidate
+            plan.append({
+                **order, "qty": qty, "candidate": candidate,
+                "fee": fee, "realized_pnl": pnl, "released_cash": released_cash,
+            })
+            booked.append(Pnl(realized_pnl=pnl, fees=fee))
+        released_cash = _finite_sum((row["released_cash"] for row in plan), "close plan cash")
+        _, total_cash = self._current_cash._preview_change_cash(released_cash)
+        remaining = [candidates.get(symbol, position) for symbol, position in self._positions.items()]
+        _finite_sum((total_cash, *(p.equity for p in remaining)), "portfolio equity")
+        self._validate_pnl_totals(booked, _finite_sum((p.unrealized_pnl for p in remaining), "unrealized pnl"))
+        return plan, released_cash
+
+    def _commit_close_orders(self, plan, released_cash):
+        """提交已验证的整组全平，持仓、现金和账本使用同一份候选金额。"""
+        self._current_cash.change_cash(released_cash)
+        for row in plan:
+            self._positions[row["symbol"]].__dict__.update(row["candidate"].__dict__)
+        for row in plan:
+            self._record_pnl(
+                symbol=row["symbol"], qty=row["qty"], price=row["price"],
+                realized_pnl=row["realized_pnl"], fees=row["fee"],
+                order_id=row.get("order_id"), dt=row.get("price_dt"),
+            )
+
     def can_submit_orders(self, orders, *, close_positions: bool = False) -> Tuple[bool, Optional[int]]:
-        """按顺序模拟订单；全平计划使用风险结算后的仓位，避免旧数量反向开仓。"""
+        """普通订单按顺序模拟，全平计划按最终现金一次预检。"""
+        if close_positions:
+            _, released_cash = self._preview_close_orders(orders)
+            accepted = self._current_cash.can_change_cash(released_cash)
+            return accepted, None if accepted else 0
         preview = copy.copy(self)
         preview.last_prices = self.last_prices.copy()
         preview.last_prices_dt = self.last_prices_dt.copy()
@@ -445,10 +557,6 @@ class Portfolio:
 
         for index, order in enumerate(orders):
             qty = order["qty"]
-            if close_positions:
-                qty = -preview.get_position_size(order["symbol"])
-                if qty == 0:
-                    continue
             if not preview.submit_order(
                 order["symbol"],
                 qty,
@@ -470,16 +578,18 @@ class Portfolio:
         if position is None or position.is_empty():
             self.logger.warning(f'Cannot close empty position: {symbol}')
             return False
+        quote_dt = None
         if last_price is None:
             last_price = self.last_prices.get(symbol, position.last_price)
+            quote_dt = self.last_prices_dt.get(symbol)
         if last_price is None:
             self.logger.error(f'Cannot close position {symbol}: no price available')
             return False
-        self.on_new_price(symbol, last_price)
+        self.on_new_price(symbol, last_price, quote_dt)
         position = self.get_position(symbol)
         if position is None or position.is_empty():
             return False
-        return self.submit_order(symbol, -position.size, price=last_price)
+        return self.submit_order(symbol, -position.size, price=last_price, price_dt=quote_dt)
     
     def close_all_positions(self, last_prices: Optional[Dict[str, float]] = None) -> None:
         for symbol in list(self._positions.keys()):
