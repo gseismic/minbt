@@ -7,6 +7,7 @@ from minbt import Broker, Exchange, Strategy
 
 class BuyAndHold(Strategy):
     def on_bars(self, dt, bars):
+        print(dt, bars)
         self.broker.order_target_size("TEST", 1)
 
 
