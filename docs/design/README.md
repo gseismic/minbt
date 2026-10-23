@@ -1,5 +1,15 @@
 # minbt 设计文档索引
 
+## 待实施设计
+
+- [实时交易模块设计稿](live-trading-20261023-design.md)：基于本地已核实的 `crypto_api.binance2.usdm`
+  Exchange/Broker（用户所述 `finapi.binance2` 的依赖名称差异见稿内说明），设计回测、本地模拟盘、
+  Binance demo 与实盘的统一策略接口。第五版以 Exchange、Broker、Strategy 为核心：
+  replay.Exchange / sim.Broker 属于核心，实时实现从 minbt.plugins.binance.live 导入；
+  支持用户自己的 Exchange/Broker 按协议接入，统一调用 exchange.run。
+  包含发送前门禁、本地保护恢复、行情时效与不完整结果冻结，
+  首版原生保护限定固定价止盈止损；包含账户事件与旧接口迁移，尚未实施。
+
 ## 最新有效设计
 
 - [全仓减仓与数值结算](execution-20261013-cross-settlement.md)：PLAN-068 修复第九、十轮确认缺陷；
