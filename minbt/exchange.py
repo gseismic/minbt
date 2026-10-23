@@ -23,6 +23,7 @@ from .data.model import Bar, MarketEvent, News, datetime_key, normalize_datetime
 from .data.replay import BatchItem, TimeBatch
 from .broker import Broker
 from .logger import logger as default_logger
+from .protocols.broker import ReplayBrokerProtocol
 from .result import RunResult, _snapshot_account
 from .strategy import Strategy
 
@@ -277,6 +278,9 @@ class Exchange:
             mode = self._choose_load_mode(load_mode)
             cursors = [_Cursor(source) for source in self._sources.values()]
             brokers = list(self._unique_brokers())
+            for broker in brokers:
+                if not isinstance(broker, ReplayBrokerProtocol) or not callable(broker.process_market_batch):
+                    raise TypeError("historical Exchange requires ReplayBrokerProtocol")
             self._claim_run(brokers)
 
         self._current_dt = None

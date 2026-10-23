@@ -1,14 +1,13 @@
 # minbt 设计文档索引
 
-## 待实施设计
+## 最新实盘设计
 
-- [实时交易模块设计稿](live-trading-20261023-design.md)：基于本地已核实的 `crypto_api.binance2.usdm`
-  Exchange/Broker（用户所述 `finapi.binance2` 的依赖名称差异见稿内说明），设计回测、本地模拟盘、
-  Binance demo 与实盘的统一策略接口。第五版以 Exchange、Broker、Strategy 为核心：
-  replay.Exchange / sim.Broker 属于核心，实时实现从 minbt.plugins.binance.live 导入；
-  支持用户自己的 Exchange/Broker 按协议接入，统一调用 exchange.run。
-  包含发送前门禁、本地保护恢复、行情时效与不完整结果冻结，
-  首版原生保护限定固定价止盈止损；包含账户事件与旧接口迁移，尚未实施。
+- [回测优先的最小实盘接入](live-trading-20261023-design.md)：第七版，PLAN-072 已实现并审阅源码，待代码认可后测试。
+  依据 GOAL，保留回测现有入口、撮合与结果；实盘只通过外部 SDK 的 Exchange/Broker 接入。
+  明确最小协议、两个薄交易方法、单标的 K 线流程、同步查询/下单与 SDK 原始返回值，允许接口差异。
+  150 行为精简目标，用户已明确不是硬上限；实际新增/替换生产代码 219 行，live.py 占 186 行。
+  以 [PLAN-071](../dev/PLAN-071-backtest-first-design.md) 回退的 `6c1e7a0` 为基线实施；
+  第六版及旧实现见 [参考备份](../ref/v1/README.md)，其实施要求已被替代。
 
 ## 最新有效设计
 
@@ -31,7 +30,7 @@
 - `exchange-20260921-replay-modes.md`：Exchange 实现背景；通用 `Bar.kind`、TimeBatch 和读取模式继续保留，同一 dt 收齐、批量账户更新和异常路径释放资源的正确性要求继续有效。
 - `pnl-20261011-library-api.md`：库级账户、分仓、标的与订单盈亏查询，明确平均成本、手续费、强平、穿仓和已关闭分仓统计契约。
 - `pnl-20260920-examples.md`：多空与手续费场景的库级接口示例、权益历史绘图和测试分工。
-- [Exchange 单次运行与控制回调设计](run-20261012-control.md)：当前已实施的运行生命周期与结果契约。保留实例注册，一个 Exchange 只启动一次；通过 `run(control=...)` 统一继续、暂停和中途退出。暂停期间行情、账户与曲线持续推进，退出返回已处理区间的快照及状态元信息。未来 live 的实际接入与等待轮询尚未实现。
+- [Exchange 单次运行与控制回调设计](run-20261012-control.md)：当前已实施的回测生命周期与结果契约。保留实例注册，一个 Exchange 只启动一次；通过 `run(control=...)` 统一继续、暂停和中途退出。暂停期间行情、账户与曲线持续推进，退出返回已处理区间的快照及状态元信息。live 使用上述最小实盘设计的独立 run/stop，不提供等待轮询。
 - [Skill 随安装包发布设计](skills-20261012-packaging.md)：已实施。用户 skill 与当前安装的 minbt 代码一起发布，通过 `python -m minbt.skills` 定位版本与资源，参考资料和最小脚本均在包内；仓库发现入口使用相对链接。
 
 ## 已合并删除的旧设计
@@ -68,7 +67,7 @@ class MyStrategy(Strategy):
 1. 用户回调使用 `on_bars/on_books/on_trades/on_bar/on_news`，生命周期和历史查询直接服务当前运行。
 2. Exchange 继续使用 `set_bars/set_books/set_trades/set_news/add_feed`；新增薄 run 不替换原入口。
 3. 用户交易统一通过 `self.broker`。
-4. 所有下单类接口统一返回 `Order`，无交易用 `status="skipped"`，业务失败用 `status="rejected"`。
+4. 回测下单返回 `Order`，无交易用 `status="skipped"`，业务失败用 `status="rejected"`；实盘返回 SDK 字典并传播 SDK 异常。
 5. 市场差异通过 `Market(...)` 特征和 `markets.*` 预设表达，不推荐市场子类。
 6. 分仓入口是 `broker.add_portfolio(name, cash)`，用户参数是 `portfolio="..."`。
 7. 同一净持仓生命周期只有一份有效退出配置，当前 `Order.id` 作为访问句柄，修改按字段合并。

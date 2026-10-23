@@ -1,0 +1,316 @@
+diff --git a/crypto_api/binance2/exceptions.py b/crypto_api/binance2/exceptions.py
+index 49521bf..9055344 100644
+--- a/crypto_api/binance2/exceptions.py
++++ b/crypto_api/binance2/exceptions.py
+@@ -77,6 +77,10 @@ class RequestOutcomeUnknownError(TransportError):
+     """修改请求可能已经执行；使用 recovery 查询或用户事件确认，不自动重发。"""
+ 
+ 
++class RequestNotSentError(Binance2Error):
++    """最终发送许可明确拒绝；本请求未交给传输层，不代表目标远端订单已撤销。"""
++
++
+ class PaginationError(Binance2Error):
+     """历史分页未前进或响应结构异常；body/recovery 包含最后一页和时间范围。"""
+ 
+diff --git a/crypto_api/binance2/usdm/_adapters/sdk.py b/crypto_api/binance2/usdm/_adapters/sdk.py
+index ceb5ee1..cc6c44c 100644
+--- a/crypto_api/binance2/usdm/_adapters/sdk.py
++++ b/crypto_api/binance2/usdm/_adapters/sdk.py
+@@ -23,12 +23,14 @@ from ...exceptions import (
+     ParameterError,
+     RateLimitError,
+     RequestOutcomeUnknownError,
++    RequestNotSentError,
+     TransportError,
+ )
+ from .._endpoints import ENDPOINTS
+ from .._validation import prepare, recovery_params
+ from ..config import APIConfig
+ from ..rate_limit import RateLimiter
++from .._send import authorize
+ 
+ _CURRENT: ContextVar = ContextVar("binance2_endpoint", default=None)
+ _RESPONSE: ContextVar = ContextVar("binance2_response", default=None)
+@@ -66,10 +68,12 @@ class _CallState:
+     closing: bool = False
+     started: float | None = None
+     response_text: str | None = None
++    params: dict | None = None  # 本请求规范化参数，供最终许可核对身份。
+ 
+     def before_send(self):
+         # 此处到 SDK send 调用之间不 await，关闭不能从握手/限流之后越过检查。
+         self.adapter._check(_CURRENT.get())
++        authorize(self.adapter, _CURRENT.get(), self.params or {})
+         self.sent = True
+         self.started = time.time() * 1000
+ 
+@@ -477,7 +481,7 @@ class SyncSDKAdapter(_AdapterBase):
+             self._check(endpoint)
+             token = _CURRENT.set(endpoint)
+             response_token = _RESPONSE.set(None)
+-            state = _CallState(self)
++            state = _CallState(self, params=params)
+             call_token = _CALL.set(state)
+             try:
+                 result = self._sdk_call(client, endpoint, params)
+@@ -485,6 +489,8 @@ class SyncSDKAdapter(_AdapterBase):
+                     _timing.started, _timing.finished = state.started, time.time() * 1000
+                 self._observe(result)
+                 return result
++            except RequestNotSentError:
++                raise
+             except Exception as exc:
+                 error = _translate(exc, endpoint, params, self.config)
+                 self._handle_error(error)
+@@ -558,7 +564,7 @@ class AsyncSDKAdapter(_AdapterBase):
+             raise ParameterError("官方 WS API 不支持此操作", endpoint=key)
+         params = prepare(endpoint, arguments, self.config.recv_window)
+         client = await self.ensure()
+-        state = _CallState(self)
++        state = _CallState(self, params=params)
+         # 使用子任务，使 aclose 可以打断限流、握手和在途 I/O，不取消调用者其他工作。
+         task = asyncio.create_task(
+             self._request(client, endpoint, params, state, websocket, _timing)
+@@ -597,6 +603,8 @@ class AsyncSDKAdapter(_AdapterBase):
+                 return result
+             except asyncio.CancelledError:
+                 raise
++            except RequestNotSentError:
++                raise
+             except Exception as exc:
+                 error = _translate(exc, endpoint, params, self.config)
+                 self._handle_error(error)
+diff --git a/crypto_api/binance2/usdm/rest/_base.py b/crypto_api/binance2/usdm/rest/_base.py
+index 98537a7..56ecbbf 100644
+--- a/crypto_api/binance2/usdm/rest/_base.py
++++ b/crypto_api/binance2/usdm/rest/_base.py
+@@ -8,6 +8,7 @@ from ...exceptions import ClientClosedError
+ from .._adapters.sdk import AsyncSDKAdapter, SyncSDKAdapter
+ from ..config import APIConfig, Endpoints
+ from ..rate_limit import RateLimiter
++from .._send import send_permission
+ 
+ 
+ class GroupResource:
+@@ -72,6 +73,17 @@ class GroupResource:
+         if self._closed or self._transport.closed:
+             raise ClientClosedError("此 API 对象已关闭")
+ 
++    def send_permission(self, check):
++        """为一次请求设置最终发送许可；check(endpoint, params) 必须同步且不执行 I/O。
++
++        在限流和签名完成后的 HTTP/WS 传输边界调用，返回 False 或抛错会得到
++        RequestNotSentError。作用域绑定本资源的 transport，只允许消费一次。
++        示例：with api.send_permission(check): api.trade.create_market_order(...)
++        未使用作用域时维持原行为；授权后的在途请求不保证能被撤回。
++        """
++        self._check_open()
++        return send_permission(self._transport, check)
++
+ 
+ class SyncGroupAPI(GroupResource):
+     """同步资源拥有者或借用者；无需跨线程共享 requests 会话。"""
+diff --git a/crypto_api/binance2/usdm/_send.py b/crypto_api/binance2/usdm/_send.py
+new file mode 100644
+index 0000000..ab6a89a
+--- /dev/null
++++ b/crypto_api/binance2/usdm/_send.py
+@@ -0,0 +1,45 @@
++"""公开请求作用域的内部实现，不允许业务队列把调用前检查冒充发送授权。"""
++
++from contextlib import contextmanager
++from contextvars import ContextVar
++from types import MappingProxyType
++from threading import Lock
++
++from ..exceptions import RequestNotSentError
++
++
++_PERMISSION = ContextVar("binance2_send_permission", default=None)
++
++
++@contextmanager
++def send_permission(transport, check):
++    """绑定一个传输实例、一个最终发送决定；嵌套后恢复外层作用域。"""
++    if not callable(check):
++        raise TypeError("send permission check must be callable")
++    state = [transport, check, False, Lock()]  # 实例、同步检查、是否已消费和共享作用域锁。
++    token = _PERMISSION.set(state)
++    try:
++        yield
++    finally:
++        _PERMISSION.reset(token)
++
++
++def authorize(transport, endpoint, params):
++    state = _PERMISSION.get()
++    if state is None or state[0] is not transport:
++        return
++    with state[3]:
++        if state[2]:
++            raise RequestNotSentError("发送许可已消费，请为每个请求建立独立作用域", endpoint=endpoint.key)
++        state[2] = True
++    try:
++        allowed = state[1](endpoint.key, MappingProxyType(dict(params)))
++        if allowed is False:
++            raise RuntimeError("send permission denied")
++        if hasattr(allowed, "__await__"):
++            close = getattr(allowed, "close", None)
++            if close is not None:
++                close()
++            raise TypeError("发送许可检查必须同步且不等待 I/O")
++    except Exception as exc:
++        raise RequestNotSentError("最终发送许可拒绝，请求未交给传输层", endpoint=endpoint.key) from exc
+diff --git a/tests/binance2/test_send_permission.py b/tests/binance2/test_send_permission.py
+new file mode 100644
+index 0000000..50e8a5e
+--- /dev/null
++++ b/tests/binance2/test_send_permission.py
+@@ -0,0 +1,146 @@
++"""本机 HTTP/WS 捕获真实传输，证明限流后关闸不会发出业务请求。"""
++
++import asyncio
++from concurrent.futures import ThreadPoolExecutor
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++import json
++from threading import Event, Thread
++import unittest
++
++from websockets.legacy.server import serve
++
++from crypto_api.binance2.exceptions import RequestNotSentError
++from crypto_api.binance2.usdm import AsyncRestAPI, Endpoints, RateLimiter, RestAPI, WebSocketAPI
++
++
++class Handler(BaseHTTPRequestHandler):
++    """只接受本机测试请求并计数，不访问任何交易账户。"""
++
++    requests = []
++
++    def do_POST(self):
++        body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
++        self.requests.append(body)
++        payload = json.dumps({"orderId": len(self.requests), "status": "NEW"}).encode()
++        self.send_response(200)
++        self.send_header("Content-Type", "application/json")
++        self.send_header("Content-Length", str(len(payload)))
++        self.end_headers()
++        self.wfile.write(payload)
++
++    def log_message(self, *_):
++        pass
++
++
++class SendPermissionTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
++        cls.thread = Thread(target=cls.server.serve_forever, daemon=True)
++        cls.thread.start()
++        cls.urls = Endpoints(rest=f"http://127.0.0.1:{cls.server.server_port}")
++
++    @classmethod
++    def tearDownClass(cls):
++        cls.server.shutdown()
++        cls.server.server_close()
++        cls.thread.join(timeout=2)
++
++    def setUp(self):
++        Handler.requests.clear()
++
++    def test_revoked_during_limiter_wait_has_zero_http_requests(self):
++        entered, release, allowed = Event(), Event(), Event()
++        allowed.set()
++
++        class Limiter(RateLimiter):
++            def acquire(self, *args):
++                entered.set()
++                if not release.wait(5):
++                    raise RuntimeError("test limiter wait timed out")
++                return super().acquire(*args)
++
++        with RestAPI(api_key="fixture-key", api_secret="fixture-secret", endpoints=self.urls, rate_limiter=Limiter()) as api:
++            def invoke():
++                with api.send_permission(lambda endpoint, params: allowed.is_set()):
++                    return api.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++
++            with ThreadPoolExecutor(max_workers=1) as worker:
++                future = worker.submit(invoke)
++                self.assertTrue(entered.wait(5))
++                allowed.clear()
++                release.set()
++                with self.assertRaises(RequestNotSentError):
++                    future.result(timeout=5)
++        self.assertEqual(Handler.requests, [])
++
++    def test_permission_is_once_and_scope_does_not_change_later_calls(self):
++        checks = []
++        with RestAPI(api_key="k", api_secret="s", endpoints=self.urls) as api:
++            with api.send_permission(lambda endpoint, params: checks.append((endpoint, dict(params)))):
++                api.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++                with self.assertRaises(RequestNotSentError):
++                    api.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++            api.trade.create_market_order("BTCUSDT", "SELL", "0.001")
++        self.assertEqual(len(Handler.requests), 2)
++        self.assertEqual(len(checks), 1)
++        self.assertEqual(checks[0][1]["quantity"], "0.001")
++
++    def test_permission_is_bound_to_instance_and_rejection_preserves_cause(self):
++        with RestAPI(api_key="k", api_secret="s", endpoints=self.urls) as first, RestAPI(api_key="k", api_secret="s", endpoints=self.urls) as second:
++            failure = RuntimeError("gate_revoked")
++
++            def deny(endpoint, params):
++                raise failure
++
++            with first.send_permission(deny):
++                second.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++                with self.assertRaises(RequestNotSentError) as caught:
++                    first.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++            self.assertIs(caught.exception.__cause__, failure)
++        self.assertEqual(len(Handler.requests), 1)
++
++
++class AsyncSendPermissionTests(unittest.IsolatedAsyncioTestCase):
++    async def test_websocket_guard_runs_after_connection_and_before_message(self):
++        messages = []
++
++        async def handler(socket):
++            async for message in socket:
++                request = json.loads(message)
++                messages.append(request)
++                await socket.send(json.dumps({"id": request["id"], "status": 200, "result": {"orderId": 1}}))
++
++        async with serve(handler, "127.0.0.1", 0) as server:
++            port = server.sockets[0].getsockname()[1]
++            urls = Endpoints(websocket_api=f"ws://127.0.0.1:{port}/ws-fapi/v1")
++            async with WebSocketAPI(api_key="k", api_secret="s", endpoints=urls) as api:
++                with api.send_permission(lambda endpoint, params: False):
++                    with self.assertRaises(RequestNotSentError):
++                        await api.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++                self.assertEqual(messages, [])
++                with api.send_permission(lambda endpoint, params: True):
++                    await api.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++                self.assertEqual(len(messages), 1)
++
++    async def test_async_http_limiter_wait_does_not_bypass_guard(self):
++        entered, release = asyncio.Event(), asyncio.Event()
++        allowed = True
++
++        class Limiter(RateLimiter):
++            async def acquire_async(self, *args):
++                entered.set()
++                await release.wait()
++                return await super().acquire_async(*args)
++
++        async with AsyncRestAPI(api_key="k", api_secret="s", endpoints=Endpoints(rest="http://127.0.0.1:1"), rate_limiter=Limiter()) as api:
++            async def invoke():
++                with api.send_permission(lambda endpoint, params: allowed):
++                    await api.trade.create_market_order("BTCUSDT", "BUY", "0.001")
++
++            task = asyncio.create_task(invoke())
++            await asyncio.wait_for(entered.wait(), 5)
++            allowed = False
++            release.set()
++            with self.assertRaises(RequestNotSentError):
++                await asyncio.wait_for(task, 5)

@@ -1,16 +1,15 @@
 from typing import Optional
 
-from .broker import Broker
 from .data.model import Bar, normalize_symbol
 from .logger import logger as default_logger
-from .protocols.broker import BROKER_PROTOCOL_METHODS, BrokerProtocol
+from .protocols.trading import StrategyExchangeProtocol, TradingBrokerProtocol
 
 
 class Strategy:
     def __init__(
         self,
         strategy_id: str,
-        broker: Optional[Broker] = None,
+        broker: Optional[TradingBrokerProtocol] = None,
         params: Optional[dict] = None,
         logger=None,
     ):
@@ -43,15 +42,16 @@ class Strategy:
     def broker(self, broker):
         self.set_broker(broker)
 
-    def set_broker(self, broker):
+    def set_broker(self, broker: Optional[TradingBrokerProtocol]):
         if self._run_consumed:
             raise RuntimeError("cannot change Broker after Strategy has started")
         if broker is None:
             self._broker = None
             return
-        if not isinstance(broker, BrokerProtocol):
+        if not isinstance(broker, TradingBrokerProtocol):
             raise TypeError(
-                f"broker must implement BrokerProtocol ({', '.join(BROKER_PROTOCOL_METHODS)}), "
+                "broker must implement TradingBrokerProtocol "
+                "(submit_market_order, get_position_size), "
                 f"got {type(broker).__name__}"
             )
         self._broker = broker
@@ -70,7 +70,7 @@ class Strategy:
     def exchange(self, exchange):
         self.set_exchange(exchange)
 
-    def set_exchange(self, exchange):
+    def set_exchange(self, exchange: Optional[StrategyExchangeProtocol]):
         if self._run_consumed:
             raise RuntimeError("Strategy has already been used in a run")
         if self.exchange is not None and exchange is not None and self.exchange is not exchange:

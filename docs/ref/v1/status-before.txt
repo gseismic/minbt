@@ -1,0 +1,87 @@
+ M HANDOFF.md
+ M README.md
+ M docs/design/README.md
+ M docs/design/execution-20261013-cross-settlement.md
+ M docs/design/live-trading-20261023-design.md
+ M examples/01_quickstart.py
+ M examples/02_moving_average.py
+ M examples/03_rotation.py
+ M examples/04_exit_rules.py
+ M examples/05_limit_orders.py
+ M examples/06_breakout.py
+ M examples/07_rebalance.py
+ M examples/08_pairs_trading.py
+ M examples/09_cross_market.py
+ M examples/10_run_control.py
+ M examples/11_pnl.py
+ M examples/12_benchmark.py
+ M examples/13_binance_feed.py
+ M examples/14_csv_feed.py
+ M examples/15_iosql_feed.py
+ M examples/16_replay_modes.py
+ M examples/17_bar_storage.py
+ M minbt/__init__.py
+ M minbt/broker/broker.py
+ M minbt/broker/order.py
+ M minbt/broker/pnl.py
+ M minbt/broker/portfolio.py
+ M minbt/data/__init__.py
+ M minbt/exchange.py
+ M minbt/protocols/__init__.py
+ M minbt/protocols/result.py
+ M minbt/result.py
+ M minbt/run.py
+ M minbt/skills/minbt-usage/SKILL.md
+ M minbt/skills/minbt-usage/references/data-and-control.md
+ M minbt/skills/minbt-usage/references/trading.md
+ M minbt/skills/minbt-usage/scripts/quickstart.py
+ M minbt/strategy.py
+ M pyproject.toml
+ M tests/test_api_contract.py
+ M tests/test_broker.py
+ M tests/test_data_feed.py
+ M tests/test_design_mvp.py
+ M tests/test_exchange.py
+ M tests/test_exit_conditions.py
+ M tests/test_generic_bar_feed.py
+ M tests/test_logger.py
+ M tests/test_plugins_protocols.py
+ M tests/test_pnl.py
+ M tests/test_replay_modes.py
+ M tests/test_review_regressions.py
+ M tests/test_review_round9_round10.py
+ M tests/test_run_control.py
+ M tests/test_run_entry.py
+ M tests/test_skill_packaging.py
+ M tests/test_strategy.py
+?? BRAIN.md
+?? GOAL.md
+?? docs/dev/PLAN-069-risk-pnl-overflow-OUTCOME.md
+?? docs/dev/PLAN-069-risk-pnl-overflow.md
+?? docs/dev/PLAN-070-live-trading-OUTCOME.md
+?? docs/dev/PLAN-070-live-trading.md
+?? docs/dev/PLAN-071-backtest-first-design.md
+?? docs/integration/
+?? docs/migration/
+?? docs/ref/
+?? minbt/_result_store.py
+?? minbt/_runtime.py
+?? minbt/broker/_session.py
+?? minbt/broker/execution.py
+?? minbt/errors.py
+?? minbt/events.py
+?? minbt/permissions.py
+?? minbt/plugins/binance/live/
+?? minbt/protocols/exchange.py
+?? minbt/protocols/live.py
+?? minbt/replay/
+?? minbt/sim/
+?? tests/test_event_execution.py
+?? tests/test_live_account.py
+?? tests/test_live_crash_recovery.py
+?? tests/test_live_market.py
+?? tests/test_live_sdk_integration.py
+?? tests/test_native_protection.py
+?? tests/test_persistent_result.py
+?? tests/test_public_event_plugin.py
+?? tests/test_risk_pnl_overflow.py

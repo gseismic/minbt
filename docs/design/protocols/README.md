@@ -10,6 +10,7 @@
 | [配置入口](run-20261012-contract.md) | 参数文件与用户提供的 Feed/Broker 工厂 |
 | [自定义数据](data-20261012-contract.md) | 保留 name/events，集中时间、排序和资源约定 |
 | [Broker 扩展](trading-20261012-contract.md) | 原交易接口、回放推进和现有状态查询 |
+| [策略共用接口](../live-trading-20261023-design.md#3-先定义最小协议) | TradingBrokerProtocol 与 StrategyExchangeProtocol；不统一成交和运行结果 |
 | [结果读取](result-20261012-contract.md) | 现有 RunResult 查询，足够支持权益/盈亏绘图 |
 
 共同约定：

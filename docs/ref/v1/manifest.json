@@ -1,0 +1,2127 @@
+{
+  "created_at": "2026-10-23T12:26:48.762581+00:00",
+  "head": "76b6d7a70bedaebaeac7f0a090fdd479096568e6",
+  "restore_target": "6c1e7a01c56578728bc44cf6e382659bac069a8f",
+  "files": [
+    {
+      "path": ".agents/skills/minbt-usage",
+      "type": "symlink",
+      "target": "../../minbt/skills/minbt-usage"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "type": "file",
+      "size": 2669,
+      "sha256": "3cda69007b14f293ac1df8d5e8dd5d105ec84ab8e889541f5ec7a5a2b85c8d12"
+    },
+    {
+      "path": ".gitignore",
+      "type": "file",
+      "size": 3250,
+      "sha256": "1b126a01d7441b2cb4b386b35875654fbb554f6acf4f5c9e4d8c127e200b62a0"
+    },
+    {
+      "path": "AGENTS.md",
+      "type": "file",
+      "size": 1446,
+      "sha256": "c7049f790e53e9e50eabf97ca2bca1ffa32f8aed70f4aefa17d272084a8da2f7"
+    },
+    {
+      "path": "BRAIN.md",
+      "type": "file",
+      "size": 469,
+      "sha256": "318d9cac4e38939e07ed022fc5e60834d2b0310f31479aebd5180a5a93dd4dda"
+    },
+    {
+      "path": "GOAL.md",
+      "type": "file",
+      "size": 384,
+      "sha256": "7af8f9929f256ed0a5e6e6c2b1f244b706cd81c2a23f1ed1a470d0f23166c7e8"
+    },
+    {
+      "path": "HANDOFF.md",
+      "type": "file",
+      "size": 21369,
+      "sha256": "ec13ec7704ea983fae24325dbae3fac040c1f53220fa9b0f7414584ff9b90c85"
+    },
+    {
+      "path": "LICENSE",
+      "type": "file",
+      "size": 1065,
+      "sha256": "3d31a42a66ad73fc0b8d9e51965022abb6842c7e975eb6b7dead60ea1ddfda30"
+    },
+    {
+      "path": "README.md",
+      "type": "file",
+      "size": 42669,
+      "sha256": "0461e48857f3a73c7e2624ffa91b2e8e6fa002c8d5ac503d8d09417864c6f2ed"
+    },
+    {
+      "path": "docs/ISSUES.md",
+      "type": "file",
+      "size": 3113,
+      "sha256": "88d5bef4529dd8a60d2fcf560f913f3422284bf5a63fd6c9dff809c9f3391adb"
+    },
+    {
+      "path": "docs/design/README.md",
+      "type": "file",
+      "size": 7374,
+      "sha256": "2fbe728363e187c6e7cdd66fb4a36ad647ccf12bc1eac5a4924058ad33c0cade"
+    },
+    {
+      "path": "docs/design/broker-market-routing-20260701-design.md",
+      "type": "file",
+      "size": 21339,
+      "sha256": "5e91e2103401aa66f8735c8665fb54230d7b183fd6f74e8d1c8dc04d5202eb20"
+    },
+    {
+      "path": "docs/design/csv-iosql-feed-20260920-design.md",
+      "type": "file",
+      "size": 18633,
+      "sha256": "ae8207d064fedd9f2dba5694784d8a98ce326744d9b4a46cdac1808326a57c6c"
+    },
+    {
+      "path": "docs/design/data-feed-20260701-design.md",
+      "type": "file",
+      "size": 25387,
+      "sha256": "aa90c84caa2cb8368a2a9b5db6ecb3d98d0a3088d28522e19559d432fa1f33d3"
+    },
+    {
+      "path": "docs/design/exchange-20260921-replay-modes.md",
+      "type": "file",
+      "size": 15341,
+      "sha256": "4c9f429a0d1a7064ad23f1ee4ad8a6b5644817362769f82c99a2f094d3a2d937"
+    },
+    {
+      "path": "docs/design/execution-20261013-cross-settlement.md",
+      "type": "file",
+      "size": 3992,
+      "sha256": "d8b626718e7c6e579dfc1396d99283f3dfcbc2d25bcb35fa4ee93558b87a4203"
+    },
+    {
+      "path": "docs/design/execution-20261013-invariants.md",
+      "type": "file",
+      "size": 8149,
+      "sha256": "ae510943bc4596974438d1e89d87fac53d1bad0375f315feae7d048648103ebc"
+    },
+    {
+      "path": "docs/design/kernel-20261012-protocol-plugins.md",
+      "type": "file",
+      "size": 9969,
+      "sha256": "f9b3b5e0462ac004061a4acfb7eacf93dcd471cc896b0898a5898f9a0b8ec51d"
+    },
+    {
+      "path": "docs/design/live-trading-20261023-design.md",
+      "type": "file",
+      "size": 96557,
+      "sha256": "6228bec4ef7f5739f14eecc3f928c9c95c07ca3b18461d0e76a2893219be2ceb"
+    },
+    {
+      "path": "docs/design/minbt-20260630-system-design.md",
+      "type": "file",
+      "size": 47957,
+      "sha256": "96ea420748c844d95f1f95eedc6551925dc7678baaf18e57d4995e3288ba8758"
+    },
+    {
+      "path": "docs/design/minbt-20260921-api-refactor.md",
+      "type": "file",
+      "size": 34207,
+      "sha256": "cd7f642a392cf045312b2c5861a499518b651d0733aab8403797196061258ba7"
+    },
+    {
+      "path": "docs/design/plot-20260706-examples.md",
+      "type": "file",
+      "size": 5119,
+      "sha256": "3461ba82ca0a786ee01e3c3219ff56dd0027ea23d1329d1336b2360b4543b668"
+    },
+    {
+      "path": "docs/design/plot-20261011-inline-examples.md",
+      "type": "file",
+      "size": 1591,
+      "sha256": "92570b667b928ebff19b79a3daf8e021fa97b24706909e17e6a076df96f3c2c9"
+    },
+    {
+      "path": "docs/design/pnl-20260920-examples.md",
+      "type": "file",
+      "size": 1759,
+      "sha256": "e64393e6339407fdd3633c8939090953b68682f8b94289181ee07f60d871fe9a"
+    },
+    {
+      "path": "docs/design/pnl-20261011-library-api.md",
+      "type": "file",
+      "size": 7336,
+      "sha256": "198550b0807cb5e8bbc2ff4eb9849d743b5aacc21e2642c9396ee89c7a2bd725"
+    },
+    {
+      "path": "docs/design/protocols/README.md",
+      "type": "file",
+      "size": 2086,
+      "sha256": "927ebf67bf96a9bb165707d62385f5b5fd6b430dc96c95d72f30a93ff0779245"
+    },
+    {
+      "path": "docs/design/protocols/data-20261012-contract.md",
+      "type": "file",
+      "size": 4813,
+      "sha256": "06017af711899a22af017fa30bc3fdea1ba1b77a32e9d55872130e92c537521f"
+    },
+    {
+      "path": "docs/design/protocols/engine-20261012-contract.md",
+      "type": "file",
+      "size": 3421,
+      "sha256": "0e9f9147d88b73af3c8380c5b798c5d30cb9db315fc958f8482d23241410b8be"
+    },
+    {
+      "path": "docs/design/protocols/result-20261012-contract.md",
+      "type": "file",
+      "size": 4166,
+      "sha256": "4f3961b9d9250559ca74c728704b5fbecbaa1b6f5342e7fedf12d053a9306cea"
+    },
+    {
+      "path": "docs/design/protocols/run-20261012-contract.md",
+      "type": "file",
+      "size": 4462,
+      "sha256": "fe75f28e88e01663f32162afadad5c7f4fdd1b46efc793018cd56c849b3cc8b0"
+    },
+    {
+      "path": "docs/design/protocols/trading-20261012-contract.md",
+      "type": "file",
+      "size": 5036,
+      "sha256": "9207c3f159ddd1ef4662e43da25edc0623a907bf459ad007d75d8f04cc2919d3"
+    },
+    {
+      "path": "docs/design/run-20261012-control.md",
+      "type": "file",
+      "size": 19268,
+      "sha256": "77b34decd0f45f753cf313316807c528fce99032a25c39e91793e7ffe407405b"
+    },
+    {
+      "path": "docs/design/skills-20261012-packaging.md",
+      "type": "file",
+      "size": 4255,
+      "sha256": "6d4bd595d06147aea98d282652f3d4c12b20f44e8cdacf9fcf3f37eb013196da"
+    },
+    {
+      "path": "docs/dev/INDEX.md",
+      "type": "file",
+      "size": 2528,
+      "sha256": "d04b6423bc4a14ee530dd0fe5f85b8464f720f76354ea58792c58d6a1eb85daf"
+    },
+    {
+      "path": "docs/dev/PLAN-001-review-fix-OUTCOME.md",
+      "type": "file",
+      "size": 1687,
+      "sha256": "158b1145a48319a525fd97e9a3e786dab825276692384649dd934b9937b44c56"
+    },
+    {
+      "path": "docs/dev/PLAN-001-review-fix.md",
+      "type": "file",
+      "size": 476,
+      "sha256": "b3e6542254b38070512e1c2cca49b790d580508c750d53019fd7bc28b5a28c0f"
+    },
+    {
+      "path": "docs/dev/PLAN-002-kernel-review-OUTCOME.md",
+      "type": "file",
+      "size": 1912,
+      "sha256": "49037eff09dcd8fb5ad6a77da8d2f6d44073b4b8502d19f542ca59270ac067ce"
+    },
+    {
+      "path": "docs/dev/PLAN-002-kernel-review.md",
+      "type": "file",
+      "size": 688,
+      "sha256": "4c46788e67e05c728e0b0a97736976bbcaeb62b1de8f64f8d0cb2a3c0a02c847"
+    },
+    {
+      "path": "docs/dev/PLAN-003-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 1686,
+      "sha256": "ed264e0e06ab903f2eca4ed546745c09dfaf6f5bf217bb710cb003673c07f2bd"
+    },
+    {
+      "path": "docs/dev/PLAN-003-review-fixes.md",
+      "type": "file",
+      "size": 1187,
+      "sha256": "c8c55b39bb219fecec3cd1ac67b8d9047dac3d909ef9bd4c91519e62624a7afe"
+    },
+    {
+      "path": "docs/dev/PLAN-004-docs-skills-OUTCOME.md",
+      "type": "file",
+      "size": 1041,
+      "sha256": "2fd69f7d1b42bcca6d3d341a7a9fd612d85b611640bf9a84bf052d5e046d7ab9"
+    },
+    {
+      "path": "docs/dev/PLAN-004-docs-skills.md",
+      "type": "file",
+      "size": 855,
+      "sha256": "23c25376fe9ec7b52cffc95550a7741435538cef00c27d4886a849a025804b6e"
+    },
+    {
+      "path": "docs/dev/PLAN-005-system-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 3566,
+      "sha256": "8f5c2e606eb0cf1ac5d638a541cd3e888908058528d75224eae1cfb77df5447f"
+    },
+    {
+      "path": "docs/dev/PLAN-005-system-review-fixes.md",
+      "type": "file",
+      "size": 3792,
+      "sha256": "d62007c8637dd2819e7308e637caf9787970093b15b9a1a49613a684a9890557"
+    },
+    {
+      "path": "docs/dev/PLAN-006-examples-OUTCOME.md",
+      "type": "file",
+      "size": 2492,
+      "sha256": "fdaabf95bd2f4af993c94c86e86f958d367a9b49dff4f447e1017a31d3be25d8"
+    },
+    {
+      "path": "docs/dev/PLAN-006-examples.md",
+      "type": "file",
+      "size": 2089,
+      "sha256": "e58b9ab72ffe717deaf1f6485ff076bbc84c1a5b738e37fd4f0e05cd3b6fc7c0"
+    },
+    {
+      "path": "docs/dev/PLAN-007-review-hardening-OUTCOME.md",
+      "type": "file",
+      "size": 3086,
+      "sha256": "0d4b6e26413f49761b8783a661f0222d52f3780308463fccac77d6c926759179"
+    },
+    {
+      "path": "docs/dev/PLAN-007-review-hardening.md",
+      "type": "file",
+      "size": 2852,
+      "sha256": "748c69cbfc565ac70e1d286ed79d7c67808625c662a859db0d154aaece6fdd49"
+    },
+    {
+      "path": "docs/dev/PLAN-008-realistic-scenarios-OUTCOME.md",
+      "type": "file",
+      "size": 7389,
+      "sha256": "d12c8840048ae3c11917fd7cfea0a886df1e0ada2df4f70f931d2e5586069594"
+    },
+    {
+      "path": "docs/dev/PLAN-008-realistic-scenarios.md",
+      "type": "file",
+      "size": 2077,
+      "sha256": "53b54f77373778f9770fd96d46caac2d91c29296a56966fd09e3ffc3697acd16"
+    },
+    {
+      "path": "docs/dev/PLAN-009-design-doc-refresh-OUTCOME.md",
+      "type": "file",
+      "size": 1388,
+      "sha256": "ab85d56bc7adf741ff8131c5722df9b4cd0599b3cf46f821afdb03591b320c65"
+    },
+    {
+      "path": "docs/dev/PLAN-009-design-doc-refresh.md",
+      "type": "file",
+      "size": 1486,
+      "sha256": "7cbf50f8bedda2214f335212c60ae1c46ccd032a980c6948e2fc68af5cc54ae6"
+    },
+    {
+      "path": "docs/dev/PLAN-010-design-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 1617,
+      "sha256": "b05cb4948df425f2e289a3e29bab38e429e1fac718ce78477748f9d4f284157d"
+    },
+    {
+      "path": "docs/dev/PLAN-010-design-review-fixes.md",
+      "type": "file",
+      "size": 1823,
+      "sha256": "50b57d88e157c2be427a2238e8a7f70391440eb805cd95162dfaf811e5da4661"
+    },
+    {
+      "path": "docs/dev/PLAN-011-remove-initial-positions-OUTCOME.md",
+      "type": "file",
+      "size": 989,
+      "sha256": "2f67799f5329f7e7bfbc13585c59c690e2fe0ccdaf8ab7f23edd043c10703f08"
+    },
+    {
+      "path": "docs/dev/PLAN-011-remove-initial-positions.md",
+      "type": "file",
+      "size": 1168,
+      "sha256": "421fb0f1fbe50477c03fa98253d0cb2171e989015a6c44a245cc41cef10c1632"
+    },
+    {
+      "path": "docs/dev/PLAN-012-implement-design-OUTCOME.md",
+      "type": "file",
+      "size": 2428,
+      "sha256": "269b0791a330e6117632ff5e541c382522037bcdd7d6b53103a1df5d0a78321c"
+    },
+    {
+      "path": "docs/dev/PLAN-012-implement-design.md",
+      "type": "file",
+      "size": 1905,
+      "sha256": "553664409c3156dd09d144dd4b8ee9983dbc962a28b1cc6ba9975ff5569cc0ad"
+    },
+    {
+      "path": "docs/dev/PLAN-013-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 1557,
+      "sha256": "db811bca93c7a4284ec5229d6a3c8f64b44b677a07a79890f2bed486f16d5adb"
+    },
+    {
+      "path": "docs/dev/PLAN-013-review-fixes.md",
+      "type": "file",
+      "size": 1518,
+      "sha256": "a4a3cbaa7878a0819e0a5f95c544e121fa77149b73663def4086a02ccdf8e536"
+    },
+    {
+      "path": "docs/dev/PLAN-014-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 1062,
+      "sha256": "392077178a3ad2887a3e80de72c0a0d64b06f7221ce30a655a4871dcea6fafa2"
+    },
+    {
+      "path": "docs/dev/PLAN-014-review-fixes.md",
+      "type": "file",
+      "size": 964,
+      "sha256": "bb2dcfd0d987447e6dc31e2c43e608b4dde5654890419ee7f76bda4f8ca6c665"
+    },
+    {
+      "path": "docs/dev/PLAN-015-market-broker-simplify-OUTCOME.md",
+      "type": "file",
+      "size": 3688,
+      "sha256": "36736dbbdc6632d2575305f3f6fec86ab4adf33d2c5d329e7659234848d920af"
+    },
+    {
+      "path": "docs/dev/PLAN-015-market-broker-simplify.md",
+      "type": "file",
+      "size": 2854,
+      "sha256": "8e117fa656099d8276901890e7fe0f9e211526e343121c8496ca9a73761d1a1b"
+    },
+    {
+      "path": "docs/dev/PLAN-016-exit-rule-example-OUTCOME.md",
+      "type": "file",
+      "size": 2687,
+      "sha256": "2148ebe1f206c799924679050be4680e59e24b81a34927418cf5d69ed84de89a"
+    },
+    {
+      "path": "docs/dev/PLAN-016-exit-rule-example.md",
+      "type": "file",
+      "size": 1781,
+      "sha256": "755fbd9f97d143f998d4135c326d68afc77fa92fd7801027cccd99818e33d744"
+    },
+    {
+      "path": "docs/dev/PLAN-017-system-design-refresh-OUTCOME.md",
+      "type": "file",
+      "size": 1183,
+      "sha256": "e2f16288fae576c8ed05b8b2fb6dded55218f4544ebb118a50c4241cd49484ed"
+    },
+    {
+      "path": "docs/dev/PLAN-017-system-design-refresh.md",
+      "type": "file",
+      "size": 1247,
+      "sha256": "11a1640f0c437f3899826993856415c0b20151240bcb881ff10a948d6032ab34"
+    },
+    {
+      "path": "docs/dev/PLAN-018-api-contract-tightening-OUTCOME.md",
+      "type": "file",
+      "size": 1030,
+      "sha256": "3b4ea88b42e33dd1e48a46adc711ff7adcd9d16d74cf29de7dea90bf47daae1c"
+    },
+    {
+      "path": "docs/dev/PLAN-018-api-contract-tightening.md",
+      "type": "file",
+      "size": 1144,
+      "sha256": "b60fbb7ba2439039634a171e220aa7f1ba489a2228ee6d3b3bb8ace60dfd50ab"
+    },
+    {
+      "path": "docs/dev/PLAN-019-design-review-contract-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 1359,
+      "sha256": "69edf576ffccf6de7d1e8cd098320c52669d881f94ddfb801db8385d2d7d0715"
+    },
+    {
+      "path": "docs/dev/PLAN-019-design-review-contract-fixes.md",
+      "type": "file",
+      "size": 1228,
+      "sha256": "ca77c34508ddb0cd36da289fb9b33989b5f9721db3192fcac0ab4c8e1252ec15"
+    },
+    {
+      "path": "docs/dev/PLAN-020-implement-api-contract-OUTCOME.md",
+      "type": "file",
+      "size": 3064,
+      "sha256": "b85cd57d529b3007499050742fa2ad80e37f9490f566523dad540caabeaa259a"
+    },
+    {
+      "path": "docs/dev/PLAN-020-implement-api-contract.md",
+      "type": "file",
+      "size": 2866,
+      "sha256": "df460832dbca3a061a5d2e02c1c829ca0b84596614eb6464a7bf53ad90522b56"
+    },
+    {
+      "path": "docs/dev/PLAN-021-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 2732,
+      "sha256": "325e31540281234ed572591cd0d0a367912ce612517919a91c68e9bbe80b7695"
+    },
+    {
+      "path": "docs/dev/PLAN-021-review-fixes.md",
+      "type": "file",
+      "size": 1160,
+      "sha256": "f81e187b9d62b401f0dd5c37bb1da073ff3a7d613db28810ff5ada5f7896036b"
+    },
+    {
+      "path": "docs/dev/PLAN-022-transaction-atomicity-OUTCOME.md",
+      "type": "file",
+      "size": 1882,
+      "sha256": "2c717b5dd837a15057f1fe6f7d5628b0a5935a115181fa0b5407c1299a4f16b5"
+    },
+    {
+      "path": "docs/dev/PLAN-022-transaction-atomicity.md",
+      "type": "file",
+      "size": 2523,
+      "sha256": "e9999c73ca13e63b846d94464f8c9e323ea986fb0569d0f3a030096f10c0dde0"
+    },
+    {
+      "path": "docs/dev/PLAN-023-market-exit-lifecycle-OUTCOME.md",
+      "type": "file",
+      "size": 2035,
+      "sha256": "c2871e5df48f24d3707d080a3976aff96fdb22a31fc46023f40779b074c4df1e"
+    },
+    {
+      "path": "docs/dev/PLAN-023-market-exit-lifecycle.md",
+      "type": "file",
+      "size": 2623,
+      "sha256": "2c7e529f01baedcaf2661eac47daff5da7a84141a44f0f5048acd9d8797f34bd"
+    },
+    {
+      "path": "docs/dev/PLAN-024-api-contract-conformance-OUTCOME.md",
+      "type": "file",
+      "size": 3262,
+      "sha256": "a631a686bcc44a722163eb6002b944bc75bfa0f242a5be251e38e4069cfca0da"
+    },
+    {
+      "path": "docs/dev/PLAN-024-api-contract-conformance.md",
+      "type": "file",
+      "size": 2838,
+      "sha256": "d70f9b68cb4db75042b22bb68c9d153de4f49a1814d4c807a37dd0db8583a4ae"
+    },
+    {
+      "path": "docs/dev/PLAN-025-examples-logger-cleanup-OUTCOME.md",
+      "type": "file",
+      "size": 1449,
+      "sha256": "83b7ea9c7515e2152493d2797d402e165237dbeda328a47834c800bff192d415"
+    },
+    {
+      "path": "docs/dev/PLAN-025-examples-logger-cleanup.md",
+      "type": "file",
+      "size": 816,
+      "sha256": "03359c396d4a83b209180a282b5913750d98291119997f9f16b0d71ab53b6157"
+    },
+    {
+      "path": "docs/dev/PLAN-026-api-design-consistency-OUTCOME.md",
+      "type": "file",
+      "size": 2282,
+      "sha256": "545caede083b89ea973df57d531868e234de4fff666eb89f861b30340a6c8921"
+    },
+    {
+      "path": "docs/dev/PLAN-026-api-design-consistency.md",
+      "type": "file",
+      "size": 1567,
+      "sha256": "932d04edf622f547a9abb9deb9333ddc9cb740d128f647a31a330975034e4f2d"
+    },
+    {
+      "path": "docs/dev/PLAN-027-readme-skill-strategy-docs-OUTCOME.md",
+      "type": "file",
+      "size": 1927,
+      "sha256": "88848ccb6817cfa509c5a41bd718125473429da8cb4e64820b5b243a3a3cb265"
+    },
+    {
+      "path": "docs/dev/PLAN-027-readme-skill-strategy-docs.md",
+      "type": "file",
+      "size": 1486,
+      "sha256": "2fad2fdacfba87bf7cc3e58c9f744e1e52e9975c0ae0d3c4428629ddbc18438a"
+    },
+    {
+      "path": "docs/dev/PLAN-028-logger-interface-cleanup-OUTCOME.md",
+      "type": "file",
+      "size": 3153,
+      "sha256": "05cd02e575196896d9223614ebee348bce18e90f1b3709a8069d24f267cfcedf"
+    },
+    {
+      "path": "docs/dev/PLAN-028-logger-interface-cleanup.md",
+      "type": "file",
+      "size": 1902,
+      "sha256": "c8ba6c957c4f33e1fd911953965ec1605dce4f80e6ac61760eb520564ef0d4e1"
+    },
+    {
+      "path": "docs/dev/PLAN-029-exchange-input-normalization-performance-OUTCOME.md",
+      "type": "file",
+      "size": 2164,
+      "sha256": "b883fcfa1de20a737b715bb73bf8654e5e83ac907137e471495700019f5fa721"
+    },
+    {
+      "path": "docs/dev/PLAN-029-exchange-input-normalization-performance.md",
+      "type": "file",
+      "size": 2200,
+      "sha256": "ccfe8a089fa348eee6a84ed4ff14b0c4b8f22defd45817bc7e1ed41ca4fe7fd6"
+    },
+    {
+      "path": "docs/dev/PLAN-030-100k-empty-benchmark-example-OUTCOME.md",
+      "type": "file",
+      "size": 1129,
+      "sha256": "8b3f2aacbab2bfa89c95f7c5ff91c39911865a0a98c9e286ac21bee7d5dfe28f"
+    },
+    {
+      "path": "docs/dev/PLAN-030-100k-empty-benchmark-example.md",
+      "type": "file",
+      "size": 976,
+      "sha256": "4bbd01f448fa545775d65f5c79f699f0fedfbd0e00356e853686fc0d51c4e56f"
+    },
+    {
+      "path": "docs/dev/PLAN-031-broker-market-routing-design-OUTCOME.md",
+      "type": "file",
+      "size": 855,
+      "sha256": "ed3cd1f3c45bb5ebc08d6071c6e1e80a2bfb78d6af5030c1ffa8b7e95087c1d5"
+    },
+    {
+      "path": "docs/dev/PLAN-031-broker-market-routing-design.md",
+      "type": "file",
+      "size": 781,
+      "sha256": "074f55715608d5667f04e05d129baa6d6977e1c6cb17cf221735884ac528c650"
+    },
+    {
+      "path": "docs/dev/PLAN-032-broker-market-routing-design-fix-OUTCOME.md",
+      "type": "file",
+      "size": 1039,
+      "sha256": "d6d176006742cd7f130c513609b21acd5d40130813dc3eaa1710e99224c1a2b3"
+    },
+    {
+      "path": "docs/dev/PLAN-032-broker-market-routing-design-fix.md",
+      "type": "file",
+      "size": 1390,
+      "sha256": "476f8d268faead50ea1e4e04c65da6846deac642a84d4e9781a43d96c20c88b0"
+    },
+    {
+      "path": "docs/dev/PLAN-033-broker-market-routing-implementation-OUTCOME.md",
+      "type": "file",
+      "size": 3860,
+      "sha256": "886322dff7c6f3f64759e7b3e5852bc1402367d861ee38312b5c63f64878bcba"
+    },
+    {
+      "path": "docs/dev/PLAN-033-broker-market-routing-implementation.md",
+      "type": "file",
+      "size": 2599,
+      "sha256": "bc6fa1aa9615077b2244030913213fb82406fc504ad7591ec98bd6d189ae6019"
+    },
+    {
+      "path": "docs/dev/PLAN-034-market-routing-interface-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 2567,
+      "sha256": "8ec375bfdab8bdeafea6bd2f1b91f7dc0f5e47dba22a877f38635f3f30744b5a"
+    },
+    {
+      "path": "docs/dev/PLAN-034-market-routing-interface-fixes.md",
+      "type": "file",
+      "size": 1840,
+      "sha256": "a854d28e65e0710bba36d89215e3c0b25eed2947b6d39232a5bbddab3298081b"
+    },
+    {
+      "path": "docs/dev/PLAN-035-data-feed-design-fix-OUTCOME.md",
+      "type": "file",
+      "size": 1954,
+      "sha256": "cc27a5eab9544bf061618fc2a5bb0375d2201400dcfd32b2d8ed47ce59c1cebe"
+    },
+    {
+      "path": "docs/dev/PLAN-035-data-feed-design-fix.md",
+      "type": "file",
+      "size": 1601,
+      "sha256": "a6b8721583b4b9a7052821fc6892e5ceb3652ca5add0833b96b5c0259de2e21d"
+    },
+    {
+      "path": "docs/dev/PLAN-036-data-feed-binance-download-OUTCOME.md",
+      "type": "file",
+      "size": 1515,
+      "sha256": "96ce7dfaf39b664e2ea911ea2f7e6b0eab32ca43f73c6ba45f08248d9cacc11e"
+    },
+    {
+      "path": "docs/dev/PLAN-036-data-feed-binance-download.md",
+      "type": "file",
+      "size": 1482,
+      "sha256": "9e69fc279fa3f2c6345c609daf74e69d0fb805e466e640e3c4ca9ec377d8947b"
+    },
+    {
+      "path": "docs/dev/PLAN-037-data-feed-implementation-OUTCOME.md",
+      "type": "file",
+      "size": 2361,
+      "sha256": "43a1629174ae29f14ba58add5c8838b307171375090834ac6987868ccb86d5ed"
+    },
+    {
+      "path": "docs/dev/PLAN-037-data-feed-implementation.md",
+      "type": "file",
+      "size": 1366,
+      "sha256": "414e61fcb3757671ed848d59e671449435900ece87c823d00d89c1eef0bc1c2d"
+    },
+    {
+      "path": "docs/dev/PLAN-038-pyproject-install-OUTCOME.md",
+      "type": "file",
+      "size": 1808,
+      "sha256": "aec93c44771c3faae92e49b7db7df8c969fd3d13690e6ece7513bb150b83f31d"
+    },
+    {
+      "path": "docs/dev/PLAN-038-pyproject-install.md",
+      "type": "file",
+      "size": 958,
+      "sha256": "33ad19c94f1999cdbc19809828f90117a6c675ddc71d9b111c0ba49b51276c7f"
+    },
+    {
+      "path": "docs/dev/PLAN-039-plot-outcome.md",
+      "type": "file",
+      "size": 2830,
+      "sha256": "fce54854227b867e2c7a0a0ded8cc5c16e42d405d9d91a24ce0baf1557bbce66"
+    },
+    {
+      "path": "docs/dev/PLAN-040-design-code-sync-OUTCOME.md",
+      "type": "file",
+      "size": 3255,
+      "sha256": "425e4196032727c69cbc0b9ba1921a1dba7cd31897db08a69f3f7729acbe4b4c"
+    },
+    {
+      "path": "docs/dev/PLAN-040-design-code-sync.md",
+      "type": "file",
+      "size": 2372,
+      "sha256": "78ef7ce791b644a526a7418aba25a79a06f7838b037826cc9f88112d7af696ca"
+    },
+    {
+      "path": "docs/dev/PLAN-041-second-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 4091,
+      "sha256": "eb7bdaa46ab3136ae9f8395dd4b23b0c80ed32421692acce7f13753850d57f89"
+    },
+    {
+      "path": "docs/dev/PLAN-041-second-review-fixes.md",
+      "type": "file",
+      "size": 1099,
+      "sha256": "2534171f49fda5dde52b4137ad3351dc0d52acd7d7e3eb1b189db6f8c02135a9"
+    },
+    {
+      "path": "docs/dev/PLAN-042-csv-iosql-streaming-feed-OUTCOME.md",
+      "type": "file",
+      "size": 4754,
+      "sha256": "cb3a04569d394f85fabfa10215b5189a58f25cdb3d164bf95f94b8bc7e665932"
+    },
+    {
+      "path": "docs/dev/PLAN-042-csv-iosql-streaming-feed.md",
+      "type": "file",
+      "size": 2645,
+      "sha256": "1f4cd529872a22cd30d4c38e435f1e1a6629fdb9e022b50f76b18f33399175d3"
+    },
+    {
+      "path": "docs/dev/PLAN-043-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 5126,
+      "sha256": "dc857b522fa6703d3659be483530f759ffd8906f0e910165c1e0af744900182f"
+    },
+    {
+      "path": "docs/dev/PLAN-043-review-fixes.md",
+      "type": "file",
+      "size": 4877,
+      "sha256": "21b211465aa1bb25951bad17079f00176c3e56e3e994c16fcb1b38c04974ca4f"
+    },
+    {
+      "path": "docs/dev/PLAN-044-pnl-examples-OUTCOME.md",
+      "type": "file",
+      "size": 2374,
+      "sha256": "6272a65ac738534adc407c98387224efa408f8c7936d96115b0daf2fb0c65f02"
+    },
+    {
+      "path": "docs/dev/PLAN-044-pnl-examples.md",
+      "type": "file",
+      "size": 1464,
+      "sha256": "54c810a4946d9c0772d169f0e407988582a8c96d9eccdc2ed29c64dacbaed411"
+    },
+    {
+      "path": "docs/dev/PLAN-045-skill-refresh-OUTCOME.md",
+      "type": "file",
+      "size": 2002,
+      "sha256": "2dcbe391ccf6de99b88be1408eff4b569c175773ea908ef74ced8ed6ce95334c"
+    },
+    {
+      "path": "docs/dev/PLAN-045-skill-refresh.md",
+      "type": "file",
+      "size": 1317,
+      "sha256": "57e9162433fa8f7b6fe26904381032466f62b1c5cbcbb25b9ec0387669ca0c11"
+    },
+    {
+      "path": "docs/dev/PLAN-046-materialize-row-limit.md",
+      "type": "file",
+      "size": 4170,
+      "sha256": "2d8c6c18cba89a0067a11d6f8410ecbff1219bd9090e6c9c2865091e314cd2d9"
+    },
+    {
+      "path": "docs/dev/PLAN-047-exchange-replay-bar-OUTCOME.md",
+      "type": "file",
+      "size": 2934,
+      "sha256": "c1d6fd6297225232b3ed006af80443b744dc702faad00cb8ca43cd9f5d7d14da"
+    },
+    {
+      "path": "docs/dev/PLAN-047-exchange-replay-bar.md",
+      "type": "file",
+      "size": 2091,
+      "sha256": "28f11e1a3f06f5b59fe589575f6936eadb1b381e4f49cf9bcaa8971012379af7"
+    },
+    {
+      "path": "docs/dev/PLAN-048-simple-api-generic-bar-OUTCOME.md",
+      "type": "file",
+      "size": 3398,
+      "sha256": "2dc437728e7887876d1fcbd53a507ad1ca3f9c754614b8db27268d67271181e7"
+    },
+    {
+      "path": "docs/dev/PLAN-048-simple-api-generic-bar.md",
+      "type": "file",
+      "size": 2044,
+      "sha256": "3cc9e61680cead02b80460e49907602ffb555e8a58d6a814f2de34bb92d489fd"
+    },
+    {
+      "path": "docs/dev/PLAN-049-kline-feed-naming-OUTCOME.md",
+      "type": "file",
+      "size": 1685,
+      "sha256": "469a56225ab701f16d966e328aa4dfaff6dfd2ae2e9448c6071286e510fa4153"
+    },
+    {
+      "path": "docs/dev/PLAN-049-kline-feed-naming.md",
+      "type": "file",
+      "size": 1458,
+      "sha256": "9d4b41aab2b04701fbbdf3428f861c8abd2368267dbdb4207484afb2dee28cfd"
+    },
+    {
+      "path": "docs/dev/PLAN-050-review-docs-memoryfeed-OUTCOME.md",
+      "type": "file",
+      "size": 1011,
+      "sha256": "91b6543dec48235b0a4418a61dbdf3dfa378ef647430245a85623094f3eabd73"
+    },
+    {
+      "path": "docs/dev/PLAN-050-review-docs-memoryfeed.md",
+      "type": "file",
+      "size": 884,
+      "sha256": "c4ec17fb1b1469ad5c8158dc774f1aba01247c97627b3262bd86475afe131958"
+    },
+    {
+      "path": "docs/dev/PLAN-051-example-naming-OUTCOME.md",
+      "type": "file",
+      "size": 1017,
+      "sha256": "c9846fe122f2dddf7c9e41c0b3db25a8b029dca2c543cb5566bf72a78655e231"
+    },
+    {
+      "path": "docs/dev/PLAN-051-example-naming.md",
+      "type": "file",
+      "size": 2379,
+      "sha256": "75f6a9315a1d83bfcc7861144d5aa642131af07a877177b9787e3e5332ff7560"
+    },
+    {
+      "path": "docs/dev/PLAN-052-example-plot-windows-OUTCOME.md",
+      "type": "file",
+      "size": 1071,
+      "sha256": "8f83111c1ae314686e55ca42cc7c7b377e21f67602c0c8d32379cbbe6e89682c"
+    },
+    {
+      "path": "docs/dev/PLAN-052-example-plot-windows.md",
+      "type": "file",
+      "size": 1721,
+      "sha256": "82901d0ef96ed511baec010b7f4cbae9cc65cf3c4cb18bde6a97e41d4ddbb58b"
+    },
+    {
+      "path": "docs/dev/PLAN-053-review-20261002-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 4042,
+      "sha256": "b994f6ab6008ad9cb37a93a29c857e3926501d29cf167f62c1977d580a7eac4a"
+    },
+    {
+      "path": "docs/dev/PLAN-053-review-20261002-fixes.md",
+      "type": "file",
+      "size": 3678,
+      "sha256": "fb94911ddaf1f8c86456eb6816b032eecdc44f6aa01442df90a4b271c4020767"
+    },
+    {
+      "path": "docs/dev/PLAN-054-release-v0-1-0-OUTCOME.md",
+      "type": "file",
+      "size": 860,
+      "sha256": "c218d58a1a25f3e3586984647d1f818bfc318f00b957e377b85cc55894959371"
+    },
+    {
+      "path": "docs/dev/PLAN-054-release-v0-1-0.md",
+      "type": "file",
+      "size": 1010,
+      "sha256": "0404584792d682ab36c70fc66be2939524dd45f78faec423e9657e732e1c6003"
+    },
+    {
+      "path": "docs/dev/PLAN-055-simplify-examples-OUTCOME.md",
+      "type": "file",
+      "size": 1205,
+      "sha256": "c35b1cd508f445c158d0b8a6f0c1c1a0131ab665f3539cdfcf8ab9b2a72e2772"
+    },
+    {
+      "path": "docs/dev/PLAN-055-simplify-examples.md",
+      "type": "file",
+      "size": 1668,
+      "sha256": "defdb7260006c8e0a20c07ed970841518dfbc8add6ccbb03af1bcac8a9a9e7b4"
+    },
+    {
+      "path": "docs/dev/PLAN-056-inline-example-plots-OUTCOME.md",
+      "type": "file",
+      "size": 1270,
+      "sha256": "3b0f4b32f3207c877b2cace2f543339a1d855e282b313fa55a1aa2a4611b82cc"
+    },
+    {
+      "path": "docs/dev/PLAN-056-inline-example-plots.md",
+      "type": "file",
+      "size": 1474,
+      "sha256": "2a26987d856cca0e11fa23985377d157bdfe4aafaf553f4f4224a88c430d5161"
+    },
+    {
+      "path": "docs/dev/PLAN-057-library-pnl-OUTCOME.md",
+      "type": "file",
+      "size": 3739,
+      "sha256": "26f43ae8b254b9e6d263fa389122e17357b198ac61f09a989c7f9c103e0a23a5"
+    },
+    {
+      "path": "docs/dev/PLAN-057-library-pnl.md",
+      "type": "file",
+      "size": 2284,
+      "sha256": "6dca3e704aca4b4df290baa7af6ea3ac5e6ff5ffc3ce022f93f52066bdc7bf68"
+    },
+    {
+      "path": "docs/dev/PLAN-058-run-control-OUTCOME.md",
+      "type": "file",
+      "size": 6913,
+      "sha256": "87064a86a9fc7bb0e4063fbb1220c0cfe9e8da2430c9f3cdc837a37d47f182da"
+    },
+    {
+      "path": "docs/dev/PLAN-058-run-control.md",
+      "type": "file",
+      "size": 3205,
+      "sha256": "852027f83dba13ae4b57365dc7b3c9660f9688dec803ac010ae1cb1b0245b8ec"
+    },
+    {
+      "path": "docs/dev/PLAN-059-simple-examples-model-unknown-OUTCOME.md",
+      "type": "file",
+      "size": 2637,
+      "sha256": "76b9aa3071b4ba1f91297f661e1a4b0af2aa764ace7425cc79cd48f3ab285172"
+    },
+    {
+      "path": "docs/dev/PLAN-059-simple-examples-model-unknown.md",
+      "type": "file",
+      "size": 4597,
+      "sha256": "b0477b1d73b7bdbada4a2a84ae0dd6e599bd620460b76194e79c58a4b8fa9a07"
+    },
+    {
+      "path": "docs/dev/PLAN-060-package-skills-OUTCOME.md",
+      "type": "file",
+      "size": 4399,
+      "sha256": "d5512549700d7605f6fa5bafef07e8562ee9baecd84b49a20bab9ff8ea3bfb11"
+    },
+    {
+      "path": "docs/dev/PLAN-060-package-skills.md",
+      "type": "file",
+      "size": 2966,
+      "sha256": "1c7b58739faf3bc978ee40400c8500a653308da63d84d88e6ce51ba903b2e850"
+    },
+    {
+      "path": "docs/dev/PLAN-061-pypi-publish-OUTCOME.md",
+      "type": "file",
+      "size": 1930,
+      "sha256": "8d562804a2a1d53ca2b527d780080cc570adbbc5f72b6886d35c192fe144c49e"
+    },
+    {
+      "path": "docs/dev/PLAN-061-pypi-publish.md",
+      "type": "file",
+      "size": 2078,
+      "sha256": "2875c4fa5bfd8104b66e58b98b167cadb360c8fe4af526108fca0548eec2ee3d"
+    },
+    {
+      "path": "docs/dev/PLAN-062-release-v0-1-1-OUTCOME.md",
+      "type": "file",
+      "size": 993,
+      "sha256": "98029914bbe71d51723f0f8e68c0ca73510bc3db56ba3ea82536a2d1eacbc482"
+    },
+    {
+      "path": "docs/dev/PLAN-062-release-v0-1-1.md",
+      "type": "file",
+      "size": 1533,
+      "sha256": "59e08cd03554c7a0296ec878f674ba438a3b416dff21d4a615b364014f722050"
+    },
+    {
+      "path": "docs/dev/PLAN-063-protocol-plugin-design-OUTCOME.md",
+      "type": "file",
+      "size": 2923,
+      "sha256": "c90530ad63479c221a04de43afc053720a0c9aa58ff5a4d210f4fa1384e04255"
+    },
+    {
+      "path": "docs/dev/PLAN-063-protocol-plugin-design.md",
+      "type": "file",
+      "size": 2433,
+      "sha256": "b0216f24d9ca05c448aad9e9f9198e7e8b1812b64b14c7864ec8eccf2b176117"
+    },
+    {
+      "path": "docs/dev/PLAN-064-mini-plugins-implementation-OUTCOME.md",
+      "type": "file",
+      "size": 6016,
+      "sha256": "a1469b65176905e6c852d433fe1074cfaabdfc9beb5d263e5343636fd8c05d1f"
+    },
+    {
+      "path": "docs/dev/PLAN-064-mini-plugins-implementation.md",
+      "type": "file",
+      "size": 3999,
+      "sha256": "244d530ae90e3b82028eba69b72acee9c7dc9109500557928422b4dcc7180146"
+    },
+    {
+      "path": "docs/dev/PLAN-065-core-broker-no-compatibility-OUTCOME.md",
+      "type": "file",
+      "size": 4307,
+      "sha256": "28aa0caa675b5587845e687a02acc19f84b7be446d186073804bfd360f65f91a"
+    },
+    {
+      "path": "docs/dev/PLAN-065-core-broker-no-compatibility.md",
+      "type": "file",
+      "size": 2491,
+      "sha256": "9f92e71c69c31cbe5939926f62bda92a74735693240b9d99af14024be7f656be"
+    },
+    {
+      "path": "docs/dev/PLAN-066-examples-readme-skill-sync-OUTCOME.md",
+      "type": "file",
+      "size": 3572,
+      "sha256": "d8010f287d66f130a102312daaa3fdac343a0a90c26885b146ce5030c979bdf8"
+    },
+    {
+      "path": "docs/dev/PLAN-066-examples-readme-skill-sync.md",
+      "type": "file",
+      "size": 2105,
+      "sha256": "21bb8517226f8b272472bfc199706f0e55f0bfde8076a4a3636c4dd423fd2c74"
+    },
+    {
+      "path": "docs/dev/PLAN-067-full-source-review-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 8760,
+      "sha256": "22234dfc68a834252fc057beb194f3948b4ef9ba8c16fdece7f1739005313b35"
+    },
+    {
+      "path": "docs/dev/PLAN-067-full-source-review-fixes.md",
+      "type": "file",
+      "size": 5078,
+      "sha256": "add9b560f2fb15611bd67b2bb3c292c86198533fcb5c176ecf91059f4c8f857b"
+    },
+    {
+      "path": "docs/dev/PLAN-068-review-round9-round10-fixes-OUTCOME.md",
+      "type": "file",
+      "size": 6720,
+      "sha256": "e3c73db859c1858cbaf6dfc6ae029edf8bad556dc00daee39a49319e977fff5f"
+    },
+    {
+      "path": "docs/dev/PLAN-068-review-round9-round10-fixes.md",
+      "type": "file",
+      "size": 4298,
+      "sha256": "7f6a4bf7eeed46828aaa45583eab680af536c53b80558d5e1d9839c4c5accecd"
+    },
+    {
+      "path": "docs/dev/PLAN-069-risk-pnl-overflow-OUTCOME.md",
+      "type": "file",
+      "size": 3382,
+      "sha256": "a437c72dc5c2a345dd25e76826b41dbaf953cac6522d3f77086d8f651625f71d"
+    },
+    {
+      "path": "docs/dev/PLAN-069-risk-pnl-overflow.md",
+      "type": "file",
+      "size": 2695,
+      "sha256": "f7656b15c51388e9686826b62469ea52ac052b136cde646997a3ee4b7bdcbce2"
+    },
+    {
+      "path": "docs/dev/PLAN-070-live-trading-OUTCOME.md",
+      "type": "file",
+      "size": 4374,
+      "sha256": "1d286fc083c0ef9b241b84acd62d40d10edfb0865b7458e3ed28ceda098a0fa8"
+    },
+    {
+      "path": "docs/dev/PLAN-070-live-trading.md",
+      "type": "file",
+      "size": 11018,
+      "sha256": "21d9b1a36f51345226ab1a2a127b05d821bf2979dce0fa786b10044db5639591"
+    },
+    {
+      "path": "docs/dev/PLAN-071-backtest-first-design.md",
+      "type": "file",
+      "size": 1754,
+      "sha256": "04bc9661ed98bb74492159a50e3c07d9db58861290a660f8772ef8c73c0184d2"
+    },
+    {
+      "path": "docs/dev/REVIEW-20261013-full-source-round10-deepseek-v4.1-flash.md",
+      "type": "file",
+      "size": 18725,
+      "sha256": "9adff97106e23c5a4488286c348736ee47155220e069734b85b677d8dd5d134e"
+    },
+    {
+      "path": "docs/dev/REVIEW-20261013-full-source-round9.md",
+      "type": "file",
+      "size": 14412,
+      "sha256": "bb67f67ac1d45229e41fd293260f7c754ac9888c5058ed3cef7e0c31050853c2"
+    },
+    {
+      "path": "docs/dev/REVIEW-20261013-full-source.md",
+      "type": "file",
+      "size": 24762,
+      "sha256": "162aa5032e6a00cc8db0b04ec0ad3f6b5f7b7e649ac429a7055f0a0253b66d58"
+    },
+    {
+      "path": "docs/integration/crypto-api-send-permission.patch",
+      "type": "file",
+      "size": 13850,
+      "sha256": "2eb60990b8f908c42c6bcb836e13b214f9df151fb5a744b34bb1661b39b89b90"
+    },
+    {
+      "path": "docs/migration/0.2-event-execution.md",
+      "type": "file",
+      "size": 6008,
+      "sha256": "d1da66d789e025160a1345b946377d93790b187eb08a93365ece58f2c2cfe88d"
+    },
+    {
+      "path": "docs/review/review-20260920-full-code.md",
+      "type": "file",
+      "size": 11192,
+      "sha256": "45f16232eb445d69f056e496b17532bf79b4f274efaefcdb289c2d057f286be4"
+    },
+    {
+      "path": "docs/review/review-20260920-round5.md",
+      "type": "file",
+      "size": 11129,
+      "sha256": "99cca88455605068e1c8a3aba527c3c08d473fd9c3e9aecbe8c943c80590da86"
+    },
+    {
+      "path": "docs/review/review-20260920-round6.md",
+      "type": "file",
+      "size": 13312,
+      "sha256": "0e9de245da982f52e40bd854c043fb0c0d1b4d5c0baf41fde76d6c17612cca51"
+    },
+    {
+      "path": "docs/review/review-20261002-round7.md",
+      "type": "file",
+      "size": 14854,
+      "sha256": "3a483765c7255173bd102930075bd2bd4f56d206414da0e4a5ed03b41e12e079"
+    },
+    {
+      "path": "docs/strategy/README.md",
+      "type": "file",
+      "size": 20090,
+      "sha256": "7de9a0fbf1bef88ef97a06b1a5b1134bd4acc95044730eb216c7ddeb249a3ddd"
+    },
+    {
+      "path": "docs/versions/v0/README.md",
+      "type": "file",
+      "size": 20586,
+      "sha256": "846e9068bb34195bd9eae6edb6bc3f1e47f2d7679b9dbd59b67f807f7f304910"
+    },
+    {
+      "path": "docs/versions/v0/examples/00_pnl_sanity_check.py",
+      "type": "file",
+      "size": 6786,
+      "sha256": "3053e8d475a416c6761113ebccb773a437de40ed52172dc94ac93faf08383d0b"
+    },
+    {
+      "path": "docs/versions/v0/examples/01_demo_mini.py",
+      "type": "file",
+      "size": 3063,
+      "sha256": "61c05d6cccbd53d91f7209aac466fc9c33378fa6c62bec67882be3b268706c35"
+    },
+    {
+      "path": "docs/versions/v0/examples/02_single_symbol_sma.py",
+      "type": "file",
+      "size": 4962,
+      "sha256": "c90fa947b49ca37f720182422047a3cc2a542b057595be7422f0f70b55d1c720"
+    },
+    {
+      "path": "docs/versions/v0/examples/03_multi_symbol_rotation.py",
+      "type": "file",
+      "size": 5240,
+      "sha256": "b2426599c1b80b44114458b7f8d43f75121c72c448a214316313988dfbefbedb"
+    },
+    {
+      "path": "docs/versions/v0/examples/04_scenario_exit_rules.py",
+      "type": "file",
+      "size": 5006,
+      "sha256": "2470343f91b94c9665a11fffb3728090bcdbdeead6c0672cb50e1f82c63d51f4"
+    },
+    {
+      "path": "docs/versions/v0/examples/05_scenario_limit_order.py",
+      "type": "file",
+      "size": 3618,
+      "sha256": "7e70bee89955e391cd5754fabf694d57dd18cdf9672a3f379206a4339cc05e18"
+    },
+    {
+      "path": "docs/versions/v0/examples/06_scenario_single_breakout.py",
+      "type": "file",
+      "size": 6614,
+      "sha256": "4d93610e1961d901b07d6d0515843ab45e840291766935dd657427e27fbffcc4"
+    },
+    {
+      "path": "docs/versions/v0/examples/07_scenario_multi_rotation.py",
+      "type": "file",
+      "size": 6310,
+      "sha256": "8019921fedcf21375fcaf303774466bf8d7b35da570aaed70eb58f0b55cafc1b"
+    },
+    {
+      "path": "docs/versions/v0/examples/08_scenario_pairs_mean_reversion.py",
+      "type": "file",
+      "size": 7665,
+      "sha256": "46e26da265e2dc1cafa45132e585194ee48bcc06237d0ea6771abfa30792ace8"
+    },
+    {
+      "path": "docs/versions/v0/examples/09_benchmark_100k_empty.py",
+      "type": "file",
+      "size": 2615,
+      "sha256": "ff0c61eec90334f30643dff7347eb046ad5fc3cfc90a3bcd93d4fd4d102cf8a5"
+    },
+    {
+      "path": "docs/versions/v0/examples/10_scenario_cross_market.py",
+      "type": "file",
+      "size": 4524,
+      "sha256": "ee9d918ac9ced0f5d7313568298c27a830a05aea32053fd49d77ad35cece3e0b"
+    },
+    {
+      "path": "docs/versions/v0/examples/11_crypto_binance_feed.py",
+      "type": "file",
+      "size": 3532,
+      "sha256": "c8136b89b7e4c78bd209185492c11fba6a562d2a5cc31ef01671f3760bf8c38b"
+    },
+    {
+      "path": "docs/versions/v0/examples/12_csv_feed.py",
+      "type": "file",
+      "size": 1600,
+      "sha256": "7f7a4a6f85ee025e44c181560f3b562bf6d605c57acf74a2fbfe19ae8c993a5f"
+    },
+    {
+      "path": "docs/versions/v0/examples/13_iosql_feed.py",
+      "type": "file",
+      "size": 1979,
+      "sha256": "2e5c4fba8379ad1361b8953ab73deecbe13e35dec8aa6073d5b7789b17a2aad0"
+    },
+    {
+      "path": "docs/versions/v0/examples/data.csv",
+      "type": "file",
+      "size": 93620,
+      "sha256": "3a17a44900cccadb58087a520a5ac3f936d747104d06e2c9c43006beaf9aead8"
+    },
+    {
+      "path": "docs/versions/v0/examples/example_utils.py",
+      "type": "file",
+      "size": 993,
+      "sha256": "17205cba5d56d75b4567aecc40202b98defe079156c52e24a94c419ab7f91352"
+    },
+    {
+      "path": "docs/versions/v0/examples/plot_utils.py",
+      "type": "file",
+      "size": 510,
+      "sha256": "c17fa4b8ce2d2495484c43e3187c53f6d279bbb76a0c07481405058df145c6f3"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/00_pnl_sanity_check.png",
+      "type": "file",
+      "size": 104132,
+      "sha256": "803909b018a62c949c2eec6a617fc85eeba6b871c4552370319ed91e4222350d"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/01_demo_mini.png",
+      "type": "file",
+      "size": 117185,
+      "sha256": "f7895e87dc0fb4414390b1e5c1b13aa25d365d2cca5f6a14cc4f05ed0cef643c"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/02_single_symbol_sma.png",
+      "type": "file",
+      "size": 200790,
+      "sha256": "80968b089c9b10e51e0392cc03ffe6ec78a88c3b0b6800bfa334cf2812392cb8"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/03_multi_symbol_rotation.png",
+      "type": "file",
+      "size": 147762,
+      "sha256": "4bcab8bb790c1327af701d61abd56b857db8f6b5fe49d0f35015572921161527"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/04_scenario_exit_rules.png",
+      "type": "file",
+      "size": 123717,
+      "sha256": "eaba11837ead4eb90c0204f2a333f9fb715d9830e88338b0c941515ba751120e"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/05_scenario_limit_order.png",
+      "type": "file",
+      "size": 98207,
+      "sha256": "92ac3f4cee1621069e865bbd1dd7b4071b1c4976c7c6ef107689d47fe712d464"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/06_scenario_single_breakout.png",
+      "type": "file",
+      "size": 117182,
+      "sha256": "2fbdbad0a864d31d378d4741a37d56121bbcde8e99e808c7e46d3a3579aebb18"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/07_scenario_multi_rotation.png",
+      "type": "file",
+      "size": 139715,
+      "sha256": "2b798bf88e8fff2c8aa3e48352540402ab812d4138ad7fbd51184844ce57e335"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/08_scenario_pairs_mean_reversion.png",
+      "type": "file",
+      "size": 185505,
+      "sha256": "f002625a908035513b857e365e567804cade24f96932eccfde2e5c03176b1430"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/09_benchmark_100k_empty.png",
+      "type": "file",
+      "size": 40577,
+      "sha256": "7b9e5e528ea5fbb4752a13a3c0999834e2d6ae41cf16d409425a0bae9da8149b"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/10_scenario_cross_market.png",
+      "type": "file",
+      "size": 97976,
+      "sha256": "18acc4b38ca3cf6fb500481fa0b9fed91234012e3ffd4b7719b1a7135fe26306"
+    },
+    {
+      "path": "docs/versions/v0/examples/screenshots/11_crypto_binance_feed.png",
+      "type": "file",
+      "size": 99233,
+      "sha256": "850d41e5fb98c0dd5c55c87906131c948e1a53d9c2c7f1a24a8fd7de58a0ac8f"
+    },
+    {
+      "path": "docs/versions/v0/minbt/__init__.py",
+      "type": "file",
+      "size": 543,
+      "sha256": "0427aa4f5a62143552e704779d02206989e6724ae93a2887e9e320007d40e356"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/__init__.py",
+      "type": "file",
+      "size": 550,
+      "sha256": "c83dd6d6d3b9cc99099d33c5eb01da64c160ee328921d15146995a6910a56d4d"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/broker.py",
+      "type": "file",
+      "size": 54537,
+      "sha256": "23b841c964a2a319339bbc3f9a906aa3b1f14b5f239d31229bbcb18d8f1ef204"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/exit.py",
+      "type": "file",
+      "size": 4072,
+      "sha256": "9e047262aa2fa0aeb641d238d3bd16f3b259b465e63228f5d0af15b34727fef9"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/market.py",
+      "type": "file",
+      "size": 6464,
+      "sha256": "f7b07c7d2f0f0090b4ff4ddd6acfbc8235f1942645db3eee4ea0adf8f9bf6a40"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/markets.py",
+      "type": "file",
+      "size": 343,
+      "sha256": "70ff66088c8954d8a60e5879b6be4018e9a76b3e5b345f2f4bcbc29be72b16b8"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/order.py",
+      "type": "file",
+      "size": 983,
+      "sha256": "7803dce97645289df03397b88fd3129ebb25cc6b476988f1e8de8b0abe535473"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/portfolio.py",
+      "type": "file",
+      "size": 15605,
+      "sha256": "d337ddfa6a2fec73c93add3cf2fe707da2ea791496757b2d972b3b06f6c19931"
+    },
+    {
+      "path": "docs/versions/v0/minbt/broker/struct.py",
+      "type": "file",
+      "size": 13346,
+      "sha256": "e12959b5075867dac11e9fcfd0e92ea195c8820b2144c0fa11897b8d798fa77e"
+    },
+    {
+      "path": "docs/versions/v0/minbt/data/__init__.py",
+      "type": "file",
+      "size": 241,
+      "sha256": "8d277dd971a2484396e8ff247a59a84cd71930dcc33364af1f5684adc554fb0f"
+    },
+    {
+      "path": "docs/versions/v0/minbt/data/bars.py",
+      "type": "file",
+      "size": 5795,
+      "sha256": "209520738484f18be7e6c0174a6d8ff5d554b23273e2fc3e03dea2fb5470f6af"
+    },
+    {
+      "path": "docs/versions/v0/minbt/data/binance.py",
+      "type": "file",
+      "size": 18999,
+      "sha256": "0cbd0632ebb1df2ce961358bcdb2675ad9e73729a44165eddd24a9c4932b9c3c"
+    },
+    {
+      "path": "docs/versions/v0/minbt/data/csv.py",
+      "type": "file",
+      "size": 10637,
+      "sha256": "ed45133ab9801029b94ba91b1fe1abfa89f730456b452618d789f7367e18dc68"
+    },
+    {
+      "path": "docs/versions/v0/minbt/data/feed.py",
+      "type": "file",
+      "size": 433,
+      "sha256": "d57248c6e154363fcf673ec2d5cfc8f89f44911072e33b24908798bf8ef0a9d8"
+    },
+    {
+      "path": "docs/versions/v0/minbt/data/iosql.py",
+      "type": "file",
+      "size": 6366,
+      "sha256": "0ddd7ee792438d89cee1965bae4badace67ee8718437b1f577f42372378332c1"
+    },
+    {
+      "path": "docs/versions/v0/minbt/exchange.py",
+      "type": "file",
+      "size": 28423,
+      "sha256": "9eaf506666618109497c798fc6569793caf5c5b434eda543271f78a578209bbd"
+    },
+    {
+      "path": "docs/versions/v0/minbt/logger.py",
+      "type": "file",
+      "size": 75,
+      "sha256": "fe8df26eeca313a7f8cd71fb691a8c7113c6be7859e3547ecc9a9b3606a44528"
+    },
+    {
+      "path": "docs/versions/v0/minbt/plot.py",
+      "type": "file",
+      "size": 835,
+      "sha256": "7946f96f684127f6dbbe28b32d943cf55cd11ee9f62dcd45cf6ecbb0dde66483"
+    },
+    {
+      "path": "docs/versions/v0/minbt/strategy.py",
+      "type": "file",
+      "size": 6919,
+      "sha256": "08c1c68573bcb37a9051757492545a22683cb7234a4d8bdb9fc2d28c05b63d7b"
+    },
+    {
+      "path": "docs/versions/v0/minbt/utils/__init__.py",
+      "type": "file",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "examples/01_quickstart.py",
+      "type": "file",
+      "size": 785,
+      "sha256": "0012182c9b2990dbaa2c2cef8115f59d44ce28ea82d84b3f0aad2303aa05d06f"
+    },
+    {
+      "path": "examples/02_moving_average.py",
+      "type": "file",
+      "size": 2870,
+      "sha256": "57f440d2ee038ca2053646ed05e8ae01eb2c4e520d307f81f07c7fdd347b6231"
+    },
+    {
+      "path": "examples/03_rotation.py",
+      "type": "file",
+      "size": 3539,
+      "sha256": "827c58452d3deb7a858c462fc1ac78d838a182069d7e81f450372de9b5af803c"
+    },
+    {
+      "path": "examples/04_exit_rules.py",
+      "type": "file",
+      "size": 3468,
+      "sha256": "132a01fcb9e569a3fe8fbfeae6a0bf842951015a76e520c77a8d4a4e2aa6f3a8"
+    },
+    {
+      "path": "examples/05_limit_orders.py",
+      "type": "file",
+      "size": 2525,
+      "sha256": "b919f074e91ccef4b04e78a312c5016792afdcb978930ccfd17f35f064508b93"
+    },
+    {
+      "path": "examples/06_breakout.py",
+      "type": "file",
+      "size": 5031,
+      "sha256": "9c95306b1817823d1cb39315f0cc5f5ef432c1f154be0516e412788f8f3b9e0f"
+    },
+    {
+      "path": "examples/07_rebalance.py",
+      "type": "file",
+      "size": 4550,
+      "sha256": "4a2ff38778b59543d5ca06c9a21d2c6e8eb6df93b4adb06b261fcdec3c69ce20"
+    },
+    {
+      "path": "examples/08_pairs_trading.py",
+      "type": "file",
+      "size": 4834,
+      "sha256": "39827122bf56a8c917731bd0a11cad77384475621a81ee509fef175c44076e27"
+    },
+    {
+      "path": "examples/09_cross_market.py",
+      "type": "file",
+      "size": 2696,
+      "sha256": "2a27547c96516a6a84c8489988e04a28cd88b08b930f267b3db440c316c7e5dd"
+    },
+    {
+      "path": "examples/10_run_control.py",
+      "type": "file",
+      "size": 2545,
+      "sha256": "a1510ed6cf629d41ef5736b086fb07a9b6d2b4939fedb6a616d5c959e2d023bb"
+    },
+    {
+      "path": "examples/11_pnl.py",
+      "type": "file",
+      "size": 2969,
+      "sha256": "e8324c7ba2c4fef4c75aa4eb886f95aaa8ae3b2b0a83aecfdeca0d5558ca572f"
+    },
+    {
+      "path": "examples/12_benchmark.py",
+      "type": "file",
+      "size": 1794,
+      "sha256": "be7c707f36b91919dbbfc02aaa35bf5a5f4a13a414856401b31e0f0175c791a0"
+    },
+    {
+      "path": "examples/13_binance_feed.py",
+      "type": "file",
+      "size": 1757,
+      "sha256": "a6ac54dc705a7242c393f47fda67a7dc8f64e8715ea1244c4d4a603b6fccc4a2"
+    },
+    {
+      "path": "examples/14_csv_feed.py",
+      "type": "file",
+      "size": 1619,
+      "sha256": "c4843ec2362c1dfd26d34ed5e55bd1e5629439678304100c28a56353a2f3ebf3"
+    },
+    {
+      "path": "examples/15_iosql_feed.py",
+      "type": "file",
+      "size": 1627,
+      "sha256": "2daa97175b45a31118e162df0f1698b8d7e4fca8e1120c2d7b6efdef0b2f3e6a"
+    },
+    {
+      "path": "examples/16_replay_modes.py",
+      "type": "file",
+      "size": 3129,
+      "sha256": "5bd3bce897d05d5f4132b332789d1caa00deb13a4a48bcc9f9f3cc1b5167bae2"
+    },
+    {
+      "path": "examples/17_bar_storage.py",
+      "type": "file",
+      "size": 2925,
+      "sha256": "603915beb6559742155d2162b87d1d16e8b856c19526d32cf9d9510718bcfbc5"
+    },
+    {
+      "path": "examples/18_config_run.json",
+      "type": "file",
+      "size": 199,
+      "sha256": "bad5ba96b1ca10133d7290a9c48f1326e56d4c1d36be2a79e2e09707fe3160b8"
+    },
+    {
+      "path": "examples/18_config_run.py",
+      "type": "file",
+      "size": 1672,
+      "sha256": "491393c5e65ebbcea4131690a05c4aef7318c2b8277ea36d26ae9e2b9f7ce676"
+    },
+    {
+      "path": "examples/data.csv",
+      "type": "file",
+      "size": 93620,
+      "sha256": "3a17a44900cccadb58087a520a5ac3f936d747104d06e2c9c43006beaf9aead8"
+    },
+    {
+      "path": "minbt/__init__.py",
+      "type": "file",
+      "size": 1298,
+      "sha256": "76b575ca27b7f61f7a325f80472d1a3c83945af039027691d17d29492b38f7d0"
+    },
+    {
+      "path": "minbt/_result_store.py",
+      "type": "file",
+      "size": 10472,
+      "sha256": "0e8262be4f6ef36edd5f1da63d15b8196f5d2f8c25d24462423eb3316ca6e6c2"
+    },
+    {
+      "path": "minbt/_runtime.py",
+      "type": "file",
+      "size": 22374,
+      "sha256": "904e9592c815894c53c807c254ac7fa47e7017bc94ca57865bafd1224211e03c"
+    },
+    {
+      "path": "minbt/_validation.py",
+      "type": "file",
+      "size": 1902,
+      "sha256": "6de73650b6bf6f40fde9871a8fb65ef1c446a13ef9515dba96ddf694fa30ddfc"
+    },
+    {
+      "path": "minbt/broker/__init__.py",
+      "type": "file",
+      "size": 497,
+      "sha256": "015a9ab438a2ff2f1ae5fbc35666553cc73bdff205ad06c0299c213a89cc3fe3"
+    },
+    {
+      "path": "minbt/broker/_session.py",
+      "type": "file",
+      "size": 2516,
+      "sha256": "8f1e3efc74b847f06d2149350aa722003cf90f3daf7ab1810f3489f5d09c1c3a"
+    },
+    {
+      "path": "minbt/broker/broker.py",
+      "type": "file",
+      "size": 91482,
+      "sha256": "a29dec75471061e74c5594a6d17846955972e450d98c252774854cd0028a4d0a"
+    },
+    {
+      "path": "minbt/broker/execution.py",
+      "type": "file",
+      "size": 532,
+      "sha256": "2b41468d97f85fdc1bc3be451953444e5d9615e6b3c5d7f90e8c16e5cf6ee04f"
+    },
+    {
+      "path": "minbt/broker/exit.py",
+      "type": "file",
+      "size": 3927,
+      "sha256": "53c321e73eddcf7cdb96c0a6a940c4bd5c69bad0c77d403adb9756b16a538a2d"
+    },
+    {
+      "path": "minbt/broker/market.py",
+      "type": "file",
+      "size": 8891,
+      "sha256": "cc7ba2ceaa1a1bf535da4bae77c1b00952506b775dae10e1266ded9a60c5bda6"
+    },
+    {
+      "path": "minbt/broker/markets.py",
+      "type": "file",
+      "size": 373,
+      "sha256": "11ab6cff052a4f86c99b9a0571ff8d5e9d3a98639f40c148b1c94534d4dfb842"
+    },
+    {
+      "path": "minbt/broker/order.py",
+      "type": "file",
+      "size": 1418,
+      "sha256": "fc684ba6cd62c099f60ce2164fb3b5cfae833a0c033f7e1a123b2fd599b2008c"
+    },
+    {
+      "path": "minbt/broker/pnl.py",
+      "type": "file",
+      "size": 3173,
+      "sha256": "64d8d5d9b576fb35384d5bfe9eea87e685a8dfba61504303db94ba1544ce4c46"
+    },
+    {
+      "path": "minbt/broker/portfolio.py",
+      "type": "file",
+      "size": 37822,
+      "sha256": "66a50a06aed8e8ff4b1a3b7865282866377d9166f58cf4881526d2a48314ea62"
+    },
+    {
+      "path": "minbt/broker/struct.py",
+      "type": "file",
+      "size": 15636,
+      "sha256": "3d8ec0ed65904b03018cb36a6407bfb7fdfac17f9bb37cbc6e1b5665d3ae4efd"
+    },
+    {
+      "path": "minbt/data/__init__.py",
+      "type": "file",
+      "size": 219,
+      "sha256": "9173e584ebcaca3dfd907becf38fd06aba89a65d1b7eb2b0ea954a08ac833e72"
+    },
+    {
+      "path": "minbt/data/feed.py",
+      "type": "file",
+      "size": 1494,
+      "sha256": "ecacc77c1d8aa6e86f64b807ec3cfd2735b62952675a9bf2a2db9d6cc38a41de"
+    },
+    {
+      "path": "minbt/data/model.py",
+      "type": "file",
+      "size": 5369,
+      "sha256": "e18cd2ff235ad02abea21631849817bf6c7a81b67b98c69fa5394523caa2aada"
+    },
+    {
+      "path": "minbt/data/replay.py",
+      "type": "file",
+      "size": 1730,
+      "sha256": "e3edf488da05a479ca7e9dd4295d84f3b8af9a9ba2baa6181e528985a3307b57"
+    },
+    {
+      "path": "minbt/errors.py",
+      "type": "file",
+      "size": 658,
+      "sha256": "fe3fa72c1a9a0a82dc549ba09c0ba7afe3c51e6b258bbb5805760476c67ee99c"
+    },
+    {
+      "path": "minbt/events.py",
+      "type": "file",
+      "size": 1630,
+      "sha256": "576b52c374733bdb6b6f074da37b8ea1bfc6a0b016f4c06a5706b8e83e53d02b"
+    },
+    {
+      "path": "minbt/exchange.py",
+      "type": "file",
+      "size": 439,
+      "sha256": "29b2af6e8092e7a8661efc03884519b2e600ed879deee85e615b11dbf4450fb3"
+    },
+    {
+      "path": "minbt/logger.py",
+      "type": "file",
+      "size": 75,
+      "sha256": "fe8df26eeca313a7f8cd71fb691a8c7113c6be7859e3547ecc9a9b3606a44528"
+    },
+    {
+      "path": "minbt/permissions.py",
+      "type": "file",
+      "size": 3400,
+      "sha256": "c178a0e4dd22d03e5068b09a6b0a98681bb6c9f7d54ec3f166d271ad0acc3d25"
+    },
+    {
+      "path": "minbt/plot.py",
+      "type": "file",
+      "size": 835,
+      "sha256": "7946f96f684127f6dbbe28b32d943cf55cd11ee9f62dcd45cf6ecbb0dde66483"
+    },
+    {
+      "path": "minbt/plugins/__init__.py",
+      "type": "file",
+      "size": 85,
+      "sha256": "a7f7010c7de1a8fc6ddb3b8cee319e1deddd0dc9ab59bc228362f0860d2d2ed0"
+    },
+    {
+      "path": "minbt/plugins/binance/__init__.py",
+      "type": "file",
+      "size": 277,
+      "sha256": "0afd27d0fa96650c6ba18678a40f2f25cb1405df42f3e222438e73b960abe831"
+    },
+    {
+      "path": "minbt/plugins/binance/cache.py",
+      "type": "file",
+      "size": 25679,
+      "sha256": "ac4308e88fc75338c6cfa5461ddc7cbd0226eae285db8530fa9acd8b867d02e1"
+    },
+    {
+      "path": "minbt/plugins/binance/csv.py",
+      "type": "file",
+      "size": 10902,
+      "sha256": "e728b66608ecfa0a8a0fe0ffd27ef83305e357bb88bb8af636ff7427a3413ab9"
+    },
+    {
+      "path": "minbt/plugins/binance/iosql.py",
+      "type": "file",
+      "size": 6460,
+      "sha256": "67cf46e90458686045eb1be4a2b33da41c38f845f0cc3152b2ee880b28055740"
+    },
+    {
+      "path": "minbt/plugins/binance/kline.py",
+      "type": "file",
+      "size": 5265,
+      "sha256": "54bd676777de28d69c5946af6a890b41dfb54b63a85695fdfa1699b16fe216f4"
+    },
+    {
+      "path": "minbt/plugins/binance/live/__init__.py",
+      "type": "file",
+      "size": 178,
+      "sha256": "98b64496b2ababe02241ab5f7494bc135b9dc7fc97f822f31dc57d24fefd76ea"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_account.py",
+      "type": "file",
+      "size": 52449,
+      "sha256": "00c27e209705bdca479686c4347f864fd8423435d7f8c84a2973d6cd696ac1c3"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_dependency.py",
+      "type": "file",
+      "size": 523,
+      "sha256": "eeab172beecdcdf2b09ae1df6c2972cdb00693714d7d9298c0bc9c855c7bb092"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_facts.py",
+      "type": "file",
+      "size": 973,
+      "sha256": "f5499d4a2ef33f3f81e32748d1ad6c5c7fba351d497b9b2c575e6634152d6cbc"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_freshness.py",
+      "type": "file",
+      "size": 4106,
+      "sha256": "aea732ab03b9ef3d152634c3de149a33aee27abb99ca41f21a845ff00230fe4a"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_market.py",
+      "type": "file",
+      "size": 7545,
+      "sha256": "be964b0abc554fb13163e05c66609a09a9540f713bd3676c2703a409079403cd"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_native.py",
+      "type": "file",
+      "size": 22664,
+      "sha256": "9f37a5ad65341159badc6db7142164e0c2920cc5d121332762be07ca603761d4"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_protection.py",
+      "type": "file",
+      "size": 10799,
+      "sha256": "8eb466cf10b98f656c6a6ac46da7b2fa503e3e49944482cacfd1dabeca54eae9"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_rules.py",
+      "type": "file",
+      "size": 2928,
+      "sha256": "fd87c9eb374c95a96a5c4dff610b053136973be4139052ddfde21f5228f92045"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_source.py",
+      "type": "file",
+      "size": 6862,
+      "sha256": "18c95b4262ec8518446198201567917924c240721a9c28219cc2d54013ec3b96"
+    },
+    {
+      "path": "minbt/plugins/binance/live/_state.py",
+      "type": "file",
+      "size": 5482,
+      "sha256": "da8f94e31ce9d8361ddfe95a117f718248c62839909d953ddebed11ad3789f0e"
+    },
+    {
+      "path": "minbt/plugins/binance/live/broker.py",
+      "type": "file",
+      "size": 24505,
+      "sha256": "8d38411efea8d4fce730cd27e85d7fd6cf74bad4f54f1360b9791edd47b10119"
+    },
+    {
+      "path": "minbt/plugins/binance/live/exchange.py",
+      "type": "file",
+      "size": 14028,
+      "sha256": "46fa933f17e7ea16a7b2536d2f9bdd394a127969bd45e071629a40f824137fa6"
+    },
+    {
+      "path": "minbt/plugins/storage/__init__.py",
+      "type": "file",
+      "size": 165,
+      "sha256": "9676ad519e822bdbfa998eb31d86373ef98f5103a9117664a2466eee0264ad92"
+    },
+    {
+      "path": "minbt/plugins/storage/bar_feed.py",
+      "type": "file",
+      "size": 11696,
+      "sha256": "9a400bb17a12742610f59fa45f890ba20fc3c4b333a8531c14573cb35ddc783a"
+    },
+    {
+      "path": "minbt/protocols/__init__.py",
+      "type": "file",
+      "size": 775,
+      "sha256": "402641ae4f28697860ead477565f3d8f67cd94087ae389f327963c6679fb25c6"
+    },
+    {
+      "path": "minbt/protocols/broker.py",
+      "type": "file",
+      "size": 2753,
+      "sha256": "cd0872907cfedbdc36e168e2316304206d0a445c70ca5d9ab4748a97c6fa06fb"
+    },
+    {
+      "path": "minbt/protocols/data.py",
+      "type": "file",
+      "size": 1949,
+      "sha256": "39ef7b92b8f1d66cba7ab375b57cb83fded46b4a4e6a756583bc4d6d62449678"
+    },
+    {
+      "path": "minbt/protocols/engine.py",
+      "type": "file",
+      "size": 946,
+      "sha256": "7f188601f711f5872d9bf9917737369dba97e61125a1ec47f4139fdc91601ab5"
+    },
+    {
+      "path": "minbt/protocols/exchange.py",
+      "type": "file",
+      "size": 618,
+      "sha256": "a31e1c620a2685febcb968ff02a16c892352c9a2f0a183e91e17af57e84305ae"
+    },
+    {
+      "path": "minbt/protocols/live.py",
+      "type": "file",
+      "size": 1848,
+      "sha256": "cb0f1485bd1c6476d25635d0afbd2a76da7d15b81d8a4a683ff0fef5125fb767"
+    },
+    {
+      "path": "minbt/protocols/result.py",
+      "type": "file",
+      "size": 3762,
+      "sha256": "6e080fedccd704921cb94cd237cf85a630d47e3eca6bc746190b4d721394f789"
+    },
+    {
+      "path": "minbt/replay/__init__.py",
+      "type": "file",
+      "size": 105,
+      "sha256": "87731880dcc1da2748c20b4afb34f098e61a931db9302a5a57c896097dbf030b"
+    },
+    {
+      "path": "minbt/replay/exchange.py",
+      "type": "file",
+      "size": 26718,
+      "sha256": "34fd5db0ae1e71de724048e4823d54e5fee26f210085facfb9fa698b05e18cf1"
+    },
+    {
+      "path": "minbt/result.py",
+      "type": "file",
+      "size": 8294,
+      "sha256": "7d15f32be17ac97a2cbbddea8c6021a4434de82c8a0e395d08752194702a109e"
+    },
+    {
+      "path": "minbt/run.py",
+      "type": "file",
+      "size": 5498,
+      "sha256": "c8d2bd4830b3a2907fdcba20436addd36724e4c8036cea9d215291baeb3b361a"
+    },
+    {
+      "path": "minbt/sim/__init__.py",
+      "type": "file",
+      "size": 103,
+      "sha256": "b6fedddbfc0e825da129f79c6fdfd53f4d685cfda41035b2a716e676adf3159c"
+    },
+    {
+      "path": "minbt/skills/__init__.py",
+      "type": "file",
+      "size": 524,
+      "sha256": "fc6f0f0918ef6dac3748efa35574a61451fba952a7086ccc409a06b62bb27a6b"
+    },
+    {
+      "path": "minbt/skills/__main__.py",
+      "type": "file",
+      "size": 967,
+      "sha256": "f1ca3cfe2eba7525096affc777a19ed205f64c1266e9613145901164558edbaf"
+    },
+    {
+      "path": "minbt/skills/minbt-usage/SKILL.md",
+      "type": "file",
+      "size": 6768,
+      "sha256": "3d9c2b8d54841448aceebce6c839f81b274fcf85a3c323bac619cf58c0563192"
+    },
+    {
+      "path": "minbt/skills/minbt-usage/agents/openai.yaml",
+      "type": "file",
+      "size": 263,
+      "sha256": "d98dc77aa9287d093a6e7315bcd34b215035d4a128ebe222dfd18cb5f90249e3"
+    },
+    {
+      "path": "minbt/skills/minbt-usage/references/data-and-control.md",
+      "type": "file",
+      "size": 11723,
+      "sha256": "2fd546fab08c46297ddb491ee6fb18d5212ad15feb76c3ee9d73ceb4ac8b7131"
+    },
+    {
+      "path": "minbt/skills/minbt-usage/references/trading.md",
+      "type": "file",
+      "size": 7948,
+      "sha256": "94fcc48de4da6c7409b0c8055b87962ea40d4267060852cc6e6901986bd034c2"
+    },
+    {
+      "path": "minbt/skills/minbt-usage/scripts/quickstart.py",
+      "type": "file",
+      "size": 789,
+      "sha256": "7a462897c6fee819129dd916ca0946fde29dfedcd7fd110f9bf19cc845204b88"
+    },
+    {
+      "path": "minbt/strategy.py",
+      "type": "file",
+      "size": 6923,
+      "sha256": "65d25e66529d1c6bcbc99c8918b3537ac1b0ce33a0f899ef9c294fdff39f9e24"
+    },
+    {
+      "path": "minbt/utils/__init__.py",
+      "type": "file",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pyproject.toml",
+      "type": "file",
+      "size": 1220,
+      "sha256": "0e93261a027e15482fb5f44049ca3cbb0c88fc0abe88012ee864f513e1dcac47"
+    },
+    {
+      "path": "tests/test_api_contract.py",
+      "type": "file",
+      "size": 9470,
+      "sha256": "6fa44fbfeb59fef51fcbe7f4fe7da50af937cd59a60fa26f0830a104be79002d"
+    },
+    {
+      "path": "tests/test_binance_feed.py",
+      "type": "file",
+      "size": 9941,
+      "sha256": "030caa09b83a14a5f8390d7de00889123133d40f956275661c519362413e6e92"
+    },
+    {
+      "path": "tests/test_broker.py",
+      "type": "file",
+      "size": 35720,
+      "sha256": "810a81cbb02607b6198eab53638273f619c2e9a69476be480617f9d6a961ee3a"
+    },
+    {
+      "path": "tests/test_cash.py",
+      "type": "file",
+      "size": 4513,
+      "sha256": "7eab060551adce4ce552705e0f555d31ea8fc3c4d1aea5124231ff9d4ffedb01"
+    },
+    {
+      "path": "tests/test_data_feed.py",
+      "type": "file",
+      "size": 9497,
+      "sha256": "7b59c7b8307b274b471b5399915c5d1c029bc2a2f70c1c415c3d300b42920646"
+    },
+    {
+      "path": "tests/test_design_mvp.py",
+      "type": "file",
+      "size": 3542,
+      "sha256": "cf1830f949ffc6ceebc2a14b42b636278e73e0b26d42b84fb14d324e07b5f4f0"
+    },
+    {
+      "path": "tests/test_event_execution.py",
+      "type": "file",
+      "size": 13848,
+      "sha256": "056e9efb743646c39a4323dbb41998478c17864d272b0238712b3d8937e0295d"
+    },
+    {
+      "path": "tests/test_examples.py",
+      "type": "file",
+      "size": 7820,
+      "sha256": "9e5bd826bd8f1f7d27d8b11283c1d7a000c0bfc8a29ad14bb59df13f6b9bbced"
+    },
+    {
+      "path": "tests/test_exchange.py",
+      "type": "file",
+      "size": 13682,
+      "sha256": "4f3cad4ecab6870d6e47f3ab95399df7cdf2c0ee012cf2739dae3f9816bb1c45"
+    },
+    {
+      "path": "tests/test_exit_conditions.py",
+      "type": "file",
+      "size": 17197,
+      "sha256": "f4abb7434d9af086786d856e6655a4c38855dcf06ce23007073cf69f2a7b3616"
+    },
+    {
+      "path": "tests/test_generic_bar_feed.py",
+      "type": "file",
+      "size": 5755,
+      "sha256": "b0a7534f210728c04c9739c767889f52a438f846d4e0e85ac90369560a6b5868"
+    },
+    {
+      "path": "tests/test_live_account.py",
+      "type": "file",
+      "size": 31431,
+      "sha256": "34fddc602a190cc4fd5123fe85f7d3f6dcc644b4acfd1a394abb18090affcb99"
+    },
+    {
+      "path": "tests/test_live_crash_recovery.py",
+      "type": "file",
+      "size": 3649,
+      "sha256": "9d75b906643a5e63a922d4d601d02c6952e9978fc8b67a190439292363eec5b2"
+    },
+    {
+      "path": "tests/test_live_market.py",
+      "type": "file",
+      "size": 10218,
+      "sha256": "c19ceac633774f9ca56e29b7455682013c0aa863d0a610359208277fa4f89f9b"
+    },
+    {
+      "path": "tests/test_live_sdk_integration.py",
+      "type": "file",
+      "size": 9164,
+      "sha256": "54523dbd3de51cd2c0c7dd709481a3bb64792f8f9578ddfd85ed18ff1e8e3209"
+    },
+    {
+      "path": "tests/test_logger.py",
+      "type": "file",
+      "size": 3172,
+      "sha256": "271f31b63111f2e85b74c8686941e414757079585dd0fcc9e4701dc0d6af631e"
+    },
+    {
+      "path": "tests/test_native_protection.py",
+      "type": "file",
+      "size": 21474,
+      "sha256": "d82d0ad8d08268138c7f446488ede15ef909ca8af27facc517ee3a80b18762c8"
+    },
+    {
+      "path": "tests/test_persistent_result.py",
+      "type": "file",
+      "size": 3694,
+      "sha256": "76654f55b11c7c2963e99e72b02985a9624ca45e4d1a6dc75b3011b0375bd816"
+    },
+    {
+      "path": "tests/test_plugins_protocols.py",
+      "type": "file",
+      "size": 5777,
+      "sha256": "fc9eb40ea2ce9e17d6e26dc9ac389832a0d2b24966561dab45d1eb6895a78bdb"
+    },
+    {
+      "path": "tests/test_pnl.py",
+      "type": "file",
+      "size": 20958,
+      "sha256": "a04342f973e61de4f2fc7d776f08e0c4d23245e08c05cc5afd4e54e15c1b6001"
+    },
+    {
+      "path": "tests/test_portfolio.py",
+      "type": "file",
+      "size": 16860,
+      "sha256": "939115244d09cf9d73c784f357e2f0282b3e03f9c1a9b74d31ef9b8fdd6c61e6"
+    },
+    {
+      "path": "tests/test_position.py",
+      "type": "file",
+      "size": 5659,
+      "sha256": "cb32dbc06ec0780efe735eecd3a55eb6e77f0c58ee6f1b69df33d05a446c3a26"
+    },
+    {
+      "path": "tests/test_public_event_plugin.py",
+      "type": "file",
+      "size": 7008,
+      "sha256": "8b2465005ef5cab91e57d03913533a0586c86ee8513fe5b35ce9d879c389379f"
+    },
+    {
+      "path": "tests/test_replay_modes.py",
+      "type": "file",
+      "size": 6791,
+      "sha256": "816c07f05df9b6ff03de731ddfd48a6b57fd97d9cdf2a11658922b40c5507719"
+    },
+    {
+      "path": "tests/test_review_regressions.py",
+      "type": "file",
+      "size": 22439,
+      "sha256": "8cc00983ecebef3705ff5269a47a752a29fa2c6dd37521cb1c0060c9e2e81d71"
+    },
+    {
+      "path": "tests/test_review_round9_round10.py",
+      "type": "file",
+      "size": 24107,
+      "sha256": "e55de4e1590e4f9bb60b783720af393d637f2909f08cd24be67ad208c8d5cfb3"
+    },
+    {
+      "path": "tests/test_risk_pnl_overflow.py",
+      "type": "file",
+      "size": 12095,
+      "sha256": "08e259bbe509cfaec43f6509d51be77f79ae21c647c2c24adfdfde4361ca050b"
+    },
+    {
+      "path": "tests/test_run_control.py",
+      "type": "file",
+      "size": 27324,
+      "sha256": "df02fe2d40c9d734f7f9eaa1c0c4e9f07937f30744356fb095f6fe9dd409ada8"
+    },
+    {
+      "path": "tests/test_run_entry.py",
+      "type": "file",
+      "size": 12281,
+      "sha256": "279734467b6159e11d1fabf99a3ac3fe8b7ae9bf6d5227b47b156f28914bd194"
+    },
+    {
+      "path": "tests/test_skill_packaging.py",
+      "type": "file",
+      "size": 8006,
+      "sha256": "d7c0104e8a31fcbb772f7d71be852ccab6ff53b17b2ff50277121aea03f6afea"
+    },
+    {
+      "path": "tests/test_strategy.py",
+      "type": "file",
+      "size": 3568,
+      "sha256": "362efa28f8717c71fd2f2e1e62149662902d4467ce51daa64f37bdcdd19a4312"
+    }
+  ],
+  "missing": [],
+  "worktree-before-rollback.tar.gz": {
+    "sha256": "063be6920924dac1bf29078ca332c536c54a7fe1ada9adbeea94c46e7c37a97c",
+    "size": 2000622
+  },
+  "baseline-6c1e7a0.tar.gz": {
+    "sha256": "0eaf1b1157263949b62a6f5c5cd1405734367b4d84d6ee23c71031857dccea6e",
+    "size": 1843957
+  }
+}

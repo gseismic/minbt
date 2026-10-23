@@ -25,6 +25,24 @@ minbt 是一个最简回测框架。目标不是模拟完整交易所，而是�
 - 支持运行时间窗口、暂停策略回调、受控退出，以及独立的结果快照和状态元信息。
 - 支持 JSON/Mapping 配置运行、自定义 Feed/Broker 注入和标准结果协议。
 
+## 可选实盘接入
+
+`from minbt.plugins.binance import live` 提供单标的闭合 K 线适配，复用外部 Binance2 SDK 的 Exchange/Broker。
+默认回测无需安装或导入该 SDK。本机 SDK 入口为 `crypto_api.binance2.usdm`，通过 `sdk_factory` 显式注入。
+
+[共用策略示例](examples/19_live.py) 中的 `Pulse` 原样用于回测与 demo，仅替换装配代码：
+
+```bash
+python examples/19_live.py          # 本地回测，需 plot 依赖
+python examples/19_live.py demo     # demo 交易，需 SDK 及 BINANCE_API_KEY/BINANCE_API_SECRET
+```
+
+共用交易接口为 `submit_market_order(symbol, qty)`（买正卖负）与 `get_position_size(symbol)`。
+实盘提交返回 SDK 字典，查询同步访问账户；适配下单只在 `on_bars` 内开放，写请求异常后禁止该实例继续下单。
+实盘 `run()` 正常返回 None，不生成回测曲线，不包装目标仓位、分仓或退出规则；高级操作显式使用 `broker.sdk`。
+`stop/close` 结束行情交付，不撤单或平仓；通过准入检查的在途请求仍可能完成。
+接口、资源归属和错误边界见 [实盘设计](docs/design/live-trading-20261023-design.md)。
+
 ## 安装
 
 minbt 使用 `pyproject.toml` 管理安装配置，不再使用 `setup.py`。

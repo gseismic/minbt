@@ -1,5 +1,21 @@
 # 数据与运行控制
 
+## 可选实盘边界
+
+回测继续使用根入口 `minbt.Exchange/Broker`。可选的 `minbt.plugins.binance.live` 提供
+`Exchange(symbol=..., interval=..., environment=..., sdk_factory=...)` 和 `Broker(sdk_broker)`。
+工厂注入外部同步 Binance2 行情类（本机为 `crypto_api.binance2.usdm.Exchange`）；SDK 账户通过
+`exchange=exchange.sdk` 关联同一行情对象，生命周期由调用者的 SDK 上下文管理。
+
+一个 live Exchange 只绑定一个 Strategy/live.Broker，处理单标的闭合 K 线，run 正常返回 None。
+策略可共用 `on_bars`、`submit_market_order(symbol, qty)` 和 `get_position_size(symbol)`；数量买正卖负。
+实盘订单返回 SDK 字典，查询同步联网；只在 on_bars 内允许适配下单，SDK 写入异常后禁止继续下单。
+不提供 target_*、分仓、退出规则或策略历史；高级操作使用 broker.sdk。
+stop/close 不撤单、不平仓，已通过本地准入检查的请求可能继续完成。
+
+`minbt.protocols.TradingBrokerProtocol` 是 Strategy 的最小绑定契约；历史 Exchange.run
+仍要求完整 `ReplayBrokerProtocol`，不能向回测入口注入实盘账户。
+
 ## 数据结构与时间
 
 `Exchange.set_bars(data, date_key="dt", symbol_key="symbol")` 支持 pandas、polars 和 `list[dict]`。

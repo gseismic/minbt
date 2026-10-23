@@ -1,161 +1,58 @@
-# minbt CSV / iosql 渐进加载工作交接
+# 当前工作交接
 
-## 交接目的
+日期：2026-10-23。最新任务为 PLAN-072；此前复杂实盘实现已回退，新版薄适配已落地。
 
-本文件用于交接当前 `minbt` 仓库中 CSV / iosql K 线渐进加载工作的状态。
-目标是让下一位 Agent 无需重新阅读全部历史对话即可继续实现、修复和验收。
+## 用户动机和最新约束
 
-## 当前仓库状态
+先读 `GOAL.md`。minbt 是 mini、低认知负荷的 K 线回测库，回测第一位，实盘是附加能力。
+用户明确允许为减少复杂度放弃回测/实盘的一致性；实盘只通过外部 Binance2 Broker/Exchange 接入，
+先定义协议或基类。用户先要求约 150 行，最新明确“150 行不是硬性规定”，仍以精简为目标。
+用户已要求“实施”，PLAN-072 已完成代码和源码审阅。此前“代码认可后再测试”的偏好继续保留，尚未运行测试。
 
-- 工作目录：`/home/lsl/macbook/pai-studio-fin/library/minbt`
-- 当前分支：`main`
-- 当前 HEAD：`c4e0cc0 Review 修正：arrow 时间兼容、缺月告警、CSV end 过滤优化（PLAN-042）`
-- 上一个功能提交：`2d44b6e 新增 CSV / iosql 渐进式数据 Feed（PLAN-042）`
-- 当前用户新增的 Review 文件：`docs/review/review-20260920-round6.md`
-- 本交接文件由本次工作新增；不要覆盖用户已有的 Review 内容。
-- 尚未创建 `PLAN-043`，也没有开始修复第六轮 Review 提到的遗留问题。
+## 当前代码与备份
 
-本项目约定：代码设计文档放在 `docs/design`，计划和结果放在 `docs/dev`，文档与注释使用中文；编辑文件使用 `apply_patch`；除非用户明确要求，不要擅自提交代码。
+- PLAN-071 将工作代码恢复到 `6c1e7a01c56578728bc44cf6e382659bac069a8f`，其时共 91 个活动文件逐文件核验一致。
+- PLAN-072 在此基线上新增协议、live.py、共用策略示例，并更新 Strategy 绑定、历史 Exchange 校验与文档；当前活动代码已不等于原基线。
+- 原 HEAD 保持 `76b6d7a70bedaebaeac7f0a090fdd479096568e6`，没有 reset 提交历史、提交或推送；HEAD 与目标的差异本来主要是设计文档。
+- 回退前的全部未忽略工作文件（含未提交/未跟踪实现）和目标提交分别归档在 `docs/ref/v1`，见该目录 README。
+- 工作区快照校验 352 个文件，目标提交快照校验 307 个普通文件；备份后从代码/测试中删除 34 个后续新增文件。
+- PLAN-069 数值修复也随精确回退撤出，保存在工作区快照；不可声称当前源码包含该修复。
+- GOAL.md、BRAIN.md 保留原内容；相邻 crypto_api 仓库未修改。
 
-## 已完成工作：PLAN-042
+## 新设计
 
-设计、计划和结果文件：
+`docs/design/live-trading-20261023-design.md` 第七版，已按 PLAN-072 实施，待用户代码审阅后验证。
 
-- [设计稿](docs/design/csv-iosql-feed-20260920-design.md)
-- [实施计划](docs/dev/PLAN-042-csv-iosql-streaming-feed.md)
-- [实施结果](docs/dev/PLAN-042-csv-iosql-streaming-feed-OUTCOME.md)
+主要决定：
 
-### 数据 Feed
+1. 保留 `minbt.Exchange/Broker/Strategy`、同步回测撮合、目标单、分仓、退出规则、RunResult。
+2. 以两个最小 Protocol 表达共同策略能力；Strategy 的最小 Broker 绑定与历史运行的完整账户校验分开。
+3. 实盘一个文件，Broker 只薄适配市价 signed qty 与单向持仓查询；其他操作使用 SDK 原始接口。
+4. live.Exchange 使用外部 SDK 的单线程回调、连接和队列，只交付单标的闭合 K 线。
+5. 实盘同步请求、SDK 订单字典、run 正常返回 None；不提供 target_*、分仓、自动退出或实盘绩效。
+6. 不建 Runtime/Session/私有流投影/持久化/保护管理/自动恢复；异常停止，不重发未知请求。
+7. 实际生产代码新增/替换 219 行：live.py 186 行、协议及导出 22 行、核心改动 11 行，包含空行与注释。
 
-- `minbt/data/bars.py`
-  - `_KlineRowFeed`：把有序行流按 `dt` 聚合为 `FeedEvent`。
-  - 负责 UTC 时间转换、毫秒时间转换、标准 K 线字段归一化、同一 `(dt, symbol)` 去重。
-  - `streaming = True`。
-- `minbt/data/csv.py`
-  - `CsvBarsFeed`：读取 `crypto.bn_data_sync` 的月度 Binance CSV。
-  - 月内使用 `csv.reader` + `heapq.merge` 合并多个 symbol 文件；按时间逐行读取。
-  - 支持表头、半开区间 `[start, end)`、乱序检测、畸形行报错、缺月 warning。
-- `minbt/data/iosql.py`
-  - `IosqlBarsFeed`：使用 `table.query(order_by="open_time").iter_rows(batch_size=...)`。
-  - 使用最新 iosql 的有序流式查询能力，不调用 `select()` 全量路径。
-  - iosql 的闭区间 `end` 转换为 minbt 的半开区间：`end_ms - 1`。
-  - Database、查询生成器在正常结束和异常退出时释放。
-- `minbt/data/__init__.py`
-  - 顶层导出 `CsvBarsFeed` 和 `IosqlBarsFeed`。
+本机依赖实际为 `crypto_api.binance2.usdm`；相邻 finapi 未发现用户所称 binance2。
+使用显式工厂注入和 SDK 账户实例，未绑定或修改相邻 SDK。
 
-### Exchange 流式路径
+实现要点：Broker 仅适配 submit_market_order/get_position_size；所属 Exchange 状态与回调线程检查
+下单许可，写异常封禁后续适配写入。Exchange 一次运行一个策略，订阅参数在账户查询前校验，
+确认单向模式后初始化并启动 SDK；只交付闭合 K 线，检查去重、连续性与接收/事件/收盘时间。
+stop 关闭后续准入；已准入的回调/请求仍可继续，close 复用 SDK 的等待语义，不撤单或平仓。
+装配/run 由调用者顺序执行，不新增通用并发启动保护；高级 broker.sdk 调用不受适配许可限制。
 
-`minbt/exchange.py` 新增：
+## 文档状态
 
-- `_can_stream_data_feeds()`：只有没有 `set_*` 物化数据、且所有 data feed 都声明 `streaming=True` 时才自动流式。
-- `_checked_stream()`：检查每个 Feed 的事件 `dt` 非递减，并附加归并键。
-- `_run_streaming()`：多个 Feed 按 `(dt, event_type 顺序, Feed 注册顺序)` 做 k 路归并，逐时间点分发后丢弃临时数据。
-- `run(streaming=None)`：
-  - `None`：自动选择；
-  - `True`：要求全部 data feed 支持流式且没有 `set_*` 数据，否则抛 `ValueError`；
-  - `False`：强制使用原有物化路径。
+- PLAN-071 记录此次备份、回退和设计修订，结果见对应 OUTCOME。
+- PLAN-072 与 OUTCOME 记录薄适配实现、219 行统计、源码审阅和后续验证范围；设计索引指向第七版。
+- PLAN-069 结果、PLAN-070 计划/结果、旧事件迁移说明已标明历史/回退状态。
+- `docs/integration/crypto-api-send-permission.patch` 仅为历史材料，新设计不依赖它。
+- 原 HANDOFF 与第六版全文在工作区快照中可恢复。
 
-旧的 `set_bars`、`set_books`、`set_trades`、`set_news`、`BarsReplayFeed` 物化路径没有被改造成流式，混用时自动回退物化路径。
+## 下一步
 
-## 最新验证结果
-
-执行命令：
-
-```bash
-/home/lsl/miniconda3/bin/python -m pytest -q
-```
-
-结果：`185 passed, 1 failed`。
-
-唯一失败是既有测试：
-
-```text
-tests/test_exchange.py::test_exchange_updates_full_bar_before_strategy_callbacks
-```
-
-原因是当前安装了 pyta2，`Strategy.get_hist_equity()` 返回 NumPy 数组，测试直接与 Python list 比较，触发 NumPy 的 ambiguous truth value。该失败在 PLAN-042 改动前已经存在，不是 CSV / iosql 功能引入的。可以在后续修复测试断言，例如转为 `list(...)` 或使用 NumPy 专用断言。
-
-已验证的其他内容：
-
-- CSV 多 symbol、表头/无表头、区间过滤、乱序检查通过。
-- iosql 真实数据库读取通过，`Table.select` monkeypatch 防回退测试通过。
-- 流式与物化回调/价格/权益等价性测试通过。
-- 流式源未耗尽即可触发策略回调。
-- 真实数据示例曾运行成功：CSV 与 iosql 均为 `final_equity=10053.92`、`bar_count=2880`。
-- 第六轮 Review 实测 100k bars：流式峰值约 `38.3 MB`，物化约 `180.1 MB`；流式耗时约慢 40%。
-
-示例：
-
-- `examples/301_feed_csv.py`
-- `examples/302_feed_iosql.py`
-
-## 当前未完成事项
-
-详细报告见 [第六轮 Review](docs/review/review-20260920-round6.md)。其中必须优先处理的是两个 P2 问题。
-
-### P2-1：数据不存在时可能静默空回测
-
-目前以下情况可能正常结束但产生 0 个事件或缺少部分 symbol：
-
-- CSV 请求的部分 symbol 没有文件；
-- CSV 请求的 interval 与实际文件不匹配；
-- CSV 时间区间与文件没有交集；
-- iosql 的 `interval/table` 拼错；
-- iosql 请求的 symbol 不存在。
-
-这会让用户误以为策略没有信号，而不是数据没有加载。建议在 `PLAN-043` 中明确策略：
-
-1. 请求 symbol 至少应命中一个文件/一行，否则 `FileNotFoundError` 或明确的 `ValueError`；
-2. iosql 目标表/契约不可用时转换为指向 `interval` / `table` 参数的错误；
-3. 对显式时间区间完全无数据的回测，至少给出明确异常或可见告警；
-4. 补齐对应单元测试。
-
-### P2-2：warning 被默认 logger 策略隐藏
-
-`minbt/logger.py` 当前默认 `logger.disable("minbt")`。因此 `CsvBarsFeed.prepare()` 的缺月 warning 默认不可见，数据完整性告警实际近似静默。
-
-需要先做语义决策：
-
-- 推荐数据完整性问题默认 fail-fast；或
-- 调整默认日志策略，使 WARNING/ERROR 可见，同时保持 DEBUG/INFO 可关闭。
-
-选定后同步 `csv.py`、`logger.py`、设计稿、README 和测试。
-
-## P3 / 文档与测试遗留
-
-这些不是当前渐进加载主功能的阻塞项，但建议一并登记到 `PLAN-043`：
-
-- 设计稿仍有与最终实现矛盾的“`streaming=True` 包装 set_* 数据”描述；
-- 设计稿示例缺文件行为与实际示例的 `SystemExit` 不完全一致；
-- 多 event-type 流式归并顺序只有手工验证，缺少自动回归测试；
-- 100k 内存/耗时基准只有 Review 记录，尚无正式测试或 README 性能取舍说明；
-- `bars.py` 支持 arrow 时间对象，但 `binance.py` 的 `BarsReplayFeed` 仍不支持，两个 Feed 的时间参数行为不一致；
-- `IosqlBarsFeed` 的错误信息仍可能来自 iosql 内部，未明确指向 `interval/table`；
-- `batch_size=None` 的错误类型/消息可以规范化。
-
-第六轮 Review 同时复测了前几轮与本次目标无直接关系的 broker/strategy 问题，例如 pending 限价单与已关闭 portfolio 的崩溃、pyta2 position history、`get_positions()` 泄漏、交易时段时区语义等。除非用户扩大范围，不要把这些问题混入 CSV / iosql 修复实现；应在 Review 报告中单独跟踪。
-
-## 推荐下一步
-
-1. 新建 `docs/dev/PLAN-043-review-fixes.md`，不要复用已完成的 PLAN-042 编号。
-2. 先确定 P2-1/P2-2 的 fail-fast 与 warning 语义。
-3. 实现 CSV / iosql 数据存在性校验，补齐空数据、缺 symbol、错误 table/interval 测试。
-4. 修正文档中的流式边界、示例行为和性能说明。
-5. 视是否要保持全量测试绿色，修复既有 NumPy list 测试断言；不要改变生产 API 语义来掩盖该测试问题。
-6. 运行：
-
-   ```bash
-   /home/lsl/miniconda3/bin/python -m pytest -q
-   python -m compileall -q minbt examples tests
-   git diff --check
-   ```
-
-7. 代码 review 后生成 `docs/dev/PLAN-043-review-fixes-OUTCOME.md`，再根据用户要求决定是否提交。
-
-## 重要实现约束
-
-- iosql 的 `order_by` 流式问题已经由最新 iosql 修复；不要恢复成 `select()`，应继续使用 `query(..., order_by=...).iter_rows()` 或 `iter_batches()`。
-- 不要把 `set_*` 伪装成低内存流式源；它们本身已先物化。当前显式 `streaming=True` 拒绝这种混合场景是有意设计。
-- Feed 的时间范围统一为 UTC 半开区间 `[start, end)`。
-- 不要覆盖用户的 `docs/review/review-20260920-round6.md` 或其他未提交修改。
-- 所有新增/修改文档与注释使用中文；提交消息使用中文。
+等待用户审阅代码；按反馈精简或修正。代码认可后做少量 fake SDK 行为验证与既有回测回归，见 PLAN-072。
+主要入口：minbt/plugins/binance/live.py、minbt/protocols/trading.py、examples/19_live.py。
+不要恢复 PLAN-070 的阶段 A–D 或其故障矩阵。不要主动补回原生保护、统一事件执行、恢复数据库等已取消能力。
+本轮只人工审阅、统计源码与 git diff --check；未运行测试、导入/编译检查或示例，未连接 SDK 或发送订单。

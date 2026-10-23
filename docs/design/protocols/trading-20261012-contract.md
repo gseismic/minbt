@@ -2,6 +2,10 @@
 
 状态：已实施；声明位于 `minbt.protocols.broker`。参见 [总设计](../kernel-20261012-protocol-plugins.md)。
 
+2026-10-23 补充：本文描述完整回测账户。Strategy 的绑定检查改用
+`minbt.protocols.TradingBrokerProtocol`（有符号市价单、净持仓查询），完整 `ReplayBrokerProtocol`
+在历史 Exchange.run 入口校验。实盘允许 SDK 原生订单返回值；详见 [最小实盘设计](../live-trading-20261023-design.md)。
+
 ## 1. 数据和 Broker 独立组合
 
 自定义数据不要求自定义账户；需要特殊交易或记账模型时才提供自己的 Broker。一个 Broker 可以
