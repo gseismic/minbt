@@ -49,7 +49,9 @@ class BinanceKlineCsvFeed(_KlineRowFeed):
         feed_priority=0,
     ):
         self.root = Path(root).expanduser()
-        self.requested_symbols = normalize_symbols(symbols, allow_none=True)
+        self.requested_symbols = normalize_symbols(
+            symbols, allow_none=True, allow_wildcard=True
+        )
         self.start_dt = to_utc_datetime(start) if start is not None else None
         self.end_dt = to_utc_datetime(end) if end is not None else None
         self.start_ms = datetime_to_ms(self.start_dt) if self.start_dt is not None else None

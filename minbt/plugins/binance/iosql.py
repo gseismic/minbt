@@ -38,7 +38,9 @@ class BinanceKlineIosqlFeed(_KlineRowFeed):
         if table is not None and (not isinstance(table, str) or not table.strip()):
             raise ValueError("table must be a non-empty string")
         self.table_name = table or f"kline_{self.interval}"
-        self.requested_symbols = normalize_symbols(symbols, allow_none=True)
+        self.requested_symbols = normalize_symbols(
+            symbols, allow_none=True, allow_wildcard=True
+        )
         self.symbols = list(self.requested_symbols or [])
         self.start_dt = to_utc_datetime(start) if start is not None else None
         self.end_dt = to_utc_datetime(end) if end is not None else None

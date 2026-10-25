@@ -4,6 +4,8 @@
 
 | 更新时间（Asia/Shanghai） | 计划 | 状态 | 结果 |
 | --- | --- | --- | --- |
+| 2026-10-25 | [PLAN-075：本地 K 线 Feed 支持 `*` 订阅全部 symbol](PLAN-075-symbol-wildcard-local-kline-feeds.md) | 已完成 | [结果](PLAN-075-symbol-wildcard-local-kline-feeds-OUTCOME.md)：CSV/iosql 支持独立 `*` 通配符，语法、ruff 与 diff 检查通过 |
+| 2026-10-25 | [PLAN-074：增加 iosql 全部 symbol 示例](PLAN-074-iosql-all-symbols-example.md) | 已完成 | [结果](PLAN-074-iosql-all-symbols-example-OUTCOME.md)：新增 `symbols=None` iosql 遍历示例，语法、ruff 与 diff 检查通过 |
 | 2026-10-12 14:38 | [PLAN-059：简化入门示例和文件命名](PLAN-059-simple-examples-model-unknown.md) | 已完成 | [结果](PLAN-059-simple-examples-model-unknown-OUTCOME.md)：首例 24 行，17 个示例改名，54 项相关测试通过 |
 | 2026-10-12 15:22 | [PLAN-060：用户 Skill 随安装包发布](PLAN-060-package-skills.md) | 已完成 | [结果](PLAN-060-package-skills-OUTCOME.md)：包内唯一来源、定位入口与项目发现链接，发行物和仓库外安装验证通过，全量 334 项测试通过 |
 | 2026-10-12 15:27 | [PLAN-061：配置 GitHub Actions 发布到 PyPI](PLAN-061-pypi-publish.md) | 已完成 | [结果](PLAN-061-pypi-publish-OUTCOME.md)：Release 触发、构建校验与 OIDC Trusted Publishing 流程及配置说明 |

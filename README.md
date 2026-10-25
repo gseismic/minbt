@@ -461,6 +461,10 @@ iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/14_csv_fe
 CSV 请求月份不能缺文件；iosql 的 interval/table 必须存在且表契约可查询。检查失败会
 在策略开始前抛出带参数上下文的异常，不会静默完成空回测。
 
+Binance CSV 和 iosql Feed 的 `symbols` 省略、设为 `None`、`"*"` 或 `["*"]`，都可读取所选来源在指定时间范围内出现的全部 symbol。通配符必须单独使用，不能与具体 symbol 混合。
+`on_bars(dt, bars)` 每次仍只包含该时点实际有 K 线的 symbol；完整遍历示例见
+[`20_iosql_all_symbols.py`](examples/20_iosql_all_symbols.py)。
+
 `interval="1m"` 时，这两个 Feed 还会自动探测分钟缺口：每个 symbol 首次出现前允许没有数据，
 出现后按 `open_time` 每 60 秒期待一条 K 线。每次读取中，每个 symbol 只对第一处缺口发出
 默认可见的 Python `RuntimeWarning`，包含来源、symbol、最后有效时间和首次缺失时间，
@@ -852,6 +856,8 @@ python examples/15_iosql_feed.py
 python examples/16_replay_modes.py
 python examples/17_bar_storage.py
 python examples/18_config_run.py
+python examples/19_live.py
+python examples/20_iosql_all_symbols.py
 ```
 
 示例文件：
@@ -874,6 +880,8 @@ python examples/18_config_run.py
 - [examples/16_replay_modes.py](./examples/16_replay_modes.py)：分别新建实验比较 auto/preload/incremental，展示通用 Bar、Feed 优先级和 Broker 估值来源。
 - [examples/17_bar_storage.py](./examples/17_bar_storage.py)：通用 Bar CSV 存储和自定义 Bar 回调。
 - [examples/18_config_run.py](./examples/18_config_run.py)：策略类、JSON 配置与自备数据工厂，从结果快照绘图。
+- [examples/19_live.py](./examples/19_live.py)：默认运行本地回测，也可显式运行 Binance demo。
+- [examples/20_iosql_all_symbols.py](./examples/20_iosql_all_symbols.py)：不指定 symbol 过滤，遍历 iosql 表和时间范围内出现的全部 symbol。
 - [examples/data.csv](./examples/data.csv)：单标的 BTCUSDT 示例行情。
 
 ## Codex Skill

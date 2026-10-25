@@ -20,7 +20,7 @@ OPTIONAL_BAR_FIELDS = (
 )
 
 
-def normalize_symbols(symbols, *, allow_none=False):
+def normalize_symbols(symbols, *, allow_none=False, allow_wildcard=False):
     if symbols is None and allow_none:
         return None
     if isinstance(symbols, (str, bytes)):
@@ -33,6 +33,10 @@ def normalize_symbols(symbols, *, allow_none=False):
         raise ValueError("symbols must not be empty")
     if len(set(normalized)) != len(normalized):
         raise ValueError("symbols must not contain duplicates")
+    if allow_wildcard and "*" in normalized:
+        if normalized != ["*"]:
+            raise ValueError("'*' must be used alone in symbols")
+        return None
     return normalized
 
 
