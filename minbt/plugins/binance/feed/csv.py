@@ -6,8 +6,8 @@ from pathlib import Path
 import re
 from typing import Iterator
 
-from .kline import (
-    _KlineRowFeed,
+from ._base import _KlineRowFeed
+from .._kline import (
     datetime_to_ms,
     normalize_symbols,
     optional_float,
@@ -34,7 +34,7 @@ def _iter_months(first: str, last: str) -> Iterator[str]:
             month = 1
 
 
-class BinanceKlineCsvFeed(_KlineRowFeed):
+class KlineCsvFeed(_KlineRowFeed):
     """读取 crypto.bn_data_sync 月度 Binance K 线 CSV 的渐进式 Feed。"""
 
     def __init__(

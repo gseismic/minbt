@@ -6,8 +6,8 @@ import warnings
 import pytest
 
 from minbt import Exchange, Strategy
-from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
-from minbt.plugins.binance.kline import ms_to_datetime
+from minbt.plugins.binance.feed import KlineCsvFeed, KlineIosqlFeed
+from minbt.plugins.binance._kline import ms_to_datetime
 
 
 START_MS = 1_672_531_200_000
@@ -46,7 +46,7 @@ def make_feed(tmp_path, request):
                                 row["open_time"], 100, 101, 99, row["close"], 1,
                                 row["close_time"], 100, 1, 0, 0, 0,
                             ])
-            return BinanceKlineCsvFeed(tmp_path, **kwargs)
+            return KlineCsvFeed(tmp_path, **kwargs)
 
         iosql = pytest.importorskip("iosql")
         uri = f"sqlite://{tmp_path / 'bars.iosql'}"
@@ -66,7 +66,7 @@ def make_feed(tmp_path, request):
             result = table.write(rows)
             assert result.rows_written == len(rows)
         # 很小的读取批次，确保检查能跨数据库缓冲边界。
-        return BinanceKlineIosqlFeed(uri, batch_size=1, **kwargs)
+        return KlineIosqlFeed(uri, batch_size=1, **kwargs)
 
     return make
 
@@ -159,7 +159,7 @@ def test_early_close_does_not_report_unread_tail(make_feed):
         next(events)
         events.close()
     assert caught == []
-    if isinstance(feed, BinanceKlineIosqlFeed):
+    if isinstance(feed, KlineIosqlFeed):
         assert feed._db is None
 
 

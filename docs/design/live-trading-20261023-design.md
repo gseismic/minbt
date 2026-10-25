@@ -4,6 +4,10 @@
 状态：**PLAN-072 已实现，已做源码审阅；按用户要求，代码认可后再测试**。以恢复到 `6c1e7a01c56578728bc44cf6e382659bac069a8f` 的代码为基线。
 第六版及其未提交实现已保存到 [docs/ref/v1](../ref/v1/README.md)，不再作为后续实施要求。
 
+2026-10-25 结构调整：Broker 与 Exchange 已按职责拆分，公开入口为 `binance.Broker/Exchange`，
+历史读取器归入 `minbt.plugins.binance.feed`；目录与迁移见
+[Binance 插件职责与命名整理](binance-20261025-layout.md)。下文单文件规模统计保留 PLAN-072 原始结果。
+
 ## 1. 定位与代码预算
 
 minbt 首先是 mini、低认知负荷的 K 线回测库；实盘是通过外部 Binance2 Exchange/Broker 接入的附加能力。
@@ -108,32 +112,32 @@ result = exchange.run()
 ```python
 import os
 from crypto_api.binance2 import usdm as binance2
-from minbt.plugins.binance import live
+from minbt.plugins import binance
 
 
-with live.Exchange(symbol="BTCUSDT", interval="1m", environment="demo",
+with binance.Exchange(symbol="BTCUSDT", interval="1m", environment="demo",
                    sdk_factory=binance2.Exchange) as exchange:
     with binance2.Broker(os.environ["BINANCE_API_KEY"],
                          os.environ["BINANCE_API_SECRET"],
                          exchange=exchange.sdk) as account:
-        exchange.add_strategy(Pulse("pulse", broker=live.Broker(account),
+        exchange.add_strategy(Pulse("pulse", broker=binance.Broker(account),
                                     params={"symbol": "BTCUSDT", "qty": 0.001}))
         exchange.run()
 ```
 
 SDK Broker 通过 `exchange=exchange.sdk` 继承显式环境；不从密钥猜环境。
 主网由调用者明确改为 mainnet。minbt 不接管密钥、不建立另一套真实账户、不增加实盘配置系统。
-行情资源由 live.Exchange 管理；账户由调用者的 SDK 上下文管理。工厂注入避免 minbt 绑定具体 SDK 包名或强制安装它。
+行情资源由 binance.Exchange 管理；账户由调用者的 SDK 上下文管理。工厂注入避免 minbt 绑定具体 SDK 包名或强制安装它。
 
 ### 4.3 实盘适配的完整接口
 
 | 接口 | 行为 |
 | --- | --- |
-| `live.Broker(sdk_broker)` | 借用 SDK 账户，`sdk` 显式提供原生能力，不负责关闭账户 |
+| `binance.Broker(sdk_broker)` | 借用 SDK 账户，`sdk` 显式提供原生能力，不负责关闭账户 |
 | `submit_market_order(symbol, qty)` | 有限非零数量转 BUY/SELL 与正数 Decimal；同步调用一次 SDK，返回原始字典 |
 | `get_position_size(symbol)` | 同步调用 SDK get_positions；仅接受单向 BOTH 仓位，返回净数量；双向/歧义记录报错 |
-| `live.Exchange(*, symbol, interval, environment, sdk_factory, max_delay=10.0)` | 创建未启动的 SDK 行情对象，绑定回调；单标的单周期，构造不联网 |
-| `add_strategy(strategy)` | 绑定一个 Strategy 与 live.Broker；重复绑定、已运行实例和其他账户类型在联网前拒绝 |
+| `binance.Exchange(*, symbol, interval, environment, sdk_factory, max_delay=10.0)` | 创建未启动的 SDK 行情对象，绑定回调；单标的单周期，构造不联网 |
+| `add_strategy(strategy)` | 绑定一个 Strategy 与 binance.Broker；重复绑定、已运行实例和其他账户类型在联网前拒绝 |
 | `get_current_dt()` | 最近交付的 K 线收盘时间，启动前为 None；实际订单时间由 SDK/交易所提供 |
 | `run()` | 启动 SDK 并阻塞等待；正常停止返回 None，异常保留 SDK 错误链 |
 | `stop()` / `close()` / 上下文退出 | 停止未来策略交付、释放行情资源；不撤单、不平仓；close 可重复调用 |
@@ -156,8 +160,8 @@ SDK 写调用异常时，薄 Broker 停止本实例后续适配下单并原样�
 | 对象 | 最少状态 | 责任 |
 | --- | --- | --- |
 | Strategy | 参数、指标、业务状态 | 接收 K 线、调用交易，不自动保存检查点 |
-| live.Exchange | SDK 行情、一个策略、运行状态、最后收盘时间、当前回调线程标识 | 订阅、K 线转换、顺序交付、启停 |
-| live.Broker | SDK 账户引用、所属 Exchange、写请求失败标志 | 从所属 Exchange 检查标的与下单阶段，不复制许可或仓位状态 |
+| binance.Exchange | SDK 行情、一个策略、运行状态、最后收盘时间、当前回调线程标识 | 订阅、K 线转换、顺序交付、启停 |
+| binance.Broker | SDK 账户引用、所属 Exchange、写请求失败标志 | 从所属 Exchange 检查标的与下单阶段，不复制许可或仓位状态 |
 | SDK Exchange | 连接、订阅、队列、线程、失败传播 | 复用既有串行回调和有界队列 |
 | SDK Broker / 交易所 | 请求、订单、持仓、条件单 | minbt 不复制账本或推导本地成交 |
 
@@ -167,9 +171,9 @@ flowchart LR
     R --> S[Strategy]
     S --> B[minbt.Broker]
     B --> P[已有 Portfolio / Position / Market]
-    M[SDK Exchange] --> L[live.Exchange：K 线转换]
+    M[SDK Exchange] --> L[binance.Exchange：K 线转换]
     L --> T[同类 Strategy]
-    T --> A[live.Broker：两个薄方法]
+    T --> A[binance.Broker：两个薄方法]
     A --> E[SDK Broker]
 ```
 
@@ -276,7 +280,8 @@ minbt 不修改 SDK，也不依赖旧版 send_permission 补丁。
 minbt/protocols/trading.py       # 两个最小 Protocol
 minbt/strategy.py               # 仅调整 broker 绑定检查
 minbt/exchange.py               # 回放入口检查 ReplayBrokerProtocol
-minbt/plugins/binance/live.py   # 一个文件：薄 Broker + 薄 Exchange
+minbt/plugins/binance/broker.py # 薄 Broker
+minbt/plugins/binance/exchange.py # 薄 Exchange 与行情字段转换
 ```
 
 PLAN-072 的实际统计（含空行与注释；核心按新增/替换行统计）：
@@ -289,12 +294,13 @@ PLAN-072 的实际统计（含空行与注释；核心按新增/替换行统计�
 | 总计 | 219 行 |
 
 比最初 150 行估算多出的代码用于明确参数/绑定/线程检查、行情时效与连续性检查、异常后的禁写和资源清理。
-没有新增服务、线程、队列、交易账本或 SDK 补丁；辅助逻辑直接放在 live.py。
+没有新增服务、线程、队列、交易账本或 SDK 补丁。PLAN-076 已将原 live.py 拆分为
+broker.py 与 exchange.py，共享时间转换来自 _kline.py；上述统计对应拆分前的 PLAN-072。
 账户是借用资源，行情是自有资源；停止不改变远端仓位。适配自身状态 O(1)，SDK 队列边界由 SDK 配置负责。
 
 ## 9. 实施与后续验证
 
 备份、回退和设计修订已完成；用户已要求实施，使用 PLAN-072，不继续 PLAN-070。
-协议、隔离检查、单文件桥接已落地，[共用策略示例](../../examples/19_live.py) 展示回测与 demo 装配。
+协议、隔离检查与薄适配已落地，[共用策略示例](../../examples/19_live.py) 展示回测与 demo 装配。
 代码认可后验证回测行为、数量方向、闭合 K 线/去重/缺口、异常不重发、停止交付和资源释放即可。
 使用 fake SDK，不依赖真实资金。旧恢复、保护和完整核账矩阵不再是本版待办。

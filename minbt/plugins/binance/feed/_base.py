@@ -1,67 +1,11 @@
-"""Kline 专用读取辅助。
+"""历史 K 线行转 Bar、分钟连续性检查与迭代资源管理。"""
 
-Kline 是一种 Bar。这里的解析逻辑只服务 Binance Kline 行格式，不定义通用 Bar 的字段集合。
-"""
-
-from datetime import datetime, timedelta, timezone
 from itertools import groupby
 from typing import Iterable, Mapping
 import warnings
 
-from ...data.model import Bar, datetime_key, normalize_datetime, normalize_symbol
-
-
-OPTIONAL_BAR_FIELDS = (
-    "close_time",
-    "volume_quote",
-    "num_trades",
-    "volume_base_buy",
-    "volume_quote_buy",
-)
-
-
-def normalize_symbols(symbols, *, allow_none=False, allow_wildcard=False):
-    if symbols is None and allow_none:
-        return None
-    if isinstance(symbols, (str, bytes)):
-        symbols = [symbols]
-    try:
-        normalized = [normalize_symbol(symbol) for symbol in symbols]
-    except TypeError as exc:
-        raise TypeError("symbols must be a symbol string or an iterable of symbols") from exc
-    if not normalized or any(not symbol for symbol in normalized):
-        raise ValueError("symbols must not be empty")
-    if len(set(normalized)) != len(normalized):
-        raise ValueError("symbols must not contain duplicates")
-    if allow_wildcard and "*" in normalized:
-        if normalized != ["*"]:
-            raise ValueError("'*' must be used alone in symbols")
-        return None
-    return normalized
-
-
-def to_utc_datetime(value) -> datetime:
-    return normalize_datetime(value)
-
-
-def datetime_to_ms(value: datetime) -> int:
-    return datetime_key(value)
-
-
-def ms_to_datetime(value: int) -> datetime:
-    return datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(milliseconds=int(value))
-
-
-def optional_float(value):
-    if value is None or value == "":
-        return None
-    return float(value)
-
-
-def optional_int(value):
-    if value is None or value == "":
-        return None
-    return int(float(value))
+from ....data.model import Bar, normalize_symbol
+from .._kline import datetime_to_ms, ms_to_datetime
 
 
 class _MinuteContinuity:
@@ -203,14 +147,3 @@ class _KlineRowFeed:
     def close(self) -> None:
         """子类可覆盖；重复 close 必须安全。"""
         return None
-
-
-__all__ = [
-    "OPTIONAL_BAR_FIELDS",
-    "normalize_symbols",
-    "to_utc_datetime",
-    "datetime_to_ms",
-    "ms_to_datetime",
-    "optional_float",
-    "optional_int",
-]

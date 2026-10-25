@@ -39,16 +39,16 @@ def run_backtest():
 
 def run_demo():
     from crypto_api.binance2 import usdm as binance2
-    from minbt.plugins.binance import live
+    from minbt.plugins import binance
 
-    with live.Exchange(
+    with binance.Exchange(
         symbol=SYMBOL, interval="1m", environment="demo", sdk_factory=binance2.Exchange,
     ) as exchange:
         with binance2.Broker(
             os.environ["BINANCE_API_KEY"], os.environ["BINANCE_API_SECRET"],
             exchange=exchange.sdk,
         ) as account:
-            exchange.add_strategy(Pulse("pulse", broker=live.Broker(account), params=PARAMS))
+            exchange.add_strategy(Pulse("pulse", broker=binance.Broker(account), params=PARAMS))
             exchange.run()
 
 

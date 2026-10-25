@@ -7,8 +7,8 @@ from typing import Any, Iterable, List
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-from .kline import (
-    _KlineRowFeed,
+from ._base import _KlineRowFeed
+from .._kline import (
     datetime_to_ms as _datetime_to_ms,
     ms_to_datetime as _ms_to_datetime,
     normalize_symbols,
@@ -24,7 +24,7 @@ DEFAULT_DELAY = 0.5
 FUTURES_API_BASE = "https://fapi.binance.com"
 
 
-class BinanceKlineClient:
+class _KlineClient:
     """内部下载适配层，封装 crypto_api 以便后续替换和测试。"""
 
     def list_symbols(self) -> List[str]:
@@ -108,7 +108,7 @@ class BinanceKlineClient:
             )
 
 
-class BinanceKlineFeed(_KlineRowFeed):
+class KlineFeed(_KlineRowFeed):
     """下载并缓存 Binance Kline，再以收盘时间发布，避免提前暴露完整区间。"""
     # prepare 已严格校验完整性；closed_only 的有效尾部还受当前收盘时间限制。
     _warn_minute_gaps = False
@@ -140,7 +140,7 @@ class BinanceKlineFeed(_KlineRowFeed):
         if self.end_dt <= self.start_dt:
             raise ValueError("end must be greater than start")
         if market != SUPPORTED_MARKET:
-            raise ValueError('BinanceKlineFeed currently supports only market="futures"')
+            raise ValueError('KlineFeed currently supports only market="futures"')
         self.market = market
         self.cache_dir = Path(cache_dir)
         self.db_path = self.cache_dir / DEFAULT_DB_NAME
@@ -149,7 +149,7 @@ class BinanceKlineFeed(_KlineRowFeed):
         self.cache_only = bool(cache_only)
         self.closed_only = bool(closed_only)
         self.feed_priority = int(feed_priority)
-        self._client = BinanceKlineClient()
+        self._client = _KlineClient()
         self._prepared = False
         self._rows = None
 

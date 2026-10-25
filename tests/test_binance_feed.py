@@ -3,8 +3,8 @@ import sqlite3
 
 import pytest
 
-from minbt.plugins.binance import cache as binance
-from minbt.plugins.binance.kline import datetime_to_ms, ms_to_datetime
+from minbt.plugins.binance.feed import cache
+from minbt.plugins.binance._kline import datetime_to_ms, ms_to_datetime
 from minbt.data.model import datetime_key, normalize_datetime
 
 
@@ -31,7 +31,7 @@ class _Client:
 
 
 def _feed(tmp_path, start_ms, end_ms, *, closed_only=True, cache_only=False):
-    return binance.BinanceKlineFeed(
+    return cache.KlineFeed(
         "BTCUSDT",
         "1m",
         datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc),
@@ -81,7 +81,7 @@ def test_closed_only_filters_unclosed_rows_from_existing_cache(tmp_path, monkeyp
     interval_ms = 60_000
     now_ms = 1_750_000_030_000
     current_open = (now_ms // interval_ms) * interval_ms
-    monkeypatch.setattr(binance, "_current_open_time_ms", lambda _now, _interval: current_open)
+    monkeypatch.setattr(cache, "_current_open_time_ms", lambda _now, _interval: current_open)
     start_ms = current_open - 3 * interval_ms
     end_ms = current_open + interval_ms
 
@@ -108,7 +108,7 @@ def test_closed_only_redownloads_a_candle_cached_before_close(tmp_path, monkeypa
     interval_ms = 60_000
     start_ms = (1_700_000_000_000 // interval_ms) * interval_ms
     now_ms = [start_ms + 30_000]
-    monkeypatch.setattr(binance.time, "time", lambda: now_ms[0] / 1000)
+    monkeypatch.setattr(cache.time, "time", lambda: now_ms[0] / 1000)
     end_ms = start_ms + interval_ms
     row = _row(start_ms)
 
@@ -263,6 +263,6 @@ def test_all_feed_millisecond_converters_use_exact_integer_time(timestamp):
     dt = normalize_datetime(timestamp)
     key = datetime_key(dt)
     assert datetime_to_ms(dt) == key
-    assert binance._datetime_to_ms(dt) == key
+    assert cache._datetime_to_ms(dt) == key
     assert ms_to_datetime(key) == dt
-    assert binance._ms_to_datetime(key) == dt
+    assert cache._ms_to_datetime(key) == dt

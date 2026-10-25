@@ -60,7 +60,7 @@
 - `self.broker` 的交易、退出、分仓和查询方法；
 - 读取模式、价格选择和已有规则预设。
 
-具体读取器从 `minbt.plugins.binance/storage` 导入，协议从 `minbt.protocols` 导入；
+具体读取器从 `minbt.plugins.binance.feed` 或 `minbt.plugins.storage` 导入，协议从 `minbt.protocols` 导入；
 不保留旧数据模块、兼容导出或模块别名。根包仍导出常用核心对象，这是正式的便捷入口。
 
 实现迁移不能顺带改变回调次数、成交时点、费用或原账户口径。最小示例继续直接使用当前 API：
@@ -121,7 +121,7 @@ minbt/
     engine.py        # 薄运行入口的扩展契约
     result.py        # 现有结果查询契约
   plugins/
-    binance/         # 已有格式适配与缓存/读取实现
+    binance/         # 实盘 Broker/Exchange；feed/ 放历史读取实现
     storage/         # 已有通用文件/数据库读取实现
   exchange.py        # 保留唯一默认回放实现
   strategy.py        # 保留原策略基类

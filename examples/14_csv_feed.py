@@ -4,7 +4,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
-from minbt.plugins.binance import BinanceKlineCsvFeed
+from minbt.plugins.binance.feed import KlineCsvFeed
 
 
 SYMBOL = "BTCUSDT"
@@ -36,7 +36,7 @@ class CsvFeedStrategy(Strategy):
 def run_strategy():
     exchange = Exchange()
     exchange.add_feed(
-        BinanceKlineCsvFeed(
+        KlineCsvFeed(
             root=CSV_ROOT,
             symbols=[SYMBOL],
             interval="1m",

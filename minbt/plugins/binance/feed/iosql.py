@@ -2,14 +2,15 @@ from operator import index
 from pathlib import Path
 from typing import Iterator
 
-from .kline import _KlineRowFeed, datetime_to_ms, normalize_symbols, to_utc_datetime
+from ._base import _KlineRowFeed
+from .._kline import datetime_to_ms, normalize_symbols, to_utc_datetime
 
 
 class _IosqlFeedConfigurationError(ValueError):
     """iosql Feed 可由用户修正的配置或数据范围错误。"""
 
 
-class BinanceKlineIosqlFeed(_KlineRowFeed):
+class KlineIosqlFeed(_KlineRowFeed):
     """读取 iosql Binance K 线表的渐进式 Feed。"""
 
     def __init__(
@@ -72,7 +73,7 @@ class BinanceKlineIosqlFeed(_KlineRowFeed):
             from iosql import Database
         except ImportError as exc:
             raise ImportError(
-                "BinanceKlineIosqlFeed requires iosql; install iosql v0.3.x or newer"
+                "KlineIosqlFeed requires iosql; install iosql v0.3.x or newer"
             ) from exc
 
         try:

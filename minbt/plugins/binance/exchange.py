@@ -1,57 +1,14 @@
-"""单标的闭合 K 线实盘桥接；连接、线程和交易请求均由注入的 SDK 负责。"""
+"""单标的闭合 K 线实时行情；连接和线程由注入的 SDK 负责。"""
 
 from contextlib import AbstractContextManager
-from decimal import Decimal
 from threading import get_ident
 from time import time
 
 from ..._validation import finite_number, positive_number
 from ...data.model import normalize_symbol
 from ...strategy import Strategy
-from .kline import ms_to_datetime
-
-
-class Broker:
-    """借用 SDK 账户，仅适配有符号市价数量与单向净持仓。"""
-
-    def __init__(self, sdk_broker):
-        self.sdk = sdk_broker
-        self._exchange = None
-        self._failed = False
-
-    def submit_market_order(self, symbol: str, qty: float) -> dict:
-        owner = self._exchange
-        if (
-            owner is None or owner._state != "running" or self._failed
-            or owner._callback_thread != get_ident()
-        ):
-            raise RuntimeError("orders require an active on_bars callback and a healthy Broker")
-        symbol = normalize_symbol(symbol)
-        if symbol != owner.symbol:
-            raise ValueError("order symbol must match the live Exchange")
-        finite_number(qty, "qty")
-        if qty == 0:
-            raise ValueError("qty must not be zero")
-        amount = Decimal(str(qty))
-        try:
-            return self.sdk.submit_market_order(
-                symbol, "BUY" if amount > 0 else "SELL", amount.copy_abs()
-            )
-        except BaseException:
-            self._failed = True  # 包含中断；未知写入结果不自动重发。
-            raise
-
-    def get_position_size(self, symbol: str) -> float:
-        symbol = normalize_symbol(symbol)
-        rows = self.sdk.get_positions(symbol)
-        if not isinstance(rows, list) or len(rows) > 1:
-            raise ValueError("expected at most one one-way position")
-        if not rows:
-            return 0.0
-        row = rows[0]
-        if row["symbol"] != symbol or row["positionSide"] != "BOTH":
-            raise ValueError("expected a matching one-way BOTH position")
-        return finite_number(float(row["positionAmt"]), "positionAmt")
+from ._kline import ms_to_datetime
+from .broker import Broker
 
 
 class Exchange(AbstractContextManager):
@@ -71,7 +28,7 @@ class Exchange(AbstractContextManager):
         if self._state != "created" or self._strategy is not None:
             raise RuntimeError("live Exchange accepts one Strategy before run")
         if not isinstance(strategy, Strategy) or not isinstance(strategy.broker, Broker):
-            raise TypeError("live Exchange requires Strategy with live.Broker")
+            raise TypeError("live Exchange requires Strategy with binance.Broker")
         broker = strategy.broker
         if broker._exchange is not None or broker.sdk.exchange is not self.sdk:
             raise ValueError("Broker must be unused and linked to this SDK Exchange")

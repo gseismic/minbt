@@ -2,12 +2,12 @@
 
 ## 可选实盘边界
 
-回测继续使用根入口 `minbt.Exchange/Broker`。可选的 `minbt.plugins.binance.live` 提供
+回测继续使用根入口 `minbt.Exchange/Broker`。可选的 `minbt.plugins.binance` 提供
 `Exchange(symbol=..., interval=..., environment=..., sdk_factory=...)` 和 `Broker(sdk_broker)`。
 工厂注入外部同步 Binance2 行情类（本机为 `crypto_api.binance2.usdm.Exchange`）；SDK 账户通过
 `exchange=exchange.sdk` 关联同一行情对象，生命周期由调用者的 SDK 上下文管理。
 
-一个 live Exchange 只绑定一个 Strategy/live.Broker，处理单标的闭合 K 线，run 正常返回 None。
+一个 `binance.Exchange` 只绑定一个 Strategy/`binance.Broker`，处理单标的闭合 K 线，run 正常返回 None。
 策略可共用 `on_bars`、`submit_market_order(symbol, qty)` 和 `get_position_size(symbol)`；数量买正卖负。
 实盘订单返回 SDK 字典，查询同步联网；只在 on_bars 内允许适配下单，SDK 写入异常后禁止继续下单。
 不提供 target_*、分仓、退出规则或策略历史；高级操作使用 broker.sdk。
@@ -130,7 +130,7 @@ fees、settlement_adjustment、net_pnl；缺少可选查询时明确报错，不
 
 默认返回独立 RunResult，绘图库可只依赖 ResultProtocol。需要外部引擎时显式传 `engine=适配器`，
 由适配器驱动 Strategy 回调、管理资源并返回已冻结的标准结果；库不会自动加载外部 SDK。
-读取器从 `minbt.plugins.binance`/`minbt.plugins.storage` 导入，默认 Broker 及组件直接位于
+读取器从 `minbt.plugins.binance.feed`/`minbt.plugins.storage` 导入，默认 Broker 及组件直接位于
 核心 `minbt.broker`。基础 Feed 在 `minbt.data`，协议在 `minbt.protocols`；旧数据读取转发入口已删除。
 自定义实现可以直接保存在用户项目内，默认自备数据回测不会加载插件。
 
@@ -138,10 +138,10 @@ fees、settlement_adjustment、net_pnl；缺少可选查询时明确报错，不
 
 ```python
 from minbt import Exchange
-from minbt.plugins import binance
+from minbt.plugins.binance.feed import KlineFeed
 
 exchange = Exchange()
-exchange.add_feed(binance.BinanceKlineFeed(
+exchange.add_feed(KlineFeed(
     symbols=["BTCUSDT", "ETHUSDT"],
     interval="1h",
     start="2024-01-01",
@@ -163,16 +163,16 @@ exchange.add_feed(binance.BinanceKlineFeed(
 Binance 月度 K 线文件或 iosql K 线表使用专用 Feed：
 
 ```python
-from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
+from minbt.plugins.binance.feed import KlineCsvFeed, KlineIosqlFeed
 
-exchange.add_feed(BinanceKlineCsvFeed(
+exchange.add_feed(KlineCsvFeed(
     root="/path/to/kline.csv/1m",
     symbols=["BTCUSDT"],
     interval="1m",
     start="2023-01-01",
     end="2023-01-03",
 ))
-# 数据库存储时可替换为 BinanceKlineIosqlFeed("sqlite:///path/to/data.iosql", "1m", ...)
+# 数据库存储时可替换为 KlineIosqlFeed("sqlite:///path/to/data.iosql", "1m", ...)
 ```
 
 三个 Binance Feed 用 `close_time` 作为事件 dt，载荷保留整数毫秒的 `open_time/close_time`，
@@ -180,7 +180,7 @@ exchange.add_feed(BinanceKlineCsvFeed(
 `start/end` 按 open_time 筛选半开区间 `[start, end)`，运行窗口按事件可见时间筛选。
 Feed 在启动前检查请求 symbol、CSV 月份、
 iosql table/interval 和时间范围；缺数据或配置错误直接报错。
-`BinanceKlineIosqlFeed` 需要另行安装 iosql 0.3.x 或更新版本，`batch_size` 调整读取缓冲。
+`KlineIosqlFeed` 需要另行安装 iosql 0.3.x 或更新版本，`batch_size` 调整读取缓冲。
 Binance CSV / iosql Feed 的 `symbols` 省略、设为 `None`、`"*"` 或 `["*"]` 时，
 会读取所选来源和时间范围内出现的全部 symbol；通配符必须单独使用，不能和具体 symbol 混合。
 `on_bars(dt, bars)` 每次只包含当前时点实际有 K 线的 symbol。仓库示例为

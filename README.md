@@ -27,7 +27,7 @@ minbt 是一个最简回测框架。目标不是模拟完整交易所，而是�
 
 ## 可选实盘接入
 
-`from minbt.plugins.binance import live` 提供单标的闭合 K 线适配，复用外部 Binance2 SDK 的 Exchange/Broker。
+`from minbt.plugins import binance`，使用 `binance.Exchange` 和 `binance.Broker` 接入单标的闭合 K 线，复用外部 Binance2 SDK。
 默认回测无需安装或导入该 SDK。本机 SDK 入口为 `crypto_api.binance2.usdm`，通过 `sdk_factory` 显式注入。
 
 [共用策略示例](examples/19_live.py) 中的 `Pulse` 原样用于回测与 demo，仅替换装配代码：
@@ -196,7 +196,7 @@ print(result.get_total_pnl().net_pnl)  # 20.0
 绘图库直接读取结果曲线，缺失能力仍用 `NotImplementedError` 表示。
 
 默认模拟交易属于核心：Broker、订单、分仓、持仓、盈亏、撮合和退出组件直接位于 `minbt.broker`。
-数据模型与基础 Feed 位于 `minbt.data`，数据读取器从 `minbt.plugins.binance` 或
+数据模型与基础 Feed 位于 `minbt.data`，数据读取器从 `minbt.plugins.binance.feed` 或
 `minbt.plugins.storage` 导入。原数据读取转发路径已移除；协议直接从 `minbt.protocols` 导入。
 自己的 Feed/Broker 可以保存在自己的项目，特殊市场行为通过协议和工厂扩展。
 核心保留 Exchange 唯一回放循环，新配置入口只读取参数并调用你提供的工厂。
@@ -385,13 +385,17 @@ iosql 的 `dt` 与显式 `dt_ms` 始终按毫秒解析，包括 epoch 附近的�
 
 如果你不想先手工准备 CSV，可以直接接入 Binance futures 历史 K 线：
 
+三个历史读取器统一位于 `minbt.plugins.binance.feed`：`KlineFeed`、`KlineCsvFeed`、`KlineIosqlFeed`。
+类名由 Binance 包名限定；旧 `BinanceKline*` 名称和 `binance.live` 入口已移除，迁移对应关系见
+[插件结构与命名](docs/design/binance-20261025-layout.md)。
+
 ```python
 from minbt import Exchange
-from minbt.plugins import binance
+from minbt.plugins.binance.feed import KlineFeed
 
 exchange = Exchange()
 exchange.add_feed(
-    binance.BinanceKlineFeed(
+    KlineFeed(
         symbols=["BTCUSDT", "ETHUSDT"],
         interval="1h",
         start="2024-01-01",
@@ -427,9 +431,9 @@ def on_bars(self, dt, bars):
 有序 Feed 支持渐进回放，Exchange 只保留当前时间批次和各来源的少量读取缓冲：
 
 ```python
-from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
+from minbt.plugins.binance.feed import KlineCsvFeed, KlineIosqlFeed
 
-exchange.add_feed(BinanceKlineCsvFeed(
+exchange.add_feed(KlineCsvFeed(
     root="/media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv/1m",
     symbols=["BTCUSDT"],
     interval="1m",
@@ -438,7 +442,7 @@ exchange.add_feed(BinanceKlineCsvFeed(
 ))
 
 # 或使用 iosql：
-exchange.add_feed(BinanceKlineIosqlFeed(
+exchange.add_feed(KlineIosqlFeed(
     uri="sqlite:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
     interval="1m",
     symbols=["BTCUSDT"],
@@ -470,7 +474,7 @@ Binance CSV 和 iosql Feed 的 `symbols` 省略、设为 `None`、`"*"` 或 `["*
 默认可见的 Python `RuntimeWarning`，包含来源、symbol、最后有效时间和首次缺失时间，
 提示检查数据库漏数或 delist；仅凭缺失数据无法判定下架。整分钟漏数、某 symbol 持续消失，
 以及 Feed 的 `end` 前尾部缺失也会提醒；未指定 `end` 时只检查到实际数据的最后一分钟。
-warning 不依赖内部日志开关，回测继续使用真实数据。下载缓存 `BinanceKlineFeed` 保留原有严格完整性报错。
+warning 不依赖内部日志开关，回测继续使用真实数据。下载缓存 `KlineFeed` 保留原有严格完整性报错。
 
 渐进回放用额外的迭代与归并开销换取更低的历史行情内存；全量预加载适合小数据和速度优先的
 场景。具体速度和内存取决于来源、时间批次大小和数据字段。

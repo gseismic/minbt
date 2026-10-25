@@ -3,7 +3,7 @@ import os
 import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
-from minbt.plugins.binance import BinanceKlineIosqlFeed
+from minbt.plugins.binance.feed import KlineIosqlFeed
 
 
 SYMBOL = "BTCUSDT"
@@ -33,7 +33,7 @@ class IosqlFeedStrategy(Strategy):
 def run_strategy():
     exchange = Exchange()
     exchange.add_feed(
-        BinanceKlineIosqlFeed(
+        KlineIosqlFeed(
             uri=IOSQL_URI,
             interval="1m",
             symbols=[SYMBOL],

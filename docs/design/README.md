@@ -2,10 +2,12 @@
 
 ## 最新实盘设计
 
+- [Binance 插件职责与命名整理](binance-20261025-layout.md)：PLAN-076 将历史 Feed 收进 `binance.feed`，
+  Broker/Exchange 分文件并从 Binance 根包导出；Feed 名称移除重复的 Binance 前缀，直接迁移旧入口。
 - [回测优先的最小实盘接入](live-trading-20261023-design.md)：第七版，PLAN-072 已实现并审阅源码，待代码认可后测试。
   依据 GOAL，保留回测现有入口、撮合与结果；实盘只通过外部 SDK 的 Exchange/Broker 接入。
   明确最小协议、两个薄交易方法、单标的 K 线流程、同步查询/下单与 SDK 原始返回值，允许接口差异。
-  150 行为精简目标，用户已明确不是硬上限；实际新增/替换生产代码 219 行，live.py 占 186 行。
+  150 行为精简目标，用户已明确不是硬上限；PLAN-072 原始新增/替换生产代码 219 行，原 live.py 占 186 行，后按 PLAN-076 拆分。
   以 [PLAN-071](../dev/PLAN-071-backtest-first-design.md) 回退的 `6c1e7a0` 为基线实施；
   第六版及旧实现见 [参考备份](../ref/v1/README.md)，其实施要求已被替代。
 

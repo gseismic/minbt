@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from minbt import Bar, Broker, Exchange, Strategy
-from minbt.plugins.binance import BinanceKlineCsvFeed, BinanceKlineIosqlFeed
+from minbt.plugins.binance.feed import KlineCsvFeed, KlineIosqlFeed
 from minbt.data.model import normalize_datetime
 
 
@@ -47,7 +47,7 @@ def test_binance_kline_csv_feed_yields_individual_bars(tmp_path):
         header=False,
     )
 
-    feed = BinanceKlineCsvFeed(
+    feed = KlineCsvFeed(
         tmp_path,
         symbols=["BTCUSDT", "ETHUSDT"],
         start="2023-01-01T00:00:00Z",
@@ -79,7 +79,7 @@ def test_binance_kline_csv_feed_rejects_out_of_order_rows(tmp_path):
         [_csv_row(start_ms + 60_000, 101), _csv_row(start_ms, 100)],
     )
     with pytest.raises(ValueError, match="not ordered"):
-        list(BinanceKlineCsvFeed(tmp_path, symbols="BTCUSDT").events())
+        list(KlineCsvFeed(tmp_path, symbols="BTCUSDT").events())
 
 
 def test_binance_kline_csv_feed_rejects_missing_months(tmp_path):
@@ -89,7 +89,7 @@ def test_binance_kline_csv_feed_rejects_missing_months(tmp_path):
         tmp_path / "BTCUSDT-1m-2023-03.csv",
         [_csv_row(start_ms + 86_400_000 * 59, 300)],
     )
-    feed = BinanceKlineCsvFeed(
+    feed = KlineCsvFeed(
         tmp_path,
         symbols="BTCUSDT",
         start="2023-01-01T00:00:00Z",
@@ -102,7 +102,7 @@ def test_binance_kline_csv_feed_rejects_missing_months(tmp_path):
 def test_binance_kline_csv_feed_rejects_missing_requested_symbol(tmp_path):
     start_ms = 1_672_531_200_000
     _write_csv(tmp_path / "BTCUSDT-1m-2023-01.csv", [_csv_row(start_ms, 100)])
-    feed = BinanceKlineCsvFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"], interval="1m")
+    feed = KlineCsvFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"], interval="1m")
     with pytest.raises(FileNotFoundError, match="ETHUSDT"):
         list(feed.events())
 
@@ -113,7 +113,7 @@ def test_binance_kline_csv_infers_unbounded_months_per_symbol(tmp_path):
     _write_csv(tmp_path / "BTCUSDT-1m-2023-01.csv", [_csv_row(jan_ms, 100)])
     _write_csv(tmp_path / "ETHUSDT-1m-2023-03.csv", [_csv_row(mar_ms, 200)])
 
-    feed = BinanceKlineCsvFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"])
+    feed = KlineCsvFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"])
 
     with pytest.warns(RuntimeWarning, match="BTCUSDT 1m Kline missing"):
         events = list(feed.events())
@@ -139,7 +139,7 @@ def test_exchange_consumes_binance_kline_csv_feed_in_incremental_mode(tmp_path):
 
     exchange = Exchange()
     exchange.add_feed(
-        BinanceKlineCsvFeed(
+        KlineCsvFeed(
             tmp_path,
             symbols="BTCUSDT",
             start="2023-01-01T00:00:00Z",
@@ -155,7 +155,7 @@ def test_exchange_consumes_binance_kline_csv_feed_in_incremental_mode(tmp_path):
 
 
 def test_binance_kline_iosql_feed_declares_incremental_capability():
-    feed = BinanceKlineIosqlFeed("sqlite:///tmp/example.iosql", interval="1m")
+    feed = KlineIosqlFeed("sqlite:///tmp/example.iosql", interval="1m")
     assert feed.supports_incremental is True
     assert feed.supports_preload is True
     assert feed.ordered is True
@@ -220,7 +220,7 @@ def test_binance_kline_iosql_feed_reads_rows_as_bars(tmp_path):
         )
         table.write(rows)
 
-    feed = BinanceKlineIosqlFeed(
+    feed = KlineIosqlFeed(
         uri,
         interval="1m",
         symbols="BTCUSDT",
@@ -249,7 +249,7 @@ def test_completed_hourly_kline_is_not_visible_to_earlier_minute_or_news(tmp_pat
     row = _csv_row(start, 200)
     row[6] = str(start + 3_600_000 - 1)
     _write_csv(tmp_path / "BTCUSDT-1h-2026-01.csv", [row])
-    feed = BinanceKlineCsvFeed(tmp_path, "BTCUSDT", interval="1h")
+    feed = KlineCsvFeed(tmp_path, "BTCUSDT", interval="1h")
 
     class MixedObserver(Strategy):
         def on_init(self):
@@ -285,4 +285,4 @@ def test_kline_without_completion_time_is_not_published_at_open(tmp_path):
     row[6] = ""
     _write_csv(tmp_path / "BTCUSDT-1m-2023-01.csv", [row])
     with pytest.raises(ValueError, match="invalid bar values"):
-        list(BinanceKlineCsvFeed(tmp_path).events())
+        list(KlineCsvFeed(tmp_path).events())

@@ -5,6 +5,8 @@
 本文是数据接入层目标设计稿。
 当前读取协议以 [数据规范](protocols/data-20261012-contract.md) 为准；Binance Kline 可见时间
 按 [执行不变式](execution-20261013-invariants.md) 修正为 close_time，open_time 仅保留为数据与缓存键。
+Binance 读取器的当前目录与命名以 [PLAN-076 设计](binance-20261025-layout.md) 为准，
+下文参考下载器的名称属于外部历史实现。
 
 核心入口：
 

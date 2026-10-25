@@ -177,7 +177,7 @@ def test_crypto_binance_feed_example_runs_with_fake_feed(monkeypatch, capsys):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    class FakeBinanceKlineFeed:
+    class FakeKlineFeed:
         name = "fake-binance-bars"
         feed_priority = 0
         supports_preload = True
@@ -204,7 +204,7 @@ def test_crypto_binance_feed_example_runs_with_fake_feed(monkeypatch, capsys):
                     },
                 )
 
-    monkeypatch.setattr(module.binance, "BinanceKlineFeed", FakeBinanceKlineFeed)
+    monkeypatch.setattr(module, "KlineFeed", FakeKlineFeed)
 
     module.run_strategy()
     output = capsys.readouterr().out

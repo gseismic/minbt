@@ -3,7 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from minbt import Broker, Exchange, Strategy
-from minbt.plugins import binance
+from minbt.plugins.binance.feed import KlineFeed
 
 SYMBOL = "BTCUSDT"
 
@@ -32,7 +32,7 @@ class BinanceFeedStrategy(Strategy):
 def run_strategy():
     exchange = Exchange()
     exchange.add_feed(
-        binance.BinanceKlineFeed(
+        KlineFeed(
             symbols=[SYMBOL],
             interval="1h",
             start="2024-01-01",

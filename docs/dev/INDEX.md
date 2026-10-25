@@ -4,6 +4,7 @@
 
 | 更新时间（Asia/Shanghai） | 计划 | 状态 | 结果 |
 | --- | --- | --- | --- |
+| 2026-10-25 | [PLAN-076：整理 Binance 插件职责与命名](PLAN-076-binance-layout.md) | 已完成 | [结果](PLAN-076-binance-layout-OUTCOME.md)：历史 Feed 归入 feed 子包并移除 Binance 前缀，拆分 Broker/Exchange，源码比对与静态检查通过，未运行测试 |
 | 2026-10-25 | [PLAN-075：本地 K 线 Feed 支持 `*` 订阅全部 symbol](PLAN-075-symbol-wildcard-local-kline-feeds.md) | 已完成 | [结果](PLAN-075-symbol-wildcard-local-kline-feeds-OUTCOME.md)：CSV/iosql 支持独立 `*` 通配符，语法、ruff 与 diff 检查通过 |
 | 2026-10-25 | [PLAN-074：增加 iosql 全部 symbol 示例](PLAN-074-iosql-all-symbols-example.md) | 已完成 | [结果](PLAN-074-iosql-all-symbols-example-OUTCOME.md)：新增 `symbols=None` iosql 遍历示例，语法、ruff 与 diff 检查通过 |
 | 2026-10-12 14:38 | [PLAN-059：简化入门示例和文件命名](PLAN-059-simple-examples-model-unknown.md) | 已完成 | [结果](PLAN-059-simple-examples-model-unknown-OUTCOME.md)：首例 24 行，17 个示例改名，54 项相关测试通过 |
