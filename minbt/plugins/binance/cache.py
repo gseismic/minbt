@@ -110,6 +110,8 @@ class BinanceKlineClient:
 
 class BinanceKlineFeed(_KlineRowFeed):
     """下载并缓存 Binance Kline，再以收盘时间发布，避免提前暴露完整区间。"""
+    # prepare 已严格校验完整性；closed_only 的有效尾部还受当前收盘时间限制。
+    _warn_minute_gaps = False
     supports_preload = True
     # prepare() 当前会把缓存查询结果读入 _rows；它不是渐进读取来源。
     supports_incremental = False

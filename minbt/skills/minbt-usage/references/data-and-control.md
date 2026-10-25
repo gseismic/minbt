@@ -182,6 +182,13 @@ Feed 在启动前检查请求 symbol、CSV 月份、
 iosql table/interval 和时间范围；缺数据或配置错误直接报错。
 `BinanceKlineIosqlFeed` 需要另行安装 iosql 0.3.x 或更新版本，`batch_size` 调整读取缓冲。
 
+CSV / iosql 的 `interval="1m"` 默认检查分钟连续性：从每个 symbol 在请求区间内首次出现开始，
+按 open_time 每 60 秒期待一条 K 线。首次出现前无数据不提醒；每次 events() 读取中，
+每个 symbol 只报告第一处缺口，以默认可见的 Python `RuntimeWarning` 给出来源、symbol、
+最后有效时间和首次缺失时间，并提示检查漏数或 delist。会检查整分钟漏数、持续消失与 Feed end
+前的尾部缺失；未指定 end 时以实际最后一分钟为边界。回测继续使用真实数据，warning 不依赖
+minbt 的日志开关。下载缓存 Feed 保持原有严格完整性错误。
+
 通用 `CsvBarFeed` 和 `IosqlBarFeed` 读取 OrderBook、Trade、Price 等 Bar 存储，
 数据至少有 `dt,symbol,kind,data`，其中 `data` 是 JSON。
 两者从 `minbt.plugins.storage` 导入；iosql 的 `dt` 使用 UTC 毫秒时间戳，两个来源都要求

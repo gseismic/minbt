@@ -82,6 +82,14 @@ open_time/close_time。00:00 开始的小时 Kline 在 00:59:59.999 发布。缺
 Exchange 运行窗口按事件可见时间筛选。closed_only=True 控制数据是否已收盘且在收盘后下载；
 closed_only=False 允许未收盘快照，但仍保守安排在该根 close_time 调度，不把快照解释成最终值。
 
+Binance CSV / iosql 的 1m 数据从每个 symbol 在查询范围内首次出现开始检查分钟连续性。
+完整读取同一 open_time 的截面后检查，避免把尚未读到的同分钟 symbol 误判为缺失；
+每次 events() 迭代每个 symbol 只报告首处缺口，以默认可见的 RuntimeWarning 给出来源、symbol、
+最后有效 open_time、首次缺失 open_time，提示排查漏数或下架。整分钟漏数和持续消失同样检测；
+自然读完时按 Feed 的半开 end 检查尾部，无 end 则以实际数据最后一分钟为界，提前关闭不检查未读尾部。
+只保留一个时间截面和每个未报告 symbol 的最后时间，回测继续交付真实 Bar。
+此诊断不改变下载缓存 Feed 的严格完整性错误，也不能从数据缺失直接确认下架。
+
 Bar/News 的常见载荷容器冻结。on_bars/on_books 的外层映射也只读，on_trades 为只读映射加
 Trade 元组，多个策略安全共享。需要修改时策略自己复制外层容器，原行载荷继续共享。
 

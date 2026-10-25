@@ -2,7 +2,7 @@ import builtins
 
 import pytest
 
-from minbt import Broker, Strategy
+from minbt import Broker, Exchange, Strategy
 
 
 def test_strategy_history_without_pyta(monkeypatch):
@@ -62,36 +62,37 @@ def test_strategy_get_broker_stats_uses_requested_portfolio():
     assert stats["positions"] == {}
 
 
-def test_strategy_broker_protocol_error_lists_target_methods():
-    class OldStyleBroker:
-        def submit_market_order(self, *args, **kwargs):
+def test_strategy_accepts_minimal_trading_broker_but_historical_run_rejects_it():
+    class MinimalBroker:
+        def submit_market_order(self, symbol, qty):
             return True
 
-        def get_position_size(self, *args, **kwargs):
+        def get_position_size(self, symbol):
             return 0
 
-        def get_position_sizes(self, *args, **kwargs):
-            return {}
+    broker = MinimalBroker()
+    strategy = Strategy(strategy_id="test", broker=broker)
+    assert strategy.broker is broker
 
-        def get_total_equity(self):
-            return 0
+    exchange = Exchange()
+    exchange.set_bars([{"dt": "2026-01-01", "symbol": "BTCUSDT", "close": 100}])
+    exchange.add_strategy(strategy)
+    with pytest.raises(TypeError, match="historical Exchange requires ReplayBrokerProtocol"):
+        exchange.run()
 
-        def get_equity(self, *args, **kwargs):
-            return 0
 
-        def get_cash(self, *args, **kwargs):
-            return 0
-
-        def get_positions(self, *args, **kwargs):
-            return {}
-
-    with pytest.raises(TypeError) as exc_info:
-        Strategy(strategy_id="test", broker=OldStyleBroker())
-
-    message = str(exc_info.value)
-    assert "submit_limit_order" in message
-    assert "order_target_percent" in message
-    assert "close_position" in message
+@pytest.mark.parametrize("missing", ["submit_market_order", "get_position_size"])
+def test_strategy_broker_protocol_error_lists_minimal_methods(missing):
+    methods = {
+        "submit_market_order": lambda self, symbol, qty: True,
+        "get_position_size": lambda self, symbol: 0,
+    }
+    methods.pop(missing)
+    broker = type("IncompleteBroker", (), methods)()
+    with pytest.raises(TypeError, match="TradingBrokerProtocol") as exc_info:
+        Strategy(strategy_id="test", broker=broker)
+    assert "submit_market_order" in str(exc_info.value)
+    assert "get_position_size" in str(exc_info.value)
 
 
 def test_strategy_exposes_only_new_data_callbacks():

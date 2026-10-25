@@ -53,7 +53,8 @@ def test_binance_kline_csv_feed_yields_individual_bars(tmp_path):
         start="2023-01-01T00:00:00Z",
         end="2023-01-01T00:02:00Z",
     )
-    events = list(feed.events())
+    with pytest.warns(RuntimeWarning, match="ETHUSDT 1m Kline missing"):
+        events = list(feed.events())
 
     assert all(isinstance(event, Bar) for event in events)
     assert [(event.symbol, event.data["close"]) for event in events] == [
@@ -114,7 +115,9 @@ def test_binance_kline_csv_infers_unbounded_months_per_symbol(tmp_path):
 
     feed = BinanceKlineCsvFeed(tmp_path, symbols=["BTCUSDT", "ETHUSDT"])
 
-    assert [(event.symbol, event.data["close"]) for event in feed.events()] == [
+    with pytest.warns(RuntimeWarning, match="BTCUSDT 1m Kline missing"):
+        events = list(feed.events())
+    assert [(event.symbol, event.data["close"]) for event in events] == [
         ("BTCUSDT", 100.0),
         ("ETHUSDT", 200.0),
     ]

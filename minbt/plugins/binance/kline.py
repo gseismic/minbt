@@ -4,7 +4,9 @@ Kline 是一种 Bar。这里的解析逻辑只服务 Binance Kline 行格式，�
 """
 
 from datetime import datetime, timedelta, timezone
+from itertools import groupby
 from typing import Iterable, Mapping
+import warnings
 
 from ...data.model import Bar, datetime_key, normalize_datetime, normalize_symbol
 
@@ -58,6 +60,41 @@ def optional_int(value):
     return int(float(value))
 
 
+class _MinuteContinuity:
+    """从首次出现开始检查；已报告的 symbol 不再跟踪，避免下架后反复告警。"""
+
+    def __init__(self, name):
+        self.name = name
+        self.last_seen = {}
+        self.warned = set()
+
+    def check_batch(self, open_time, symbols):
+        for symbol in list(self.last_seen):
+            expected = self.last_seen[symbol] + 60_000
+            if expected < open_time or (expected == open_time and symbol not in symbols):
+                self._warn(symbol)
+        for symbol in symbols - self.warned:
+            self.last_seen[symbol] = open_time
+
+    def finish(self, end_ms):
+        if end_ms is not None:
+            for symbol in list(self.last_seen):
+                if self.last_seen[symbol] + 60_000 < end_ms:
+                    self._warn(symbol)
+
+    def _warn(self, symbol):
+        last = self.last_seen.pop(symbol)
+        self.warned.add(symbol)
+        warnings.warn(
+            f"{self.name}: {symbol} 1m Kline missing; "
+            f"first missing open_time={ms_to_datetime(last + 60_000).isoformat()}, "
+            f"last seen open_time={ms_to_datetime(last).isoformat()}. "
+            "Check database gaps or delisting; only the first gap per symbol is reported.",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+
+
 class _KlineRowFeed:
     """按收盘时间发布完整 Kline，防止混合回放提前看到区间最终数据。"""
 
@@ -65,11 +102,30 @@ class _KlineRowFeed:
     supports_incremental = True
     ordered = True
     replayable = True
+    _warn_minute_gaps = True
 
     def events(self) -> Iterable[Bar]:
         if not getattr(self, "_prepared", False):
             self.prepare()
 
+        bars = iter(self._iter_bars())
+        try:
+            if self.interval != "1m" or not self._warn_minute_gaps:
+                yield from bars
+                return
+
+            continuity = _MinuteContinuity(self.name)
+            # 等同一分钟内所有 symbol 到齐后再检查，最多缓冲一个时间截面。
+            for open_time, group in groupby(bars, key=lambda bar: bar.data["open_time"]):
+                batch = list(group)
+                continuity.check_batch(open_time, {bar.symbol for bar in batch})
+                yield from batch
+            end_dt = getattr(self, "end_dt", None)
+            continuity.finish(datetime_to_ms(end_dt) if end_dt is not None else None)
+        finally:
+            bars.close()
+
+    def _iter_bars(self) -> Iterable[Bar]:
         row_stream = iter(self._row_stream())
         previous_dt_ms = None
         current_dt_ms = None
