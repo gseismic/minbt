@@ -129,10 +129,16 @@ def test_generic_csv_bar_feed_dispatches_custom_bar(tmp_path):
 
 
 @pytest.mark.parametrize("start_ms", [1_767_225_600_000, 1000])
-def test_generic_iosql_bar_feed_reads_envelope(tmp_path, start_ms):
-    """真实临时数据库验证通用信封及早期毫秒时间，不依赖个人行情库。"""
+@pytest.mark.parametrize("engine,reader_scheme", [
+    ("sqlite", "iosql"), ("parquet", "iosql"), ("sqlite", "sqlite"),
+])
+def test_generic_iosql_bar_feed_reads_envelope(tmp_path, start_ms, engine, reader_scheme):
+    """真实临时库验证类型识别、旧 URI 兼容及早期毫秒时间。"""
     iosql = pytest.importorskip("iosql")
-    uri = f"sqlite://{tmp_path / 'bars.iosql'}"
+    if engine == "parquet":
+        pytest.importorskip("duckdb")
+    path = tmp_path / "bars.iosql"
+    uri = f"iosql://{path}"
     rows = [
         {
             "id": 1,
@@ -149,7 +155,7 @@ def test_generic_iosql_bar_feed_reads_envelope(tmp_path, start_ms):
             "data": json.dumps({"value": 101.0}),
         },
     ]
-    with iosql.Database(uri) as db:
+    with iosql.Database.create(uri, engine=engine) as db:
         table = db.table(
             "bars",
             pk=["id"],
@@ -168,7 +174,7 @@ def test_generic_iosql_bar_feed_reads_envelope(tmp_path, start_ms):
         table.write(rows)
 
     start_dt = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=start_ms)
-    feed = IosqlBarFeed(uri, start=start_dt, end=start_dt + timedelta(days=1))
+    feed = IosqlBarFeed(f"{reader_scheme}://{path}", start=start_dt, end=start_dt + timedelta(days=1))
 
     events = list(feed.events())
     assert [event.dt for event in events] == [start_dt, start_dt + timedelta(minutes=1)]

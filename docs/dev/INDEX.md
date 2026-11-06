@@ -4,6 +4,7 @@
 
 | 更新时间（Asia/Shanghai） | 计划 | 状态 | 结果 |
 | --- | --- | --- | --- |
+| 2026-11-07 | [PLAN-078：采用 iosql 推荐的本地 URI](PLAN-078-iosql-uri.md) | 已完成 | [结果](PLAN-078-iosql-uri-OUTCOME.md)：示例改用 `iosql:///`，验证 SQLite/Parquet 自动识别与旧 URI 兼容，全量 598 项通过 |
 | 2026-11-07 | [PLAN-077：修复全量代码评审问题](PLAN-077-full-review-fixes.md) | 已完成 | [结果](PLAN-077-full-review-fixes-OUTCOME.md)：修复交易时间、T+1、CSV 全标的、文件资源、K 线类型和发布测试，全量 592 项通过 |
 | 2026-10-25 | [PLAN-076：整理 Binance 插件职责与命名](PLAN-076-binance-layout.md) | 已完成 | [结果](PLAN-076-binance-layout-OUTCOME.md)：历史 Feed 归入 feed 子包并移除 Binance 前缀，拆分 Broker/Exchange，源码比对与静态检查通过，未运行测试 |
 | 2026-10-25 | [PLAN-075：本地 K 线 Feed 支持 `*` 订阅全部 symbol](PLAN-075-symbol-wildcard-local-kline-feeds.md) | 已完成 | [结果](PLAN-075-symbol-wildcard-local-kline-feeds-OUTCOME.md)：CSV/iosql 支持独立 `*` 通配符，语法、ruff 与 diff 检查通过 |

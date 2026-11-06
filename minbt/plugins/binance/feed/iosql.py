@@ -29,7 +29,7 @@ class KlineIosqlFeed(_KlineRowFeed):
         if isinstance(uri, Path):
             uri = str(uri)
         if not isinstance(uri, str) or "://" not in uri:
-            raise ValueError("uri must include an iosql scheme, for example sqlite:///path/to/data.iosql")
+            raise ValueError("uri must include an iosql scheme, for example iosql:///path/to/data.iosql")
         self.uri = uri
         if interval is None:
             raise ValueError("interval must not be empty")
@@ -73,7 +73,7 @@ class KlineIosqlFeed(_KlineRowFeed):
             from iosql import Database
         except ImportError as exc:
             raise ImportError(
-                "KlineIosqlFeed requires iosql; install iosql v0.3.x or newer"
+                "KlineIosqlFeed requires iosql; install a version supporting the selected URI"
             ) from exc
 
         try:

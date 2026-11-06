@@ -450,7 +450,7 @@ def test_iosql_millisecond_contract_and_query_window(monkeypatch):
             self.closed = True
 
     monkeypatch.setitem(sys.modules, "iosql", SimpleNamespace(Database=Database))
-    feed = IosqlBarFeed("sqlite:///unused", start="1970-01-01T00:00:01Z", end="1970-01-01T00:00:02Z")
+    feed = IosqlBarFeed("iosql:///unused", start="1970-01-01T00:00:01Z", end="1970-01-01T00:00:02Z")
     events = list(feed.events())
     assert [event.dt for event in events] == [datetime(1970, 1, 1, 0, 0, 1, tzinfo=timezone.utc)]
     assert instances[0].closed

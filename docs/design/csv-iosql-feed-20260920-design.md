@@ -167,7 +167,7 @@ CsvBarsFeed(
 from minbt.data import IosqlBarsFeed
 
 exchange.add_feed(IosqlBarsFeed(
-    uri="sqlite:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
+    uri="iosql:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
     interval="1m",
     symbols=["BTCUSDT"],
     start="2023-01-01",

@@ -443,7 +443,7 @@ exchange.add_feed(KlineCsvFeed(
 
 # 或使用 iosql：
 exchange.add_feed(KlineIosqlFeed(
-    uri="sqlite:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
+    uri="iosql:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
     interval="1m",
     symbols=["BTCUSDT"],
     start="2023-01-01",
@@ -456,8 +456,11 @@ result = exchange.run()  # auto：有序来源优先使用渐进回放
 
 需要显式选择读取方式时，在这一次启动中指定 `load_mode="preload"` 或 `load_mode="incremental"`。比较不同模式需分别创建新的运行对象。
 
-iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序查询，
-需要安装 iosql v0.3.x 或更新版本。`start/end` 在 minbt 中是半开区间 `[start, end)`；
+iosql 读取依赖 `query(..., order_by="open_time").iter_rows(...)` 的有序查询。
+已有本地库推荐使用绝对路径 URI `iosql:///path/to/data.iosql`，需安装支持该 URI 的 iosql 版本；
+iosql 根据已有库识别 SQLite 或 Parquet。已有 `sqlite://` 等受 iosql 支持的 URI 仍可使用。
+Feed 只读取已准备好的表；新建库时需按 iosql 的接口显式指定存储引擎。
+`start/end` 在 minbt 中是半开区间 `[start, end)`；
 iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/14_csv_feed.py` 和
 `examples/15_iosql_feed.py`。
 

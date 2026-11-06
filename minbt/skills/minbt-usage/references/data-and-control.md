@@ -172,7 +172,7 @@ exchange.add_feed(KlineCsvFeed(
     start="2023-01-01",
     end="2023-01-03",
 ))
-# 数据库存储时可替换为 KlineIosqlFeed("sqlite:///path/to/data.iosql", "1m", ...)
+# 数据库存储时可替换为 KlineIosqlFeed("iosql:///path/to/data.iosql", "1m", ...)
 ```
 
 三个 Binance Feed 用 `close_time` 作为事件 dt，载荷保留整数毫秒的 `open_time/close_time`，
@@ -180,7 +180,9 @@ exchange.add_feed(KlineCsvFeed(
 `start/end` 按 open_time 筛选半开区间 `[start, end)`，运行窗口按事件可见时间筛选。
 Feed 在启动前检查显式请求的 symbol、CSV 月份、
 iosql table/interval 和时间范围；缺数据或配置错误直接报错。
-`KlineIosqlFeed` 需要另行安装 iosql 0.3.x 或更新版本，`batch_size` 调整读取缓冲。
+`KlineIosqlFeed` 需要另行安装支持所选 URI 的 iosql，`batch_size` 调整读取缓冲。
+已有本地库推荐 `iosql:///绝对路径`，iosql 自动识别 SQLite 或 Parquet；
+已有 `sqlite://` 等受 iosql 支持的 URI 仍可使用。新建库时需显式指定引擎。
 Binance CSV / iosql Feed 的 `symbols` 省略、设为 `None`、`"*"` 或 `["*"]` 时，
 会读取所选来源和时间范围内出现的全部 symbol；通配符必须单独使用，不能和具体 symbol 混合。
 `on_bars(dt, bars)` 每次只包含当前时点实际有 K 线的 symbol。仓库示例为

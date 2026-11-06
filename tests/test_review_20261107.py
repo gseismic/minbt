@@ -164,8 +164,8 @@ assert len(list(KlineCsvFeed(sys.argv[1], '*', interval='5m').events())) == 40
 def test_iosql_kline_normalizes_quote_buy_volume_text(tmp_path):
     """iosql 读取文本数值时，主动买入额与其他价量字段均为 float。"""
     iosql = pytest.importorskip("iosql")
-    uri = f"sqlite://{tmp_path / 'kline.iosql'}"
-    with iosql.Database(uri) as db:
+    uri = f"iosql://{tmp_path / 'kline.iosql'}"
+    with iosql.Database.create(uri, engine="sqlite") as db:
         table = db.table(
             "kline_5m", pk=["symbol", "open_time"], time="open_time", symbol_column="symbol",
             columns={"symbol": "text", "open_time": "integer", "close_time": "integer",

@@ -211,7 +211,7 @@ class IosqlBarFeed(_BarRowFeed):
         feed_priority=0,
     ):
         if not isinstance(uri, str) or "://" not in uri:
-            raise ValueError("uri must include an iosql scheme, for example sqlite:///path/to/data.iosql")
+            raise ValueError("uri must include an iosql scheme, for example iosql:///path/to/data.iosql")
         if not isinstance(table, str) or not table.strip():
             raise ValueError("table must be a non-empty string")
         try:
@@ -241,7 +241,7 @@ class IosqlBarFeed(_BarRowFeed):
         try:
             from iosql import Database
         except ImportError as exc:
-            raise ImportError("IosqlBarFeed requires iosql; install iosql v0.3.x or newer") from exc
+            raise ImportError("IosqlBarFeed requires iosql; install a version supporting the selected URI") from exc
 
         try:
             self._db = Database(self.uri)

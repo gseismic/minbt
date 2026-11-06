@@ -155,16 +155,23 @@ def test_exchange_consumes_binance_kline_csv_feed_in_incremental_mode(tmp_path):
 
 
 def test_binance_kline_iosql_feed_declares_incremental_capability():
-    feed = KlineIosqlFeed("sqlite:///tmp/example.iosql", interval="1m")
+    feed = KlineIosqlFeed("iosql:///tmp/example.iosql", interval="1m")
     assert feed.supports_incremental is True
     assert feed.supports_preload is True
     assert feed.ordered is True
     assert feed.replayable is True
 
 
-def test_binance_kline_iosql_feed_reads_rows_as_bars(tmp_path):
+@pytest.mark.parametrize("engine,reader_scheme", [
+    ("sqlite", "iosql"), ("parquet", "iosql"), ("sqlite", "sqlite"),
+])
+def test_binance_kline_iosql_feed_reads_rows_as_bars(tmp_path, engine, reader_scheme):
+    """已有库使用 iosql URI 自动识别引擎，旧 SQLite URI 仍可读取。"""
     iosql = pytest.importorskip("iosql")
-    uri = f"sqlite://{tmp_path / 'bars.iosql'}"
+    if engine == "parquet":
+        pytest.importorskip("duckdb")
+    path = tmp_path / "bars.iosql"
+    uri = f"iosql://{path}"
     rows = [
         {
             "symbol": "BTCUSDT",
@@ -195,7 +202,7 @@ def test_binance_kline_iosql_feed_reads_rows_as_bars(tmp_path):
             "volume_quote_buy": 555.5,
         },
     ]
-    with iosql.Database(uri) as db:
+    with iosql.Database.create(uri, engine=engine) as db:
         table = db.table(
             "kline_1m",
             pk=["symbol", "open_time"],
@@ -221,7 +228,7 @@ def test_binance_kline_iosql_feed_reads_rows_as_bars(tmp_path):
         table.write(rows)
 
     feed = KlineIosqlFeed(
-        uri,
+        f"{reader_scheme}://{path}",
         interval="1m",
         symbols="BTCUSDT",
         start="2023-01-01T00:00:00Z",

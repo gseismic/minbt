@@ -49,8 +49,8 @@ def make_feed(tmp_path, request):
             return KlineCsvFeed(tmp_path, **kwargs)
 
         iosql = pytest.importorskip("iosql")
-        uri = f"sqlite://{tmp_path / 'bars.iosql'}"
-        with iosql.Database(uri) as db:
+        uri = f"iosql://{tmp_path / 'bars.iosql'}"
+        with iosql.Database.create(uri, engine="sqlite") as db:
             table = db.table(
                 f"kline_{interval}",
                 pk=["symbol", "open_time"],
