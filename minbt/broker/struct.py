@@ -352,7 +352,7 @@ class Position:
         self._locked_lots = [
             (size, opened_day)
             for size, opened_day in self._locked_lots
-            if opened_day is not None and opened_day >= trading_day
+            if opened_day is None or opened_day >= trading_day
         ]
 
     @property

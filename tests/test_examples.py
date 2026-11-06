@@ -23,7 +23,11 @@ HEADLESS_ENV = {
 
 def test_every_example_has_inline_plot_and_show():
     repo_root = Path(__file__).resolve().parents[1]
-    scripts = sorted((repo_root / "examples").glob("*.py"))
+    # 全标的示例只统计数据范围，其他示例继续要求展示结果图。
+    scripts = sorted(
+        path for path in (repo_root / "examples").glob("*.py")
+        if path.name != "20_iosql_all_symbols.py"
+    )
 
     assert scripts
     for script_path in scripts:

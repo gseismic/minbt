@@ -138,6 +138,16 @@ class Market:
             return True
         return any(start <= value.time() <= end for start, end in self.trading_sessions)
 
+    def _uses_daily_bar_exception(self, dt) -> bool:
+        """判断是否只因午夜日线例外而通过交易时段检查。"""
+        if not self.allow_daily_bar or not self.trading_sessions:
+            return False
+        raw_value = _to_datetime(dt)
+        value = self._local_datetime(dt)
+        if value is None or any(start <= value.time() <= end for start, end in self.trading_sessions):
+            return False
+        return value.time() == _dt.time() or (raw_value is not None and raw_value.time() == _dt.time())
+
     def trading_day(self, dt):
         value = self._local_datetime(dt)
         if value is None:
@@ -188,8 +198,17 @@ class Market:
             return OrderValidation(False, "qty must be non-zero")
         if price <= 0:
             return OrderValidation(False, "price must be positive")
+        if self.t_plus and self.trading_day(dt) is None:
+            return OrderValidation(False, "T+1 requires a trading date")
         if not self.is_trading_time(dt):
             return OrderValidation(False, f"not in trading time: {dt}")
+        has_current_daily_bar = getattr(broker, "_has_current_daily_bar", None)
+        if (
+            self._uses_daily_bar_exception(dt)
+            and callable(has_current_daily_bar)
+            and not has_current_daily_bar(symbol, dt)
+        ):
+            return OrderValidation(False, f"not in trading time: {dt} (no current daily bar for {symbol})")
         if self.min_qty is not None and abs(qty) < self.min_qty:
             return OrderValidation(False, f"qty below min_qty: {qty} < {self.min_qty}")
         notional = abs(qty) * price

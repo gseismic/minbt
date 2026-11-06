@@ -97,6 +97,8 @@ class Broker:
         self.last_prices: Dict[str, float] = {}
         self.last_price_dates: Dict[str, DateType] = {}
         self._last_market_dt = None  # 当前交易时钟，与各标的的报价时间分开保存。
+        self._last_batch_dt = None  # 最近回放批次，用于限制日线时间例外。
+        self._last_batch_kline_symbols = set()  # 最近批次实际出现 K 线的标的。
 
         self.orders: "OrderedDict[str, Order]" = OrderedDict()
         self._order_seq = 0
@@ -246,6 +248,14 @@ class Broker:
         if candidate is None or (self._run_owner is not None and self._run_owner._run_state == "running"):
             return self._last_market_dt
         return max(candidate, self._last_market_dt)
+
+    def _has_current_daily_bar(self, symbol: str, dt) -> bool:
+        """回放中的日线例外只属于当前批次有 K 线的标的。"""
+        if self._last_batch_dt is None:
+            return True  # 未使用批次推进的手工账户由调用方声明行情含义。
+        if dt == self._last_batch_dt:
+            return symbol in self._last_batch_kline_symbols
+        return not (self._run_owner is not None and self._run_owner._run_state == "running")
 
     def _advance_dt(self, dt) -> None:
         if dt is not None and (self._last_market_dt is None or dt > self._last_market_dt):
@@ -693,6 +703,8 @@ class Broker:
         prices = self._select_mark_prices(batch)
         self._validate_mark_prices(prices)
         self._advance_dt(batch.dt)
+        self._last_batch_dt = batch.dt
+        self._last_batch_kline_symbols = {item.event.symbol for item in batch.bars(kind="kline")}
 
         for symbol, price in prices.items():
             self.last_prices[symbol] = price

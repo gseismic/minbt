@@ -462,12 +462,14 @@ iosql 的闭区间会由 Feed 自动转换。完整示例见 `examples/14_csv_fe
 `examples/15_iosql_feed.py`。
 
 两个 Feed 默认进行数据完整性预检：显式请求的 symbol 必须在指定区间内有数据；
-CSV 请求月份不能缺文件；iosql 的 interval/table 必须存在且表契约可查询。检查失败会
-在策略开始前抛出带参数上下文的异常，不会静默完成空回测。
+CSV 显式请求的 symbol 在请求月份内不能缺文件；iosql 的 interval/table 必须存在且表契约可查询。
+检查失败会在策略开始前抛出带参数上下文的异常，不会静默完成空回测。
 
 Binance CSV 和 iosql Feed 的 `symbols` 省略、设为 `None`、`"*"` 或 `["*"]`，都可读取所选来源在指定时间范围内出现的全部 symbol。通配符必须单独使用，不能与具体 symbol 混合。
 `on_bars(dt, bars)` 每次仍只包含该时点实际有 K 线的 symbol；完整遍历示例见
 [`20_iosql_all_symbols.py`](examples/20_iosql_all_symbols.py)。
+CSV 通配符允许币种在区间内首末有效文件之外的月份为空，但仍检查首末有效文件之间的月份空洞。
+月内多文件归并使用每个币种的少量行缓冲，读取每块后关闭文件，避免同时打开所有币种文件。
 
 `interval="1m"` 时，这两个 Feed 还会自动探测分钟缺口：每个 symbol 首次出现前允许没有数据，
 出现后按 `open_time` 每 60 秒期待一条 K 线。每次读取中，每个 symbol 只对第一处缺口发出
@@ -759,8 +761,9 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 
 `Market` 默认使用 UTC 时区，`markets.A_STOCK` 使用 `Asia/Shanghai`。带时区的交易时间会转换到市场时区；无时区时间按 UTC 解释后再转换。设置 `lot_size`、`tick_size`、`min_qty` 或 `min_notional` 时必须使用有限正数。
 
-`markets.A_STOCK` 是最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。直接调用 broker 下单时需要传 `price_dt`；通过 Exchange 回测时，`dt` 会自动传入。
-该预设允许工作日午夜时间的日线 Bar，不检查节假日；日内数据仍按交易时段校验。
+`markets.A_STOCK` 是最小 A 股规则：交易时间、100 股一手、价格 tick、不可做空、T+1 持仓锁定。T+1 市场的订单必须具有交易日；直接调用 broker 下单时传 `price_dt`，通过 Exchange 回测时 `dt` 会自动提供。
+该预设允许工作日午夜时间的日线 Bar，不检查节假日。回放中，只有当前批次包含该标的 K 线时才能使用午夜日线例外；其他标的的午夜行情不能让旧报价绕过休市检查。
+预设把当前标的在午夜的 K 线视作日线，不自动推断周期。使用日内数据且不希望午夜被视为日线时，可用 `dataclasses.replace(markets.A_STOCK, allow_daily_bar=False)` 创建市场配置。
 
 跨市场分仓：
 

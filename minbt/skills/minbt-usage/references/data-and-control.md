@@ -178,13 +178,15 @@ exchange.add_feed(KlineCsvFeed(
 三个 Binance Feed 用 `close_time` 作为事件 dt，载荷保留整数毫秒的 `open_time/close_time`，
 完整小时 K 线不会在开盘时暴露最终数据。缺收盘时间会报错；未收盘快照也在其 close_time 调度。
 `start/end` 按 open_time 筛选半开区间 `[start, end)`，运行窗口按事件可见时间筛选。
-Feed 在启动前检查请求 symbol、CSV 月份、
+Feed 在启动前检查显式请求的 symbol、CSV 月份、
 iosql table/interval 和时间范围；缺数据或配置错误直接报错。
 `KlineIosqlFeed` 需要另行安装 iosql 0.3.x 或更新版本，`batch_size` 调整读取缓冲。
 Binance CSV / iosql Feed 的 `symbols` 省略、设为 `None`、`"*"` 或 `["*"]` 时，
 会读取所选来源和时间范围内出现的全部 symbol；通配符必须单独使用，不能和具体 symbol 混合。
 `on_bars(dt, bars)` 每次只包含当前时点实际有 K 线的 symbol。仓库示例为
 `examples/20_iosql_all_symbols.py`。
+CSV 通配符只检查各币种在区间内首末有效文件之间的缺失月份，允许上市前和最后文件后的月份无数据；
+显式请求币种时仍严格检查请求月份。月内多文件按块读取并及时关闭，避免同时打开所有币种文件。
 
 CSV / iosql 的 `interval="1m"` 默认检查分钟连续性：从每个 symbol 在请求区间内首次出现开始，
 按 open_time 每 60 秒期待一条 K 线。首次出现前无数据不提醒；每次 events() 读取中，

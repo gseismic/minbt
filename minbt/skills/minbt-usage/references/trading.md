@@ -115,9 +115,12 @@ broker.add_market("AStock", markets.A_STOCK, symbols=["600519.SH", "510300.SH"])
 分仓通过交易参数 `portfolio="trend"` 指定；省略时使用 main。
 
 `markets.A_STOCK` 具有交易时间、100 股一手、价格 tick、不可做空和 T+1 锁定规则。
-直接调用 Broker 下单时传 `price_dt`；Exchange 回放会提供时间。
+T+1 市场订单必须具有交易日；直接调用 Broker 下单时传 `price_dt`，Exchange 回放会提供时间。
 默认 Market 为 UTC，A 股为 Asia/Shanghai；带时区时间转换到市场时区，无时区时间先按 UTC 解释。
-该 A 股预设允许工作日午夜时间的日线 Bar，不检查节假日；日内数据仍按交易时段校验。
+该 A 股预设允许工作日午夜时间的日线 Bar，不检查节假日。回放中只有当前批次包含该标的 K 线，
+才能使用午夜日线例外，其他市场的午夜行情不能使旧报价通过盘前检查。
+预设不自动推断 K 线周期；日内数据需要禁用午夜例外时，可使用
+`dataclasses.replace(markets.A_STOCK, allow_daily_bar=False)` 创建市场配置。
 自定义 `lot_size/tick_size/min_qty/min_notional` 必须使用有限正数。
 
 跨市场可在一个 Broker 中分仓交易：

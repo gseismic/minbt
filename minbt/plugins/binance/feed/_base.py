@@ -128,7 +128,7 @@ class _KlineRowFeed:
                 for key, value in raw_row.items()
                 if key not in ("dt_ms", "dt", "symbol")
             }
-            for field in ("open", "high", "low", "close", "volume", "volume_quote", "volume_base_buy"):
+            for field in ("open", "high", "low", "close", "volume", "volume_quote", "volume_base_buy", "volume_quote_buy"):
                 if field in row and row[field] is not None:
                     row[field] = float(row[field])
             for field in ("close_time", "num_trades"):

@@ -1,7 +1,7 @@
 import csv as csv_module
-from contextlib import ExitStack
 from datetime import timedelta
 import heapq
+from itertools import islice
 from pathlib import Path
 import re
 from typing import Iterator
@@ -20,6 +20,7 @@ _CSV_NAME_RE = re.compile(
     r"^(?P<symbol>[^-]+)-(?P<interval>[^-]+)-(?P<month>\d{4}-\d{2})\.csv$",
     re.IGNORECASE,
 )
+_CSV_READ_BATCH_SIZE = 128  # 每个归并来源保留少量行，读取后立即关闭文件。
 
 
 def _iter_months(first: str, last: str) -> Iterator[str]:
@@ -147,16 +148,25 @@ class KlineCsvFeed(_KlineRowFeed):
             if (first_requested_month is None or month >= first_requested_month)
             and (last_requested_month is None or month <= last_requested_month)
         }
-        self._validate_matching_rows()
+        matched_files = self._validate_matching_rows()
+        if self.requested_symbols is None:
+            self._files_by_month = {
+                month: [(symbol, path) for symbol, path in entries if (month, symbol) in matched_files]
+                for month, entries in self._files_by_month.items()
+            }
+            self._files_by_month = {
+                month: entries for month, entries in self._files_by_month.items() if entries
+            }
         self._validate_month_files(set(self._files_by_month))
         self._prepared = True
 
-    def _validate_matching_rows(self) -> None:
-        """在回放前确认每个目标 symbol 在请求区间内至少有一行。"""
+    def _validate_matching_rows(self):
+        """预检匹配行；通配符还需确定哪些月份文件在区间内确实有数据。"""
         matched_symbols = set()
-        for entries in self._files_by_month.values():
+        matched_files = set()
+        for month, entries in self._files_by_month.items():
             for symbol, path in entries:
-                if symbol in matched_symbols:
+                if self.requested_symbols is not None and symbol in matched_symbols:
                     continue
                 with path.open("r", newline="", encoding="utf-8") as handle:
                     rows = self._iter_file_rows(handle, path, symbol)
@@ -167,6 +177,16 @@ class KlineCsvFeed(_KlineRowFeed):
                     finally:
                         rows.close()
                 matched_symbols.add(symbol)
+                matched_files.add((month, symbol))
+
+        if self.requested_symbols is None:
+            if not matched_symbols:
+                raise ValueError(
+                    f"no CSV rows matched requested range; root={self.root}, "
+                    f"interval={self.interval!r}, start={self.start_dt!r}, end={self.end_dt!r}"
+                )
+            self.symbols = sorted(matched_symbols)
+            return matched_files
 
         missing_symbols = sorted(set(self.symbols) - matched_symbols)
         if missing_symbols:
@@ -175,6 +195,7 @@ class KlineCsvFeed(_KlineRowFeed):
                 f"root={self.root}, interval={self.interval!r}, "
                 f"start={self.start_dt!r}, end={self.end_dt!r}"
             )
+        return matched_files
 
     def _validate_month_files(self, discovered_months: set) -> None:
         """按时间边界推导应有月份；月份文件空洞直接失败。"""
@@ -190,10 +211,14 @@ class KlineCsvFeed(_KlineRowFeed):
             symbol_months = sorted(month for candidate, month in files_by_pair if candidate == symbol)
             if not symbol_months:
                 continue
-            first = self.start_dt.strftime("%Y-%m") if self.start_dt is not None else symbol_months[0]
+            first = (
+                self.start_dt.strftime("%Y-%m")
+                if self.requested_symbols is not None and self.start_dt is not None
+                else symbol_months[0]
+            )
             last = (
                 (self.end_dt - timedelta(milliseconds=1)).strftime("%Y-%m")
-                if self.end_dt is not None
+                if self.requested_symbols is not None and self.end_dt is not None
                 else symbol_months[-1]
             )
             if first <= last:
@@ -212,19 +237,44 @@ class KlineCsvFeed(_KlineRowFeed):
         if not self._prepared:
             self.prepare()
         for month, entries in self._files_by_month.items():
-            with ExitStack() as stack:
-                streams = []
-                for symbol, path in entries:
-                    handle = stack.enter_context(path.open("r", newline="", encoding="utf-8"))
-                    streams.append(self._iter_file_rows(handle, path, symbol))
-                yield from heapq.merge(
-                    *streams,
-                    key=lambda row: (row["dt_ms"], row["symbol"]),
-                )
+            streams = [self._iter_buffered_file_rows(path, symbol) for symbol, path in entries]
+            yield from heapq.merge(
+                *streams,
+                key=lambda row: (row["dt_ms"], row["symbol"]),
+            )
 
-    def _iter_file_rows(self, handle, path: Path, symbol: str) -> Iterator[dict]:
-        previous_dt_ms = None
-        for line_number, raw in enumerate(csv_module.reader(handle), start=1):
+    def _iter_buffered_file_rows(self, path: Path, symbol: str) -> Iterator[dict]:
+        """按块恢复文件位置，避免多标的归并时同时持有所有文件。"""
+        offset = 0
+        state = {"previous_dt_ms": None, "line_number": 0}
+        while True:
+            batch = []
+            read_error = None
+            with path.open("r", newline="", encoding="utf-8") as handle:
+                handle.seek(offset)
+                rows = self._iter_file_rows(handle, path, symbol, state=state)
+                try:
+                    for row in islice(rows, _CSV_READ_BATCH_SIZE):
+                        batch.append(row)
+                except Exception as exc:
+                    read_error = exc  # 先交付本块中错误之前的行。
+                finally:
+                    rows.close()
+                if read_error is None:
+                    offset = handle.tell()
+            yield from batch
+            if read_error is not None:
+                raise read_error
+            if len(batch) < _CSV_READ_BATCH_SIZE:
+                return
+
+    def _iter_file_rows(self, handle, path: Path, symbol: str, *, state=None) -> Iterator[dict]:
+        if state is None:
+            state = {"previous_dt_ms": None, "line_number": 0}
+        # readline 迭代保留 tell/seek 能力，csv.reader 仍可读取跨行字段。
+        for raw in csv_module.reader(iter(handle.readline, "")):
+            state["line_number"] += 1
+            line_number = state["line_number"]
             if not raw or not any(field.strip() for field in raw):
                 continue
             first = raw[0].strip().lstrip("\ufeff").lower()
@@ -236,12 +286,13 @@ class KlineCsvFeed(_KlineRowFeed):
                 dt_ms = int(raw[0])
             except (TypeError, ValueError, OverflowError) as exc:
                 raise ValueError(f"{path}:{line_number}: invalid CSV row: {raw!r}") from exc
+            previous_dt_ms = state["previous_dt_ms"]
             if previous_dt_ms is not None and dt_ms < previous_dt_ms:
                 raise ValueError(
                     f"{path}:{line_number}: open_time is not ordered "
                     f"({dt_ms} after {previous_dt_ms})"
                 )
-            previous_dt_ms = dt_ms
+            state["previous_dt_ms"] = dt_ms
             if self.start_ms is not None and dt_ms < self.start_ms:
                 continue
             if self.end_ms is not None and dt_ms >= self.end_ms:
