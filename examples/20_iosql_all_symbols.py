@@ -11,15 +11,17 @@ IOSQL_URI = os.environ.get(
     "iosql:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
 )
 START = "2023-01-01"
-END = "2023-02-03"
+END = "2023-01-03"
 
 
 class IosqlAllSymbolsStrategy(Strategy):
+
     def on_init(self):
         self.symbol_bar_counts = {}
         self.callback_count = 0
 
     def on_bars(self, dt, bars):
+        print(dt, bars)
         self.callback_count += 1
         for symbol in bars:
             self.symbol_bar_counts[symbol] = self.symbol_bar_counts.get(symbol, 0) + 1
