@@ -8,7 +8,7 @@ from minbt.plugins.binance.feed import KlineIosqlFeed
 
 IOSQL_URI = os.environ.get(
     "MINBT_IOSQL_URI",
-    "iosql:///media/lsl/Z1/findata/crypto/binance/future_usdt/kline.csv.iosql",
+    "iosql:///media/lsl/Z1/finbase.crypto/binance/market/futures/kline/kline.parquet-6h.iosql",
 )
 START = "2023-01-01"
 END = "2023-01-03"
